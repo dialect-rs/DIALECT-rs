@@ -1,0 +1,53 @@
+[package]
+name = "dialect"
+version = "0.1.0"
+authors = [
+    "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
+    "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Roland Mitric <roland.mitric@uni-wuerzburg.de>"]
+edition = "2021"
+
+[dependencies]
+chemfiles = "0.10.3"
+ndarray = {version = "0.15.6", features = ["serde-1", "approx", "rayon","blas"]}
+ndarray-npy = "0.8.1"
+approx = "0.5.1"
+ndarray-linalg = { version = "0.16", features = ["netlib-system"]}
+ndarray-stats = "0.5.1"
+phf = { version = "0.8.0", features = ["macros"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_derive = "1.0"
+rayon = "1.5.3"
+ron = "0.6.6"
+peroxide = {version = "0.27.1", features = ["serde"]}
+itertools = "0.10.5"
+libm = "0.2.5"
+bspline = "0.2.3"
+rusty-fitpack = { git = "https://github.com/mitric-lab/Rusty-FITPACK.git"}
+ndarray_einsum_beta = "0.5.0"
+petgraph = "0.5.1"
+nalgebra = "0.30.1"
+nshare = {version = "0.9", features = ["ndarray", "nalgebra"]}
+clap = "=3.0.0-beta.2"
+toml = "0.5.9"
+rand = "0.8.5"
+log = "0.4.17"
+env_logger = "0.8.4"
+pretty_env_logger = "0.4"
+enum-as-inner = "0.3.4"
+soa_derive = "0.10.0"
+data_reader = "0.3.0"
+hashbrown = "0.12.3"
+derive_builder = "0.10.2"
+chrono = "0.4.22"
+num-traits = "0.2.15"
+anyhow = "=1.0.59"
+ndarray-rand = "0.14.0"
+rust_decimal = "1.26.1"
+serde_repr = "0.1.9"
+sphrs = { git = "https://github.com/einseler/sphrs"}
+splines = "4.1.1"
+
+[profile.release]
+lto = true
