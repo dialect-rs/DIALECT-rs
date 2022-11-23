@@ -90,6 +90,9 @@ fn default_active_space_threshold_ct() -> f64 {
 fn default_calculate_all_states() -> bool {
     false
 }
+fn default_calculate_excited_states() -> bool {
+    false
+}
 fn default_calculate_ntos() -> bool {
     false
 }
@@ -242,6 +245,8 @@ pub struct LCConfig {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct ExcitedStatesConfig {
+    #[serde(default = "default_calculate_excited_states")]
+    pub calculate_excited_states: bool,
     #[serde(default = "default_nstates")]
     pub nstates: usize,
     #[serde(default = "default_davidson_iterations")]

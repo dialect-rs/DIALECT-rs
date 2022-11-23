@@ -109,7 +109,7 @@ fn main() {
                 system.run_scc();
 
                 // Calculate the excited state energies
-                if config.excited.nstates > 0 {
+                if config.excited.calculate_excited_states{
                     system.calculate_excited_states();
                 }
             // FMO DFTB calculation
@@ -126,7 +126,7 @@ fn main() {
                 system.run_scc();
 
                 // Calculate the excited state energies
-                if config.excited.nstates > 0 {
+                if config.excited.calculate_excited_states{
                     system.create_exciton_hamiltonian();
                 }
             }
