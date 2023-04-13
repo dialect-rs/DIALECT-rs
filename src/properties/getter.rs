@@ -1,6 +1,7 @@
 use crate::excited_states::ProductCache;
-use crate::fmo::PairType;
-use crate::fmo::SuperSystem;
+use crate::fmo::old_supersystem::OldSupersystem;
+use crate::fmo::{PairType, ReducedBasisState};
+use crate::initialization::old_system::OldSystem;
 use crate::initialization::Atom;
 use crate::properties::Properties;
 use hashbrown::HashMap;
@@ -189,7 +190,7 @@ impl Properties {
         // The total ground state energy.
         let total_energy: f64 = self.total_energy().unwrap();
         // An array is created with the total ground state energy for each state.
-        let mut energies: Array1<f64> = Array1::from_elem((ci_eig.len() + 1), total_energy);
+        let mut energies: Array1<f64> = Array1::from_elem(ci_eig.len() + 1, total_energy);
         // and the excitation energies are added to the states.
         energies.slice_mut(s![1..]).add_assign(&ci_eig);
 
@@ -691,7 +692,7 @@ impl Properties {
 
     pub fn aligned_pair(&self) -> bool {
         match self.get("aligned_pair") {
-            Some(value) => (*value.as_bool().unwrap()),
+            Some(value) => *value.as_bool().unwrap(),
             _ => false,
         }
     }
@@ -699,6 +700,40 @@ impl Properties {
     pub fn coupling_signs(&self) -> Option<ArrayView1<f64>> {
         match self.get("coupling_signs") {
             Some(value) => Some(value.as_array1().unwrap().view()),
+            _ => None,
+        }
+    }
+
+    pub fn u_matrix(&self) -> Option<ArrayView3<f64>> {
+        match self.get("u_matrix") {
+            Some(value) => Some(value.as_array3().unwrap().view()),
+            _ => None,
+        }
+    }
+
+    pub fn orbs_derivative(&self) -> Option<ArrayView3<f64>> {
+        match self.get("orbs_derivative") {
+            Some(value) => Some(value.as_array3().unwrap().view()),
+            _ => None,
+        }
+    }
+
+    pub fn basis_states(&self) -> Option<&[ReducedBasisState]> {
+        match self.get("basis_states") {
+            Some(value) => Some(value.as_vec_basis().unwrap()),
+            _ => None,
+        }
+    }
+
+    pub fn old_supersystem(&self) -> Option<&OldSupersystem> {
+        match self.get("old_supersystem") {
+            Some(value) => Some(value.as_super_system().unwrap()),
+            _ => None,
+        }
+    }
+    pub fn old_system(&self) -> Option<&OldSystem> {
+        match self.get("old_system") {
+            Some(value) => Some(value.as_old_system().unwrap()),
             _ => None,
         }
     }

@@ -36,7 +36,7 @@ pub fn frame_to_atoms(frame: Frame) -> (Vec<Atom>, Vec<Atom>) {
     let mut unique_atoms_map: HashMap<u8, Atom> = HashMap::new();
     let mut unique_atoms: Vec<Atom> = Vec::new();
     let mut atoms: Vec<Atom> = Vec::with_capacity(frame.size());
-    for i in (0..frame.size()) {
+    for i in 0..frame.size() {
         let number: u8 = frame.atom(i).atomic_number() as u8;
         if !unique_atoms_map.contains_key(&number) {
             unique_atoms_map.insert(number, Atom::from(number));

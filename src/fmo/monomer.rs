@@ -1,15 +1,7 @@
 use crate::fmo::helpers::MolecularSlice;
 use crate::initialization::parameters::{RepulsivePotential, SlaterKoster};
-use crate::initialization::{Atom, Geometry};
-use crate::io::{frame_to_coordinates, Configuration};
 use crate::properties::Properties;
 use crate::scc::gamma_approximation::GammaFunction;
-use chemfiles::Frame;
-use hashbrown::HashMap;
-use ndarray::prelude::*;
-use ndarray::{Slice, SliceInfo};
-use ndarray_rand::rand_distr::Gamma;
-use std::ops::Range;
 
 /// Type that holds a molecular system that contains all data for the quantum chemical routines.
 ///

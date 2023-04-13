@@ -1,17 +1,10 @@
-use crate::constants::{VDW_RADII, VDW_SUM};
+use crate::constants::VDW_SUM;
 use crate::fmo::Monomer;
 use crate::initialization::parameters::{RepulsivePotential, SlaterKoster};
-use crate::initialization::{Atom, Geometry};
-use crate::io::Configuration;
+use crate::initialization::Atom;
 use crate::properties::Properties;
 use crate::scc::gamma_approximation::GammaFunction;
-use crate::utils::Timer;
-use log::info;
-use ndarray::prelude::*;
-use ndarray::stack;
-use std::collections::HashMap;
 use std::fmt;
-use std::ops::Add;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PairType {

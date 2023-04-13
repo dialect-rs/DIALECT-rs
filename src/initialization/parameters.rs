@@ -1,9 +1,7 @@
 use crate::constants;
-use crate::defaults;
 use crate::param::Element;
 use crate::utils::get_path_prefix;
 use ndarray::prelude::*;
-use ndarray_npy::write_npy;
 use ron::de::from_str;
 use rusty_fitpack;
 use serde::{Deserialize, Serialize};
@@ -113,7 +111,7 @@ impl PseudoAtom {
     }
 }
 
-pub struct PseudoAtomMio {
+pub struct PseudoAtomSkf {
     z: u8,
     pub hubbard_u: f64,
     n_elec: u8,
@@ -192,6 +190,8 @@ pub struct SlaterKosterTable {
     /// Spline representation for the H0 matrix elements
     #[serde(default = "init_hashmap")]
     pub h_spline: HashMap<u8, (Vec<f64>, Vec<f64>, usize)>,
+    #[serde(default = "init_hashmap")]
+    pub dipole_spline: HashMap<u8, (Vec<f64>, Vec<f64>, usize)>,
 }
 
 impl SlaterKosterTable {
@@ -218,6 +218,7 @@ impl SlaterKosterTable {
         slako_table.dmax = slako_table.d[slako_table.d.len() - 1];
         slako_table.s_spline = slako_table.spline_overlap();
         slako_table.h_spline = slako_table.spline_hamiltonian();
+        slako_table.dipole_spline = slako_table.spline_dipole();
         slako_table
     }
 
@@ -239,6 +240,21 @@ impl SlaterKosterTable {
     pub(crate) fn spline_hamiltonian(&self) -> HashMap<u8, (Vec<f64>, Vec<f64>, usize)> {
         let mut splines: HashMap<u8, (Vec<f64>, Vec<f64>, usize)> = HashMap::new();
         for ((_l1, _l2, i), value) in &self.h {
+            let x: Vec<f64> = self.d.clone();
+            let y: Vec<f64> = value.clone();
+            splines.insert(
+                *i,
+                rusty_fitpack::splrep(
+                    x, y, None, None, None, None, None, None, None, None, None, None,
+                ),
+            );
+        }
+        splines
+    }
+
+    pub(crate) fn spline_dipole(&self) -> HashMap<u8, (Vec<f64>, Vec<f64>, usize)> {
+        let mut splines: HashMap<u8, (Vec<f64>, Vec<f64>, usize)> = HashMap::new();
+        for ((_l1, _l2, i), value) in &self.dipole {
             let x: Vec<f64> = self.d.clone();
             let y: Vec<f64> = value.clone();
             splines.insert(
@@ -381,7 +397,7 @@ impl RepulsivePotentialTable {
     }
 }
 
-impl From<&SkfHandler> for PseudoAtomMio {
+impl From<&SkfHandler> for PseudoAtomSkf {
     fn from(skf_handler: &SkfHandler) -> Self {
         // split skf data in lines
         let lines: Vec<&str> = skf_handler.data_string.split("\n").collect();
@@ -412,13 +428,18 @@ impl From<&SkfHandler> for PseudoAtomMio {
         } else if electron_count < 19 {
             nshell.push(3);
             nshell.push(3);
+        } else if electron_count < 36 {
+            nshell.push(4);
+            nshell.push(3);
+            nshell.push(4);
         }
 
         // fill angular momenta
         let mut angular_momenta: Vec<i8> = Vec::new();
+        let mut counter: usize = 0;
         for (it, occ) in occupations_numbers.iter().enumerate() {
             if occ > &0 {
-                valence_orbitals.push(it as u8);
+                valence_orbitals.push(counter as u8);
                 if it == 0 {
                     angular_momenta.push(0);
                 } else if it == 1 {
@@ -426,11 +447,12 @@ impl From<&SkfHandler> for PseudoAtomMio {
                 } else if it == 2 {
                     angular_momenta.push(2);
                 }
+                counter += 1;
             }
         }
 
         // create PseudoAtom
-        let pseudo_atom: PseudoAtomMio = PseudoAtomMio {
+        let pseudo_atom: PseudoAtomSkf = PseudoAtomSkf {
             z: skf_handler.element_a.number(),
             hubbard_u: hubbard_u[0],
             energies: energies.to_vec(),
@@ -477,7 +499,7 @@ impl From<&SkfHandler> for RepulsivePotentialTable {
         count = count + 3;
         let mut end: f64 = 0.0;
         let mut iteration_count: usize = 0;
-        for it in (count..(n_int + count)) {
+        for it in count..(n_int + count) {
             let next_line: Vec<f64> = process_slako_line(lines[it]);
             rs[iteration_count] = next_line[0];
             if it == (n_int + count - 1) {
@@ -586,9 +608,9 @@ impl From<(&SkfHandler, Option<SlaterKosterTable>, &str)> for SlaterKosterTable 
         assert!(length == 10);
 
         // create vector of tausymbols, which correspond to the orbital combinations
-        let tausymbols: Array1<&str> = match (skf.2) {
-            ("ab") => (constants::TAUSYMBOLS_AB.iter().cloned().collect()),
-            ("ba") => (constants::TAUSYMBOLS_BA.iter().cloned().collect()),
+        let tausymbols: Array1<&str> = match skf.2 {
+            "ab" => constants::TAUSYMBOLS_AB.iter().cloned().collect(),
+            "ba" => constants::TAUSYMBOLS_BA.iter().cloned().collect(),
             _ => panic!("Wrong order specified! Only 'ab' or 'ba' is allowed!"),
         };
         let length_tau: usize = tausymbols.len();
@@ -611,14 +633,14 @@ impl From<(&SkfHandler, Option<SlaterKosterTable>, &str)> for SlaterKosterTable 
         // for each of the corresponding tausymbols
         let mut vec_h_arrays: Vec<Array1<f64>> = Vec::new();
         let mut vec_s_arrays: Vec<Array1<f64>> = Vec::new();
-        for it in (0..10) {
+        for _it in 0..10 {
             vec_s_arrays.push(Array1::zeros(npoints));
             vec_h_arrays.push(Array1::zeros(npoints));
         }
         let temp_vec: Vec<f64> = Array1::zeros(npoints).to_vec();
 
         // fill all arrays with spline values
-        for it in (0..npoints) {
+        for it in 0..npoints {
             let next_line: Vec<f64> = process_slako_line(lines[it]);
             for (pos, tausym) in tausymbols.slice(s![-10..]).iter().enumerate() {
                 let symbol: (u8, i32, u8, i32) = constants::SYMBOL_2_TAU[*tausym];
@@ -661,6 +683,7 @@ impl From<(&SkfHandler, Option<SlaterKosterTable>, &str)> for SlaterKosterTable 
             z2: skf.0.element_b.number(),
             h_spline: init_hashmap(),
             s_spline: init_hashmap(),
+            dipole_spline: init_hashmap(),
             index_to_symbol: get_index_to_symbol(),
         };
         if skf.2 == "ba" || (skf.0.element_a == skf.0.element_b) {
@@ -710,7 +733,7 @@ pub fn process_slako_line(line: &str) -> Vec<f64> {
             let temp: Vec<&str> = string.split("*").collect();
             let count: usize = temp[0].trim().parse::<usize>().unwrap();
             let value: f64 = temp[1].trim().parse::<f64>().unwrap();
-            for it in (0..count) {
+            for _it in 0..count {
                 float_vec.push(value);
             }
         } else {

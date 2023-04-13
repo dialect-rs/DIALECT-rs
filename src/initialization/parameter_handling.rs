@@ -1,7 +1,7 @@
 use crate::initialization::parameters::{
     RepulsivePotential, RepulsivePotentialTable, SkfHandler, SlaterKoster, SlaterKosterTable,
 };
-use crate::initialization::{get_unique_atoms_mio, Atom};
+use crate::initialization::{get_unique_atoms_skf, Atom};
 use crate::io::{frame_to_atoms, frame_to_coordinates};
 use crate::param::Element;
 use crate::Configuration;
@@ -27,7 +27,7 @@ pub fn generate_parameters(
         let (numbers, coords) = frame_to_coordinates(frame);
 
         let tmp: (Vec<Atom>, HashMap<u8, Atom>, Vec<SkfHandler>) =
-            get_unique_atoms_mio(&numbers, &config);
+            get_unique_atoms_skf(&numbers, &config);
         unique_atoms = tmp.0;
         num_to_atom = tmp.1;
         skf_handlers = tmp.2;

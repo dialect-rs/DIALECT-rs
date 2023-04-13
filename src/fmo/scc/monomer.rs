@@ -1,25 +1,17 @@
-use crate::defaults;
-use crate::fmo::scc::helpers::*;
-use crate::fmo::{Fragment, Monomer, Pair};
+use crate::fmo::Monomer;
 use crate::initialization::Atom;
 use crate::io::settings::MixConfig;
 use crate::io::SccConfig;
 use crate::scc::gamma_approximation::*;
 use crate::scc::h0_and_s::*;
 use crate::scc::mixer::{AndersonAccel, BroydenMixer, Mixer};
-use crate::scc::mulliken::{mulliken, mulliken_atomwise};
+use crate::scc::mulliken::mulliken_atomwise;
 use crate::scc::{
-    calc_exchange, density_matrix, density_matrix_ref, get_electronic_energy,
-    get_electronic_energy_new, get_repulsive_energy, lc_exact_exchange,
+    calc_exchange, density_matrix, density_matrix_ref, get_electronic_energy_new, lc_exact_exchange,
 };
 use ndarray::prelude::*;
-use ndarray::stack;
 use ndarray_linalg::*;
-use ndarray_npy::write_npy;
-use ndarray_stats::{DeviationExt, QuantileExt};
-use rust_decimal::prelude::*;
-
-impl Fragment for Monomer<'_> {}
+use ndarray_stats::DeviationExt;
 
 impl Monomer<'_> {
     pub fn prepare_scc(&mut self, atoms: &[Atom]) {
@@ -103,7 +95,7 @@ impl Monomer<'_> {
     pub fn scc_step(&mut self, atoms: &[Atom], v_esp: Array2<f64>, config: SccConfig) -> bool {
         let scf_charge_conv: f64 = config.scf_charge_conv;
         let scf_energy_conv: f64 = config.scf_energy_conv;
-        let mut dq: Array1<f64> = self.properties.take_dq().unwrap();
+        let dq: Array1<f64> = self.properties.take_dq().unwrap();
         let mut accel: AndersonAccel = self.properties.take_accel().unwrap();
         let mut p: Array2<f64> = self.properties.take_p().unwrap();
         let x: ArrayView2<f64> = self.properties.x().unwrap();
@@ -126,7 +118,7 @@ impl Monomer<'_> {
             );
             h = h + h_x;
         }
-        let mut h_save: Array2<f64> = h.clone();
+        let h_save: Array2<f64> = h.clone();
 
         // H' = X^t.H.X
         h = x.t().dot(&h).dot(&x);

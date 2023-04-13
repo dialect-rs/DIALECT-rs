@@ -1,10 +1,7 @@
-use crate::excited_states::tda;
-use crate::fmo::GroundStateGradient;
 use crate::initialization::System;
 use crate::scc::scc_routine::RestrictedSCC;
 use ndarray::prelude::*;
-use ndarray_stats::{DeviationExt, QuantileExt};
-use std::cmp::max;
+use ndarray_stats::QuantileExt;
 
 impl System {
     pub fn gs_grad(&mut self) -> Array1<f64> {
@@ -12,13 +9,13 @@ impl System {
         self.prepare_scc();
         self.run_scc();
 
-        let grad = self.ground_state_gradient();
+        let grad = self.ground_state_gradient(false);
         return grad;
     }
 
     pub fn gs_gradient_wrapper(&mut self, geometry: Array1<f64>) -> f64 {
         self.properties.reset();
-        self.update_xyz(geometry);
+        self.update_xyz(geometry.view());
         self.prepare_scc();
         let en = self.run_scc().unwrap();
 
@@ -30,6 +27,40 @@ impl System {
             self,
             System::gs_gradient_wrapper,
             System::gs_grad,
+            self.get_xyz(),
+            0.001,
+            1e-6,
+        );
+    }
+
+    pub fn excited_gradient_wrapper(&mut self) -> Array1<f64> {
+        self.properties.reset();
+        self.prepare_scc();
+        self.run_scc();
+        self.ground_state_gradient(true);
+
+        self.calculate_excited_states(true);
+        let grad = self.calculate_excited_state_gradient(0);
+        return grad;
+    }
+
+    pub fn numerical_excited_grad(&mut self, geometry: Array1<f64>) -> f64 {
+        self.properties.reset();
+        self.update_xyz(geometry.view());
+        self.prepare_scc();
+        self.run_scc().unwrap();
+
+        self.calculate_excited_states(false);
+        let en = self.properties.ci_eigenvalue(0).unwrap();
+
+        en
+    }
+
+    pub fn test_excited_gradient(&mut self) {
+        assert_deriv(
+            self,
+            System::numerical_excited_grad,
+            System::excited_gradient_wrapper,
             self.get_xyz(),
             0.001,
             1e-6,
@@ -134,7 +165,7 @@ pub fn assert_deriv<S, F, G>(
     gradient: G,
     origin: Array1<f64>,
     stepsize: f64,
-    tol: f64,
+    _tol: f64,
 ) where
     S: RestrictedSCC,
     F: Fn(&mut S, Array1<f64>) -> f64,
@@ -208,7 +239,7 @@ pub fn assert_deriv_fd<S, F, G>(
     gradient: G,
     origin: Array1<f64>,
     stepsize: f64,
-    tol: f64,
+    _tol: f64,
 ) where
     S: RestrictedSCC,
     F: Fn(&mut S, Array1<f64>) -> f64,
@@ -272,7 +303,7 @@ where
     D: ndarray::Data<Elem = f64>,
 {
     // make the stepsize mutable
-    let mut stepsize: f64 = stepsize;
+    let stepsize: f64 = stepsize;
     let mut step: Array1<f64> = Array1::zeros([origin.len()]);
     step[index] = 1.0;
 

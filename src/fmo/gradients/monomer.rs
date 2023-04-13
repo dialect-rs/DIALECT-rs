@@ -1,36 +1,11 @@
 use crate::fmo::gradients::*;
 use crate::fmo::scc::helpers::*;
-use crate::fmo::{Monomer, Pair, SuperSystem};
+use crate::fmo::Monomer;
 use crate::gradients::helpers::{f_lr, gradient_v_rep};
-use crate::initialization::parameters::RepulsivePotential;
 use crate::initialization::Atom;
-use crate::scc::gamma_approximation::{
-    gamma_ao_wise, gamma_atomwise, gamma_atomwise_ab, gamma_gradients_ao_wise,
-    gamma_gradients_atomwise, gamma_gradients_atomwise_2d,
-};
-use crate::scc::h0_and_s::{h0_and_s, h0_and_s_ab, h0_and_s_gradients};
-use crate::scc::mixer::{BroydenMixer, Mixer};
-use crate::scc::mulliken::mulliken;
-use crate::scc::scc_routine::{RestrictedSCC, SCCError};
-use crate::scc::{
-    construct_h1, density_matrix, density_matrix_ref, get_electronic_energy, get_repulsive_energy,
-    lc_exact_exchange,
-};
-use crate::utils::Timer;
-use crate::utils::ToOwnedF;
-use approx::AbsDiffEq;
-use log::info;
-use nalgebra::Vector3;
-use ndarray::parallel::prelude::IntoParallelRefIterator;
-use ndarray::prelude::*;
-use ndarray::stack;
-use ndarray_linalg::{Eigh, Inverse, SymmetricSqrt, UPLO};
-use ndarray_stats::QuantileExt;
-use nshare::ToNdarray1;
-use rayon::iter::ParallelIterator;
-use rayon::prelude::IntoParallelRefMutIterator;
-use std::iter::FromIterator;
-use std::ops::{AddAssign, SubAssign};
+use crate::scc::gamma_approximation::{gamma_gradients_ao_wise, gamma_gradients_atomwise};
+use crate::scc::h0_and_s::h0_and_s_gradients;
+use std::ops::AddAssign;
 
 impl GroundStateGradient for Monomer<'_> {
     fn scc_gradient(&mut self, atoms: &[Atom]) -> Array1<f64> {
@@ -74,7 +49,7 @@ impl GroundStateGradient for Monomer<'_> {
 
         // transform the expression Sum_c_in_X (gamma_AC + gamma_aC) * dq_C
         // into matrix of the dimension (norb, norb) to do an element wise multiplication with P
-        let mut coulomb_mat: Array2<f64> =
+        let coulomb_mat: Array2<f64> =
             atomvec_to_aomat(gamma.dot(&dq).view(), self.n_orbs, &atoms) * 0.5;
         // Transform the Equation sum_K sum_c_in_K (gamma_ac + gamma_Ac) * dq_c into the dimension
         // of the AOs.
@@ -129,7 +104,7 @@ impl GroundStateGradient for Monomer<'_> {
                 .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
                 .unwrap();
             // calculate the gamma gradient matrix in AO basis
-            let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
                 self.gammafunction_lc.as_ref().unwrap(),
                 atoms,
                 self.n_atoms,

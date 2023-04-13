@@ -1,16 +1,8 @@
 use crate::fmo::*;
-use crate::initialization::*;
 use crate::scc::gamma_approximation::gamma_gradients_atomwise_2d;
-use crate::scc::*;
-use crate::utils::Timer;
-use nalgebra::Vector3;
 use ndarray::prelude::*;
-use ndarray::RawData;
-use std::iter::FromIterator;
-use std::ops::{AddAssign, SubAssign};
-//use rayon::iter::ParallelIterator;
-//use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
+use std::ops::{AddAssign, SubAssign};
 
 impl SuperSystem<'_> {
     /// Computes and returns the gradient of the embedding energy.
@@ -34,13 +26,13 @@ impl SuperSystem<'_> {
             .to_owned();
 
         // Reference to the derivative of the charges.
-        let mut grad_dq: ArrayView1<f64> = self.properties.grad_dq_diag().unwrap();
+        let grad_dq: ArrayView1<f64> = self.properties.grad_dq_diag().unwrap();
 
         // TODO: it is not neccessary to calculate the derivative of gamma two times. this should be
         // improved! it is already computed in the gradient of the monomer/pair
         let grad_gamma_sparse: Array2<f64> =
             gamma_gradients_atomwise_2d(&self.gammafunction, &self.atoms, self.atoms.len());
-        let mut grad_gamma_dot_dq: Array1<f64> = grad_gamma_sparse.dot(&dq);
+        let grad_gamma_dot_dq: Array1<f64> = grad_gamma_sparse.dot(&dq);
 
         // Begin of the loop to compute the gradient of the embedding energy for each pair.
         self.pairs

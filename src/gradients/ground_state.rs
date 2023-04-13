@@ -1,15 +1,13 @@
-use crate::defaults;
 use crate::fmo::scc::helpers::atomvec_to_aomat;
-use crate::gradients::helpers::{f_lr, gradient_v_rep};
+use crate::gradients::dispersion::gradient_disp;
+use crate::gradients::helpers::{f_lr_par, gradient_v_rep};
 use crate::initialization::*;
 use crate::scc::gamma_approximation::{gamma_gradients_ao_wise, gamma_gradients_atomwise};
 use crate::scc::h0_and_s::h0_and_s_gradients;
-use ndarray::{s, Array, Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};
-use ndarray_einsum_beta::tensordot;
-use std::time::Instant;
+use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};
 
 impl System {
-    pub fn ground_state_gradient(&mut self) -> Array1<f64> {
+    pub fn ground_state_gradient(&mut self, excited_gradients: bool) -> Array1<f64> {
         // for the evaluation of the gradient it is necessary to compute the derivatives
         // of: - H0
         //     - S
@@ -41,13 +39,13 @@ impl System {
         // take references/views to the necessary properties from the scc calculation
         let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
         let p: ArrayView2<f64> = self.properties.p().unwrap();
-        let h0: ArrayView2<f64> = self.properties.h0().unwrap();
+        let _h0: ArrayView2<f64> = self.properties.h0().unwrap();
         let dq: ArrayView1<f64> = self.properties.dq().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
+        let _s: ArrayView2<f64> = self.properties.s().unwrap();
 
         // transform the expression Sum_c_in_X (gamma_AC + gamma_aC) * dq_C
         // into matrix of the dimension (norb, norb) to do an element wise multiplication with P
-        let mut coulomb_mat: Array2<f64> =
+        let coulomb_mat: Array2<f64> =
             atomvec_to_aomat(gamma.dot(&dq).view(), self.n_orbs, &self.atoms) * 0.5;
 
         // The product of the Coulomb interaction matrix and the density matrix flattened as vector.
@@ -95,6 +93,11 @@ impl System {
         // last part: dV_rep / dR
         gradient = gradient + gradient_v_rep(&self.atoms, &self.vrep);
 
+        // dispersion
+        if self.config.dispersion.use_dispersion {
+            gradient = gradient + gradient_disp(&self.atoms, &self.config.dispersion);
+        }
+
         // long-range corrected part of the gradient
         if self.config.lc.long_range_correction {
             let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
@@ -105,7 +108,7 @@ impl System {
             );
 
             let diff_p: Array2<f64> = &p - &self.properties.p_ref().unwrap();
-            let flr_dmd0: Array3<f64> = f_lr(
+            let flr_dmd0: Array3<f64> = f_lr_par(
                 diff_p.view(),
                 self.properties.s().unwrap(),
                 grad_s.view(),
@@ -121,6 +124,23 @@ impl System {
                         .into_shape((3 * self.n_atoms, self.n_orbs * self.n_orbs))
                         .unwrap()
                         .dot(&diff_p.into_shape(self.n_orbs * self.n_orbs).unwrap());
+
+            // save necessary properties for the excited gradient calculation with lr-correction
+            if excited_gradients {
+                self.properties.set_grad_gamma_lr(g1_lr);
+                self.properties.set_grad_gamma_lr_ao(g1_lr_ao);
+                self.properties.set_f_lr_dmd0(flr_dmd0);
+            }
+        }
+        // save necessary properties for the excited gradient calculation
+        if excited_gradients {
+            self.properties.set_grad_s(grad_s);
+            self.properties.set_grad_h0(grad_h0);
+            self.properties.set_grad_gamma(
+                grad_gamma
+                    .into_shape([3 * self.n_atoms, self.n_atoms, self.n_atoms])
+                    .unwrap(),
+            );
         }
 
         return gradient;

@@ -3,14 +3,10 @@ use crate::cubes::helpers::create_box_around_molecule;
 use crate::initialization::Atom;
 use crate::{SuperSystem, System};
 use ndarray::prelude::*;
-use ndarray::AssignElem;
 use ndarray_npy::read_npy;
-use ndarray_npy::write_npy;
 use ndarray_stats::QuantileExt;
-use serde::de::value::UsizeDeserializer;
 use std::fs::File;
 use std::io::Write;
-use std::time::Instant;
 
 impl System {
     pub fn density_to_cube(&self) {
@@ -62,11 +58,17 @@ pub struct DensityToCube<'a> {
     pub basis: AtomicBasisSet,
     pub use_block_impl: bool,
     pub n_blocks: usize,
-    pub threshold:f32,
+    pub threshold: f32,
 }
 
 impl<'a> DensityToCube<'a> {
-    pub fn new(ppb: f64, atoms: &'a [Atom], use_block_impl: bool, n_blocks: usize, threshold:f32) -> Self {
+    pub fn new(
+        ppb: f64,
+        atoms: &'a [Atom],
+        use_block_impl: bool,
+        n_blocks: usize,
+        threshold: f32,
+    ) -> Self {
         // create box around the system
         let (xmin, xmax, ymin, ymax, zmin, zmax) = create_box_around_molecule(atoms, None);
         let dx: f64 = xmax - xmin;
@@ -169,8 +171,7 @@ impl<'a> DensityToCube<'a> {
                 y_grid.view(),
                 z_grid.view(),
             );
-            let rho: Array3<f32> =
-                self.evaluate_density_on_grid_loop(density, bfs_on_grid.view());
+            let rho: Array3<f32> = self.evaluate_density_on_grid_loop(density, bfs_on_grid.view());
             return rho;
         } else {
             return self.evaluate_density_on_grid_block(
@@ -298,7 +299,7 @@ pub fn evaluate_basis_on_grid(
     for (bfs, mut bfs_arr) in basis.iter().zip(bfs_on_grid.axis_iter_mut(Axis(0))) {
         for (x_val, mut arr_x) in x_grid.iter().zip(bfs_arr.axis_iter_mut(Axis(0))) {
             for (y_val, mut arr_y) in y_grid.iter().zip(arr_x.axis_iter_mut(Axis(0))) {
-                for (z_val, mut z_arr) in z_grid.iter().zip(arr_y.iter_mut()) {
+                for (z_val, z_arr) in z_grid.iter().zip(arr_y.iter_mut()) {
                     *z_arr = bfs.eval(*x_val, *y_val, *z_val) as f32;
                 }
             }

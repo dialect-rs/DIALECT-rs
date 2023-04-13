@@ -1,4 +1,3 @@
-use crate::defaults;
 use crate::fmo::scc::helpers::*;
 use crate::fmo::{ESDPair, Monomer, Pair};
 use crate::initialization::Atom;
@@ -6,17 +5,17 @@ use crate::io::settings::MixConfig;
 use crate::io::SccConfig;
 use crate::scc::gamma_approximation::*;
 use crate::scc::h0_and_s::*;
-use crate::scc::mixer::{BroydenMixer, Mixer};
-use crate::scc::mulliken::{mulliken, mulliken_atomwise, mulliken_old};
+use crate::scc::mixer::Mixer;
+use crate::scc::mulliken::mulliken_atomwise;
 use crate::scc::{
-    calc_exchange, density_matrix, density_matrix_ref, get_electronic_energy,
-    get_electronic_energy_new, get_repulsive_energy, lc_exact_exchange,
+    calc_exchange, density_matrix, density_matrix_ref, get_electronic_energy_new,
+    get_repulsive_energy, lc_exact_exchange,
 };
 use ndarray::concatenate;
 use ndarray::prelude::*;
 use ndarray_linalg::*;
 use ndarray_npy::write_npy;
-use ndarray_stats::{DeviationExt, QuantileExt};
+use ndarray_stats::DeviationExt;
 use std::path::Path;
 
 impl Pair<'_> {
@@ -173,8 +172,8 @@ impl Pair<'_> {
         let f: &[f64] = self.properties.occupation().unwrap();
         let v: ArrayView2<f64> = self.properties.v().unwrap();
         let h_esp: Array2<f64> = &h0 + &v;
-        let mut dq_saved: Array2<f64> = Array2::zeros((self.n_atoms, max_iter));
-        let mut delta_dq_saved: Array2<f64> = Array2::zeros((self.n_orbs, max_iter));
+        let dq_saved: Array2<f64> = Array2::zeros((self.n_atoms, max_iter));
+        let delta_dq_saved: Array2<f64> = Array2::zeros((self.n_orbs, max_iter));
 
         'scf_loop: for iter in 0..max_iter {
             let h_coul: Array2<f64> =
@@ -186,7 +185,7 @@ impl Pair<'_> {
                     lc_exact_exchange(s, self.properties.gamma_lr_ao().unwrap(), delta_p.view());
                 h = h + h_x;
             }
-            let mut h_save: Array2<f64> = h.clone();
+            let h_save: Array2<f64> = h.clone();
 
             // H' = X^t.H.X
             h = x.t().dot(&h).dot(&x);
@@ -270,7 +269,7 @@ impl Pair<'_> {
             if !converged && iter == max_iter - 1 {
                 println!("Iteration {}", iter);
                 println!("Monomer indices: {},{}", self.i, self.j);
-                let mut string: String = String::from("dq.npy");
+                let string: String = String::from("dq.npy");
                 write_npy(Path::new(&string), &dq_saved.view());
                 write_npy(
                     Path::new(&String::from("delta_dq_saved.npy")),
@@ -459,7 +458,7 @@ impl ESDPair<'_> {
             let dq_new = accel.apply(dq.view(), dq1.view()).unwrap();
 
             // compute electronic energy
-            let mut scf_energy = get_electronic_energy_new(
+            let scf_energy = get_electronic_energy_new(
                 p.view(),
                 h0.view(),
                 dq_new.view(),
@@ -527,8 +526,8 @@ impl ESDPair<'_> {
         let f: &[f64] = self.properties.occupation().unwrap();
         let v: ArrayView2<f64> = self.properties.v().unwrap();
         let h_esp: Array2<f64> = &h0 + &v;
-        let mut dq_saved: Array2<f64> = Array2::zeros((self.n_atoms, max_iter));
-        let mut delta_dq_saved: Array2<f64> = Array2::zeros((self.n_orbs, max_iter));
+        let dq_saved: Array2<f64> = Array2::zeros((self.n_atoms, max_iter));
+        let delta_dq_saved: Array2<f64> = Array2::zeros((self.n_orbs, max_iter));
 
         'scf_loop: for iter in 0..max_iter {
             let h_coul: Array2<f64> =
@@ -540,7 +539,7 @@ impl ESDPair<'_> {
                     lc_exact_exchange(s, self.properties.gamma_lr_ao().unwrap(), delta_p.view());
                 h = h + h_x;
             }
-            let mut h_save: Array2<f64> = h.clone();
+            let h_save: Array2<f64> = h.clone();
 
             // H' = X^t.H.X
             h = x.t().dot(&h).dot(&x);
@@ -624,7 +623,7 @@ impl ESDPair<'_> {
             if !converged && iter == max_iter - 1 {
                 println!("Iteration {}", iter);
                 println!("Monomer indices: {},{}", self.i, self.j);
-                let mut string: String = String::from("dq.npy");
+                let string: String = String::from("dq.npy");
                 write_npy(Path::new(&string), &dq_saved.view());
                 write_npy(
                     Path::new(&String::from("delta_dq_saved.npy")),

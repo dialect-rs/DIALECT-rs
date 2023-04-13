@@ -1,12 +1,7 @@
-use crate::fmo::helpers::get_pair_slice;
 use crate::fmo::{Monomer, SuperSystem};
 use crate::initialization::Atom;
-use crate::scc::h0_and_s::h0_and_s;
 use crate::utils::array_helper::parallel_matrix_multiply;
-use hashbrown::HashMap;
-use itertools::chain;
 use ndarray::prelude::*;
-use ndarray_linalg::{Eigh, Inverse, SymmetricSqrt, UPLO};
 use std::ops::AddAssign;
 
 impl SuperSystem<'_> {
@@ -23,7 +18,7 @@ impl SuperSystem<'_> {
         let mut s_total: Array2<f64> = Array2::eye(dim);
 
         // The diagonal elements are set.
-        for (i, mol) in self.monomers.iter().enumerate() {
+        for (_i, mol) in self.monomers.iter().enumerate() {
             // The diagonal Fock matrix of the monomer.
             let f_i: Array2<f64> = Array2::from_diag(&mol.properties.orbe().unwrap());
             // Fill the diagonal block of the Fock matrix.
@@ -38,7 +33,7 @@ impl SuperSystem<'_> {
             // Reference to monomer J.
             let m_j: &Monomer = &self.monomers[pair.j];
             //
-            let pair_atoms: Vec<Atom> = atoms[m_i.slice.atom_as_range()]
+            let _pair_atoms: Vec<Atom> = atoms[m_i.slice.atom_as_range()]
                 .iter()
                 .chain(atoms[m_j.slice.atom_as_range()].iter())
                 .map(From::from)
@@ -111,11 +106,21 @@ impl SuperSystem<'_> {
         // S^-1/2 = 1.5 * I - 1/2 Delta
         let x: Array2<f64> = 1.5 * Array::eye(dim) - 0.5 * &s_total;
         // let x: Array2<f64> = s_total.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
-        // The transformed Fock matrix is returned.
-        //let arr = parallel_matrix_multiply(x.t(), fock.view(), 4);
-        //drop(fock);
-        //parallel_matrix_multiply(arr.view(), x.view(), 4)
-        (x.t().dot(&fock)).dot(&x)
-        // fock
+
+        if self.config.parallelization.number_of_cores == 1 {
+            (x.t().dot(&fock)).dot(&x)
+        } else {
+            let arr = parallel_matrix_multiply(
+                x.t(),
+                fock.view(),
+                self.config.parallelization.number_of_cores,
+            );
+            drop(fock);
+            parallel_matrix_multiply(
+                arr.view(),
+                x.view(),
+                self.config.parallelization.number_of_cores,
+            )
+        }
     }
 }

@@ -1,14 +1,12 @@
-use crate::excited_states::solvers::DavidsonEngine;
 use crate::excited_states::tda::moments::{mulliken_dipoles, oscillator_strength};
-use crate::excited_states::tda::new_mod::TdaStates;
-use crate::excited_states::{orbe_differences, trans_charges, ProductCache};
+use crate::excited_states::{orbe_differences, ProductCache};
 use crate::fmo::helpers::get_pair_slice;
-use crate::fmo::{Monomer, PairChargeTransfer, PairType};
+use crate::fmo::{ChargeTransferPreparation, PairType};
 use crate::initialization::Atom;
 use crate::{initial_subspace, Davidson};
 use ndarray::prelude::*;
 
-impl PairChargeTransfer<'_> {
+impl ChargeTransferPreparation<'_> {
     // Prepare the TDA-LC-TD-DFTB calculation.
     pub fn prepare_ct_tda(
         &mut self,
@@ -130,7 +128,7 @@ impl PairChargeTransfer<'_> {
         ) {
             for _ in 0..atom_h.n_orbs {
                 for (orb_h, mut q_h) in occs.row(mu).iter().zip(q_n.axis_iter_mut(Axis(0))) {
-                    for (sc, mut q) in s_c_l.row(mu).iter().zip(q_h.iter_mut()) {
+                    for (sc, q) in s_c_l.row(mu).iter().zip(q_h.iter_mut()) {
                         *q += orb_h * sc;
                     }
                 }
@@ -145,7 +143,7 @@ impl PairChargeTransfer<'_> {
         ) {
             for _ in 0..atom_l.n_orbs {
                 for (sc, mut q_l) in s_c_h.row(mu).iter().zip(q_n.axis_iter_mut(Axis(0))) {
-                    for (orb_l, mut q) in virts.row(mu).iter().zip(q_l.iter_mut()) {
+                    for (orb_l, q) in virts.row(mu).iter().zip(q_l.iter_mut()) {
                         *q += orb_l * sc;
                     }
                 }

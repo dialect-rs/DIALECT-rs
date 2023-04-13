@@ -1,48 +1,38 @@
 #![allow(dead_code)]
 #![allow(warnings)]
 
+use std::env;
 use std::io::Write;
-use std::path::Path;
 use std::process;
-use std::time::{Duration, Instant};
-use std::{env, fs};
-
-use crate::defaults::CONFIG_FILE_NAME;
-use crate::excited_states::ExcitedState;
-use crate::initialization::System;
-use crate::io::{read_file_to_frame, read_input, write_header, Configuration, MoldenExporter};
-use crate::io::{write_footer, MoldenExporterBuilder};
-use crate::scc::gamma_approximation::gamma_atomwise;
-use crate::scc::scc_routine::RestrictedSCC;
-use chemfiles::Frame;
-use clap::{App, Arg};
-use env_logger::Builder;
-use log::info;
-use log::LevelFilter;
-use ndarray::prelude::*;
-use petgraph::stable_graph::*;
-use toml;
-
-use crate::utils::Timer;
-use ndarray::{Array1, Array2};
 
 use crate::excited_states::davidson::Davidson;
-use crate::excited_states::tda::*;
-use crate::excited_states::{initial_subspace, orbe_differences, trans_charges, ProductCache};
-
+use crate::excited_states::initial_subspace;
 use crate::fmo::SuperSystem;
 use crate::initialization::parameter_handling::generate_parameters;
-use ndarray_npy::{write_npy, NpzWriter};
-use std::fs::File;
+use crate::initialization::System;
+use crate::io::{
+    create_dynamics_data, read_dynamic_input, read_input, write_header, Configuration,
+};
+use crate::io::{write_footer, MoldenExporterBuilder};
+use crate::scc::scc_routine::RestrictedSCC;
+use crate::utils::Timer;
+use chemfiles::Frame;
+use clap::{App, Arg};
+use dialect_dynamics::initialization::{DynamicConfiguration, Simulation, SystemData};
+use env_logger::Builder;
+use log::LevelFilter;
 
 mod constants;
+mod couplings;
 mod cubes;
 mod defaults;
+mod dynamics;
 mod excited_states;
 mod fmo;
 mod gradients;
 mod initialization;
 mod io;
+mod optimization;
 mod param;
 mod properties;
 mod scc;
@@ -109,8 +99,8 @@ fn main() {
                 system.run_scc();
 
                 // Calculate the excited state energies
-                if config.excited.calculate_excited_states{
-                    system.calculate_excited_states();
+                if config.excited.calculate_excited_states {
+                    system.calculate_excited_states(true);
                 }
             // FMO DFTB calculation
             } else {
@@ -126,19 +116,55 @@ fn main() {
                 system.run_scc();
 
                 // Calculate the excited state energies
-                if config.excited.calculate_excited_states{
+                if config.excited.calculate_excited_states {
                     system.create_exciton_hamiltonian();
                 }
             }
         }
         // Calculate the density on a grid and save it in a cube file
         "density" => {
-            let mut system = System::from((frame, config.clone()));
+            let system = System::from((frame, config.clone()));
             system.density_to_cube();
+        }
+        "dynamics" => {
+            if !config.fmo {
+                let mut system = System::from((frame, config.clone()));
+                let dynamics_config: DynamicConfiguration = read_dynamic_input(&system.config);
+                let dynamics_data: SystemData =
+                    create_dynamics_data(&system.atoms, dynamics_config);
+
+                let mut dynamics: Simulation = Simulation::new(&dynamics_data);
+                if dynamics.config.langevin_config.use_langevin {
+                    dynamics.langevin_dynamics(&mut system);
+                } else {
+                    dynamics.verlet_dynamics(&mut system);
+                }
+            } else {
+                panic!("No implementation of molecular dynamics for the FMO system yet!");
+            }
+        }
+        "opt" => {
+            if !config.fmo {
+                // Create system from frame and config
+                let mut system = System::from((frame, config.clone()));
+                // run the cartesian optimization
+                system.optimize_cartesian(system.config.opt.state_to_optimize);
+            } else {
+                // create Slater-Koster files and the atoms from frame and config
+                let (slako, vrep, atoms, unique_atoms) =
+                    generate_parameters(frame.clone(), config.clone());
+                // Create the system from the Slater-Koster files, the config and the atoms
+                let mut system =
+                    SuperSystem::from((frame, config.clone(), &slako, &vrep, unique_atoms, atoms));
+
+                // run the cartesian optimization
+                // at the moment, only a ground state optimization of the fmo system is implemented
+                system.optimize_cartesian(system.config.opt.state_to_optimize);
+            }
         }
         jtype => {
             println!("Jobtype: {} is not available.", jtype);
-            println!("Choose one of the available types: sp, density");
+            println!("Choose one of the available types: sp, opt, dynamics, density");
         }
     }
     // ................................................................

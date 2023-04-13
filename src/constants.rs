@@ -1,4 +1,4 @@
-use phf::{phf_map, phf_set};
+use phf::phf_map;
 
 // ALL THE VALUES SHOULD BE CHANGED TO THE CURRENT CODATA VALUES!!!!
 pub const BOHR_TO_ANGS: f64 = 0.529177210903; // <- this value is already from CODATA 2018
@@ -243,15 +243,6 @@ pub static VDW_RADII: phf::Map<u8, f64> = phf_map! {
     8u8 =>1.52,
     9u8 =>1.47,
     10u8 =>1.54,
-};
-
-// Spin coupling constants taken from dftb+ manual
-pub static SPIN_COUPLING: phf::Map<u8, f64> = phf_map! {
-    1u8  => -0.072,
-    6u8  => -0.023,
-    7u8  => -0.026,
-    8u8  => -0.028,
-    12u8 => -0.0, // imaginary number. False
 };
 
 // Tausymbols of the skf files. They correspond to the different orbital interactions

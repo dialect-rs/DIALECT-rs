@@ -1,8 +1,7 @@
 use crate::fmo::Monomer;
 use crate::initialization::Atom;
 use ndarray::prelude::*;
-use ndarray::{Array1, Array2, Array3};
-use std::collections::HashMap;
+use ndarray::{Array2, Array3};
 use std::ops::AddAssign;
 
 impl Monomer<'_> {

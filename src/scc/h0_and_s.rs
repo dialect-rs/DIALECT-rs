@@ -1,9 +1,8 @@
 use crate::defaults::PROXIMITY_CUTOFF;
 use crate::initialization::parameters::*;
-use crate::initialization::{Atom, Geometry};
+use crate::initialization::Atom;
 use crate::param::slako_transformations::*;
 use ndarray::prelude::*;
-use std::collections::HashMap;
 
 /// Computes the H0 and S outer diagonal block for two sets of atoms
 pub fn h0_and_s_ab(
@@ -17,12 +16,12 @@ pub fn h0_and_s_ab(
     let mut s: Array2<f64> = Array2::zeros((n_orbs_a, n_orbs_b));
     // iterate over atoms
     let mut mu: usize = 0;
-    for (i, atomi) in atoms_a.iter().enumerate() {
+    for (_i, atomi) in atoms_a.iter().enumerate() {
         // iterate over orbitals on center i
         for orbi in atomi.valorbs.iter() {
             // iterate over atoms
             let mut nu: usize = 0;
-            for (j, atomj) in atoms_b.iter().enumerate() {
+            for (_j, atomj) in atoms_b.iter().enumerate() {
                 // iterate over orbitals on center j
                 for orbj in atomj.valorbs.iter() {
                     //if geometry.proximities.as_ref().unwrap()[[i, j]] {
@@ -86,6 +85,69 @@ pub fn h0_and_s_ab(
         }
     }
     return (s, h0);
+}
+
+/// Computes the H0 and S matrix elements for a single molecule.
+pub fn s_supersystem(n_orbs: usize, atoms: &[Atom], skt: &SlaterKoster) -> Array2<f64> {
+    let mut s: Array2<f64> = Array2::zeros((n_orbs, n_orbs));
+    // iterate over atoms
+    let mut mu: usize = 0;
+    for (i, atomi) in atoms.iter().enumerate() {
+        // iterate over orbitals on center i
+        for orbi in atomi.valorbs.iter() {
+            // iterate over atoms
+            let mut nu: usize = 0;
+            for (j, atomj) in atoms.iter().enumerate() {
+                // iterate over orbitals on center j
+                for orbj in atomj.valorbs.iter() {
+                    //if geometry.proximities.as_ref().unwrap()[[i, j]] {
+                    if (atomi - atomj).norm() < PROXIMITY_CUTOFF {
+                        if mu < nu {
+                            if atomi <= atomj {
+                                if i != j {
+                                    let (r, x, y, z): (f64, f64, f64, f64) =
+                                        directional_cosines(&atomi.xyz, &atomj.xyz);
+                                    s[[mu, nu]] = slako_transformation(
+                                        r,
+                                        x,
+                                        y,
+                                        z,
+                                        &skt.get(atomi.kind, atomj.kind).s_spline,
+                                        orbi.l,
+                                        orbi.m,
+                                        orbj.l,
+                                        orbj.m,
+                                    );
+                                }
+                            } else {
+                                let (r, x, y, z): (f64, f64, f64, f64) =
+                                    directional_cosines(&atomj.xyz, &atomi.xyz);
+                                s[[mu, nu]] = slako_transformation(
+                                    r,
+                                    x,
+                                    y,
+                                    z,
+                                    &skt.get(atomj.kind, atomi.kind).s_spline,
+                                    orbj.l,
+                                    orbj.m,
+                                    orbi.l,
+                                    orbi.m,
+                                );
+                            }
+                        } else if mu == nu {
+                            assert_eq!(atomi.number, atomj.number);
+                            s[[mu, nu]] = 1.0;
+                        } else {
+                            s[[mu, nu]] = s[[nu, mu]];
+                        }
+                    }
+                    nu = nu + 1;
+                }
+            }
+            mu = mu + 1;
+        }
+    }
+    s
 }
 
 /// Computes the H0 and S matrix elements for a single molecule.

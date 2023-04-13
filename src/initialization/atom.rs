@@ -1,10 +1,9 @@
 use crate::constants;
-use crate::initialization::parameters::{PseudoAtom, PseudoAtomMio, SkfHandler};
+use crate::initialization::parameters::{PseudoAtom, PseudoAtomSkf, SkfHandler};
 use crate::param::elements::Element;
 use crate::utils::array_helper::argsort_usize;
 use nalgebra::Vector3;
 use ndarray::prelude::*;
-use soa_derive::StructOfArray;
 use std::cmp::Ordering;
 use std::ops::{Neg, Sub};
 
@@ -36,8 +35,6 @@ pub struct Atom {
     pub number: u8,
     /// Element as an enum
     pub kind: Element,
-    // /// Mass of the atom in atomic units
-    // pub mass: f64,
     /// Hubbard parameter
     pub hubbard: f64,
     /// Vector of the valence orbitals for this atom
@@ -50,7 +47,6 @@ pub struct Atom {
     pub n_elec: usize,
     /// Position of the atom in bohr
     pub xyz: Vector3<f64>,
-    pub spin_coupling: f64,
 }
 
 impl From<Element> for Atom {
@@ -81,7 +77,6 @@ impl From<Element> for Atom {
             n_elec += confined_atom.orbital_occupation[*i as usize] as usize;
         }
         let n_orbs: usize = valorbs.len();
-        let spin_coupling: f64 = constants::SPIN_COUPLING[&element.number()];
 
         Atom {
             name: symbol,
@@ -93,7 +88,6 @@ impl From<Element> for Atom {
             valorbs_occupation: occupation,
             n_elec: n_elec,
             xyz: Vector3::<f64>::zeros(),
-            spin_coupling: spin_coupling,
         }
     }
 }
@@ -106,18 +100,14 @@ impl From<(Element, &SkfHandler)> for Atom {
     fn from(tuple: (Element, &SkfHandler)) -> Self {
         let element: Element = tuple.0;
         let symbol: &'static str = element.symbol();
-        let pseudo_atom: PseudoAtomMio = PseudoAtomMio::from(tuple.1);
+        let pseudo_atom: PseudoAtomSkf = PseudoAtomSkf::from(tuple.1);
         let mut valorbs: Vec<AtomicOrbital> = Vec::new();
         let mut occupation: Vec<f64> = Vec::new();
         let mut n_elec: usize = 0;
-        for (i, j) in pseudo_atom
-            .valence_orbitals
-            .iter()
-            .zip(pseudo_atom.valence_orbitals.iter())
-        {
+        for i in pseudo_atom.valence_orbitals.iter() {
             let n: i8 = pseudo_atom.nshell[*i as usize];
             let l: i8 = pseudo_atom.angular_momenta[*i as usize];
-            let energy: f64 = pseudo_atom.energies[*j as usize];
+            let energy: f64 = pseudo_atom.energies[*i as usize];
             for m in l.neg()..(l + 1) {
                 valorbs.push(AtomicOrbital::from(((n - 1, l, m), energy)));
                 occupation
@@ -126,7 +116,6 @@ impl From<(Element, &SkfHandler)> for Atom {
             n_elec += pseudo_atom.orbital_occupation[*i as usize] as usize;
         }
         let n_orbs: usize = valorbs.len();
-        let spin_coupling: f64 = constants::SPIN_COUPLING[&element.number()];
 
         Atom {
             name: symbol,
@@ -138,7 +127,6 @@ impl From<(Element, &SkfHandler)> for Atom {
             valorbs_occupation: occupation,
             n_elec: n_elec,
             xyz: Vector3::<f64>::zeros(),
-            spin_coupling: spin_coupling,
         }
     }
 }

@@ -1,4 +1,3 @@
-use crate::fmo::Monomer;
 use crate::initialization::{get_xyz_2d, Atom};
 use ndarray::prelude::*;
 

@@ -1,12 +1,11 @@
 use crate::excited_states::ProductCache;
-use crate::fmo::PairType::Pair;
-use crate::fmo::{Monomer, PairChargeTransfer, PairType};
+use crate::fmo::{ChargeTransferPreparation, Monomer};
 use crate::initialization::System;
-use crate::scc::scc_routine::RestrictedSCC;
 use ndarray::prelude::*;
 use ndarray::Data;
 pub use utils::*;
 
+pub mod casida_davidson;
 pub(crate) mod davidson;
 mod utils;
 
@@ -33,48 +32,15 @@ pub trait DavidsonEngine {
     fn get_size(&self) -> usize;
 }
 
-pub trait Davidson32Engine {
-    /// Compute a Matrix * trial vector products
-    /// Expected output:
-    ///  The product`A x X_{i}` for each `X_{i}` in `X`, in that order.
-    ///   Where `A` is the hermitian matrix to be diagonalized.
-    fn compute_products(&mut self, x: ArrayView2<f32>) -> Array2<f32>;
-
-    /// Apply the preconditioner to a Residual vector.
-    /// The preconditioner is usually defined as :math:`(w_k - D_{i})^-1` where
-    /// `D` is an approximation of the diagonal of the matrix that is being diagonalized.
-    fn precondition(&self, r_k: ArrayView1<f32>, w_k: f32) -> Array1<f32>;
-
-    /// Return the size of the matrix problem.
-    fn get_size(&self) -> usize;
-}
-
 impl<S> DavidsonEngine for ArrayBase<S, Ix2>
 where
     S: Data<Elem = f64>,
 {
-    fn compute_products(&mut self, x: ArrayView2<'_, f64>) -> Array2<f64> {
+    fn compute_products(&mut self, x: ArrayView2<f64>) -> Array2<f64> {
         self.dot(&x)
     }
 
-    fn precondition(&self, r_k: ArrayView1<'_, f64>, w_k: f64) -> Array1<f64> {
-        &r_k / &(Array1::from_elem(self.nrows(), w_k) - self.diag())
-    }
-
-    fn get_size(&self) -> usize {
-        self.nrows()
-    }
-}
-
-impl<S> Davidson32Engine for ArrayBase<S, Ix2>
-where
-    S: Data<Elem = f32>,
-{
-    fn compute_products(&mut self, x: ArrayView2<'_, f32>) -> Array2<f32> {
-        self.dot(&x)
-    }
-
-    fn precondition(&self, r_k: ArrayView1<'_, f32>, w_k: f32) -> Array1<f32> {
+    fn precondition(&self, r_k: ArrayView1<f64>, w_k: f64) -> Array1<f64> {
         &r_k / &(Array1::from_elem(self.nrows(), w_k) - self.diag())
     }
 
@@ -144,7 +110,7 @@ impl DavidsonEngine for Monomer<'_> {
             // Initialization of the product of the exchange part with the subspace part.
             let mut k_x: Array2<f64> = Array::zeros(two_el.raw_dim());
             // Iteration over the subspace vectors.
-            for (i, (mut k, xi)) in k_x
+            for (_i, (mut k, xi)) in k_x
                 .axis_iter_mut(Axis(1))
                 .zip(compute_vectors.axis_iter(Axis(1)))
                 .enumerate()
@@ -165,7 +131,7 @@ impl DavidsonEngine for Monomer<'_> {
                             .as_standard_layout()
                             .into_shape((self.n_atoms * n_occ, n_virt))
                             .unwrap(),
-                    ).into_shape((n_occ*n_virt)).unwrap(),
+                    ).into_shape(n_occ*n_virt).unwrap(),
                 );
             }
             // The product of the Exchange part with the subspace vector is added to the Coulomb part.
@@ -196,7 +162,7 @@ impl DavidsonEngine for Monomer<'_> {
     }
 }
 
-impl DavidsonEngine for PairChargeTransfer<'_> {
+impl DavidsonEngine for ChargeTransferPreparation<'_> {
     fn compute_products(&mut self, x: ArrayView2<f64>) -> Array2<f64> {
         // Mutable reference to the product cache.
         let mut cache: ProductCache = self.properties.take_cache().unwrap();
@@ -205,8 +171,8 @@ impl DavidsonEngine for PairChargeTransfer<'_> {
         // The gamma matrix of the shape: [n_atoms, n_atoms]
         let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
         // set the number of atoms
-        let n_atoms: usize = gamma.dim().0;
-        let natoms_h: usize = self.m_h.n_atoms;
+        let _n_atoms: usize = gamma.dim().0;
+        let _natoms_h: usize = self.m_h.n_atoms;
         let natoms_l: usize = self.m_l.n_atoms;
         // The energy differences between virtual and occupied orbitals, shape: [n_occ * n_virt]
         let omega: ArrayView1<f64> = self.properties.omega().unwrap();
@@ -257,7 +223,7 @@ impl DavidsonEngine for PairChargeTransfer<'_> {
         // Initialization of the product of the exchange part with the subspace part.
         let mut k_x: Array2<f64> = Array::zeros(two_el.raw_dim());
         // Iteration over the subspace vectors.
-        for (i, (mut k, xi)) in k_x
+        for (_i, (mut k, xi)) in k_x
             .axis_iter_mut(Axis(1))
             .zip(compute_vectors.axis_iter(Axis(1)))
             .enumerate()
@@ -281,7 +247,7 @@ impl DavidsonEngine for PairChargeTransfer<'_> {
                             .into_shape((natoms_l * n_occ, n_virt))
                             .unwrap(),
                     )
-                    .into_shape((n_occ * n_virt))
+                    .into_shape(n_occ * n_virt)
                     .unwrap(),
             );
         }
@@ -311,8 +277,6 @@ impl DavidsonEngine for PairChargeTransfer<'_> {
     }
 }
 
-/// TODO: THIS IMPLEMENTATION IS A COPY OF THE MONOMER IMPLEMENTATION AND TOTALLY STUPID TO HAVE THE
-/// SAME IMPLEMNENTATION TWICE.
 impl DavidsonEngine for System {
     /// The products of the TDA/CIS-Hamiltonian with the subspace vectors is computed.
     fn compute_products<'a>(&mut self, x: ArrayView2<'a, f64>) -> Array2<f64> {
@@ -370,7 +334,7 @@ impl DavidsonEngine for System {
             // Initialization of the product of the exchange part with the subspace part.
             let mut k_x: Array2<f64> = Array::zeros(two_el.raw_dim());
             // Iteration over the subspace vectors.
-            for (i, (mut k, xi)) in k_x
+            for (_i, (mut k, xi)) in k_x
                 .axis_iter_mut(Axis(1))
                 .zip(compute_vectors.axis_iter(Axis(1)))
                 .enumerate()
@@ -391,7 +355,7 @@ impl DavidsonEngine for System {
                             .as_standard_layout()
                             .into_shape((self.n_atoms * n_occ, n_virt))
                             .unwrap(),
-                    ).into_shape((n_occ*n_virt)).unwrap(),
+                    ).into_shape(n_occ*n_virt).unwrap(),
                 );
             }
             // The product of the Exchange part with the subspace vector is added to the Coulomb part.

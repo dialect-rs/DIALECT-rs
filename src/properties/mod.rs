@@ -1,7 +1,5 @@
 use hashbrown::HashMap;
 pub use property::Property;
-
-pub mod base;
 mod getter;
 pub mod property;
 mod setter;

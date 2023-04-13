@@ -1,36 +1,54 @@
-use crate::excited_states::davidson::Davidson;
-use crate::excited_states::solvers::DavidsonEngine;
 use crate::excited_states::tda::*;
-use crate::excited_states::{
-    initial_subspace, orbe_differences, trans_charges, trans_charges_restricted, ProductCache,
-};
-use crate::initialization::{Atom, System};
+use crate::excited_states::{orbe_differences, trans_charges, trans_charges_restricted};
+use crate::initialization::System;
 use ndarray::prelude::*;
-use ndarray_linalg::{Eigh, UPLO};
 
 impl System {
-    pub fn calculate_excited_states(&mut self) {
+    pub fn calculate_excited_states(&mut self, print_states: bool) {
         // restrict active orbitals in TDA-TD-DFTB calculation
-        if self.config.tda_dftb.restrict_active_orbitals {
+        if self.config.tddftb.restrict_active_orbitals {
             self.prepare_tda_restricted();
-            self.run_tda_restricted(
-                self.config.excited.nstates,
-                self.config.excited.davidson_iterations,
-                1e-4,
-                self.config.excited.davidson_subspace_multiplier,
-            );
+
+            if self.config.excited.use_casida {
+                self.run_casida_restricted(
+                    self.config.excited.nstates,
+                    self.config.excited.davidson_iterations,
+                    5.0e-6,
+                    self.config.excited.davidson_subspace_multiplier,
+                    print_states,
+                );
+            } else {
+                self.run_tda_restricted(
+                    self.config.excited.nstates,
+                    self.config.excited.davidson_iterations,
+                    1e-4,
+                    self.config.excited.davidson_subspace_multiplier,
+                );
+            }
         } else {
             // use the full active space
             self.prepare_tda();
-            self.run_tda(
-                self.config.excited.nstates,
-                self.config.excited.davidson_iterations,
-                1e-4,
-                self.config.excited.davidson_subspace_multiplier,
-            );
+
+            if self.config.excited.use_casida {
+                self.run_casida(
+                    self.config.excited.nstates,
+                    self.config.excited.davidson_iterations,
+                    5.0e-6,
+                    self.config.excited.davidson_subspace_multiplier,
+                    print_states,
+                );
+            } else {
+                self.run_tda(
+                    self.config.excited.nstates,
+                    self.config.excited.davidson_iterations,
+                    1e-4,
+                    self.config.excited.davidson_subspace_multiplier,
+                    print_states,
+                );
+            }
         }
-        if self.config.tda_dftb.save_transition_densities {
-            for state in self.config.tda_dftb.states_to_analyse.iter() {
+        if self.config.tddftb.save_transition_densities {
+            for state in self.config.tddftb.states_to_analyse.iter() {
                 self.save_transition_density(*state);
             }
         }
@@ -89,7 +107,7 @@ impl System {
                 self.properties.s().unwrap(),
                 &self.occ_indices,
                 &self.virt_indices,
-                self.config.tda_dftb.active_orbital_threshold,
+                self.config.tddftb.active_orbital_threshold,
             );
             // And stored in the properties HashMap.
             self.properties.set_q_oo(qoo);
@@ -146,7 +164,7 @@ impl System {
         let density_mo: ArrayView2<f64> = self.properties.tdm(state).unwrap();
         let density_ao: Array2<f64> = occ_orbs.dot(&density_mo.dot(&virt_orbs.t()));
         // filename
-        let mut txt: String = format!("transition_density_{}.npy", state);
+        let txt: String = format!("transition_density_{}.npy", state);
 
         // write to numpy file
         write_npy(txt, &density_ao);
@@ -211,7 +229,7 @@ mod tests {
         molecule.prepare_scc();
         molecule.run_scc();
         println!("ORBES {}", molecule.properties.orbe().unwrap());
-        let (u, v) = molecule.run_tda(10, 100, 1e-4, 10);
+        let (u, v) = molecule.run_tda(10, 100, 1e-4, 10, false);
         let h: Array2<f64> = fock_and_coulomb(&molecule);
         let (u_ref, v_ref) = h.eigh(UPLO::Upper).unwrap();
         assert!(
@@ -229,7 +247,7 @@ mod tests {
         let props = molecule_and_properties.2;
         molecule.prepare_scc();
         molecule.run_scc();
-        let (u, v) = molecule.run_tda(10, 100, 1e-4, 10);
+        let (u, v) = molecule.run_tda(10, 100, 1e-4, 10, false);
         let h: Array2<f64> = fock_and_coulomb(&molecule) - exchange(&molecule);
         let (u_ref, v_ref) = h.eigh(UPLO::Upper).unwrap();
         assert!(

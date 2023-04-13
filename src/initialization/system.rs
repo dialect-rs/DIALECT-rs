@@ -1,20 +1,15 @@
-use crate::fmo::Fragment;
 use crate::initialization::atom::Atom;
 use crate::initialization::geometry::*;
 use crate::initialization::parameters::*;
-use crate::initialization::{
-    get_unique_atoms, get_unique_atoms_mio, initialize_gamma_function, initialize_unrestricted_elec,
-};
+use crate::initialization::{get_unique_atoms, get_unique_atoms_skf, initialize_gamma_function};
 use crate::io::{frame_to_coordinates, read_file_to_frame, Configuration};
 use crate::param::Element;
 use crate::properties::Properties;
-use crate::scc::gamma_approximation;
 use crate::scc::gamma_approximation::GammaFunction;
 use chemfiles::Frame;
 use hashbrown::HashMap;
 use itertools::Itertools;
 use ndarray::prelude::*;
-use std::borrow::BorrowMut;
 
 /// Type that holds a molecular system that contains all data for the quantum chemical routines.
 /// This type is only used for non-FMO calculations. In the case of FMO based calculation
@@ -28,12 +23,6 @@ pub struct System {
     pub n_orbs: usize,
     /// Number of valence electrons
     pub n_elec: usize,
-    /// Number of unpaired electrons (singlet -> 0, doublet -> 1, triplet -> 2)
-    pub n_unpaired: usize,
-    /// Number of alpha electrons in an unrestricted calculation
-    pub alpha_elec: f64,
-    /// Number of beta electrons in an unrestricted calculation
-    pub beta_elec: f64,
     /// Charge of the system
     pub charge: i8,
     /// Indices of occupied orbitals starting from zero
@@ -65,8 +54,6 @@ pub struct System {
     pub gammafunction_lc: Option<GammaFunction>,
 }
 
-impl Fragment for System {}
-
 impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
     /// Creates a new [System] from a [Vec](alloc::vec) of atomic numbers, the coordinates as an [Array2](ndarray::Array2) and
     /// the global configuration as [Configuration](crate::io::settings::Configuration).
@@ -81,7 +68,7 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
             // if use_mio is true, create a vector of homonuclear SkfHandlers and a vector
             // of heteronuclear SkfHandlers
             let tmp: (Vec<Atom>, HashMap<u8, Atom>, Vec<SkfHandler>) =
-                get_unique_atoms_mio(&molecule.0, &molecule.2);
+                get_unique_atoms_skf(&molecule.0, &molecule.2);
             unique_atoms = tmp.0;
             num_to_atom = tmp.1;
             skf_handlers = tmp.2;
@@ -106,20 +93,19 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
             .for_each(|(idx, position)| {
                 atoms[idx].position_from_slice(position.as_slice().unwrap())
             });
-        // calculate the number of electrons
-        let n_elec: usize = atoms.iter().fold(0, |n, atom| n + atom.n_elec);
         // get the number of unpaired electrons from the input option
-        let n_unpaired: usize = match molecule.2.mol.multiplicity {
+        let unpaired: usize = match molecule.2.mol.multiplicity {
             1u8 => 0,
-            2u8 => 1,
-            3u8 => 2,
-            _ => panic!("The specified multiplicity is not implemented"),
+            _ => panic!(
+                "The specified multiplicity is not implemented. \
+            Only closed shell calculations are available."
+            ),
         };
         // set charge of the system
         let charge: i8 = molecule.2.mol.charge;
-        // set alpha and beta electrons of the system
-        let (alpha_elec, beta_elec): (f64, f64) =
-            initialize_unrestricted_elec(charge, n_elec, molecule.2.mol.multiplicity);
+        // calculate the number of electrons
+        let n_elec: usize =
+            (atoms.iter().fold(0, |n, atom| n + atom.n_elec) as isize - charge as isize) as usize;
 
         // calculate the number of atomic orbitals for the whole system as the sum of the atomic
         // orbitals per atom
@@ -151,21 +137,6 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
             for handler in skf_handlers.iter() {
                 // in the heteronuclear case, the slako tables of the element combinations "AB"
                 // and "BA" must be combined
-                // if handler.element_a == handler.element_b {
-                //     let repot_table: RepulsivePotentialTable =
-                //         RepulsivePotentialTable::from(handler);
-                //     let slako_table: SlaterKosterTable =
-                //         SlaterKosterTable::from((handler, None, "ab"));
-                //
-                //     // insert the tables into the hashmaps
-                //     slako
-                //         .map
-                //         .insert((handler.element_a, handler.element_b), slako_table);
-                //     // slako
-                //     //     .add_from_handler(handler.element_a, handler.element_b, handler.clone(),None,"ab");
-                //     vrep.map
-                //         .insert((handler.element_a, handler.element_b), repot_table);
-                // } else {
                 let repot_table: RepulsivePotentialTable = RepulsivePotentialTable::from(handler);
                 let slako_table_ab: SlaterKosterTable =
                     SlaterKosterTable::from((handler, None, "ab"));
@@ -181,8 +152,6 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
                 slako
                     .map
                     .insert((handler.element_a, handler.element_b), slako_table);
-                // slako
-                //     .add_from_handler(handler.element_a, handler.element_b, slako_handler_ba,Some(slako_table_ab),"ba");
                 vrep.map
                     .insert((handler.element_a, handler.element_b), repot_table);
             }
@@ -210,9 +179,6 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
             n_atoms: molecule.0.len(),
             n_orbs: n_orbs,
             n_elec: n_elec,
-            n_unpaired: n_unpaired,
-            alpha_elec: alpha_elec,
-            beta_elec: beta_elec,
             charge: charge,
             occ_indices: occ_indices,
             virt_indices: virt_indices,
@@ -247,11 +213,8 @@ impl From<(&str, Configuration)> for System {
 }
 
 impl System {
-    pub fn update_xyz(&mut self, coordinates: Array1<f64>) {
-        let coordinates: Array2<f64> = coordinates.into_shape([self.atoms.len(), 3]).unwrap();
-        // TODO: The IntoIterator trait was released for ndarray 0.15. The dependencies should be
-        // updated, so that this can be used. At the moment of writing ndarray-linalg is not yet
-        // compatible with ndarray 0.15x
+    pub fn update_xyz(&mut self, coordinates: ArrayView1<f64>) {
+        let coordinates: ArrayView2<f64> = coordinates.into_shape([self.atoms.len(), 3]).unwrap();
         // PARALLEL
         for (atom, xyz) in self.atoms.iter_mut().zip(coordinates.outer_iter()) {
             atom.position_from_ndarray(xyz.to_owned());
@@ -265,6 +228,6 @@ impl System {
             .iter()
             .map(|atom| atom.xyz.iter().cloned().collect())
             .collect();
-        Array1::from_shape_vec((3 * self.atoms.len()), itertools::concat(xyz_list)).unwrap()
+        Array1::from_shape_vec(3 * self.atoms.len(), itertools::concat(xyz_list)).unwrap()
     }
 }

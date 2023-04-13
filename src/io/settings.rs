@@ -66,6 +66,21 @@ fn default_davidson_iterations() -> usize {
 fn default_davidson_subspace_multiplier() -> usize {
     10
 }
+fn default_geom_opt_max_cycles() -> usize {
+    GEOM_OPT_MAX_CYCLES
+}
+fn default_geom_opt_tol_displacement() -> f64 {
+    GEOM_OPT_TOL_DISPLACEMENT
+}
+fn default_geom_opt_tol_gradient() -> f64 {
+    GEOM_OPT_TOL_GRADIENT
+}
+fn default_geom_opt_tol_energy() -> f64 {
+    GEOM_OPT_TOL_ENERGY
+}
+fn default_state_to_optimize() -> usize {
+    GEOM_OPT_STATE
+}
 fn default_n_le() -> usize {
     NUM_LE_STATES
 }
@@ -108,6 +123,9 @@ fn default_calculate_particle_hole_densities() -> bool {
 fn default_restrict_active_space() -> bool {
     true
 }
+fn default_use_casida() -> bool {
+    false
+}
 fn default_restrict_active_orbitals() -> bool {
     false
 }
@@ -123,12 +141,29 @@ fn default_points_per_bohr() -> f64 {
 fn default_path_to_density() -> String {
     String::from(" ")
 }
-fn default_threshold() -> f64 { 1.0e-4 }
+fn default_threshold() -> f64 {
+    1.0e-4
+}
 fn default_use_block_implementation() -> bool {
     true
 }
 fn default_n_blocks() -> usize {
     1
+}
+fn default_use_dispersion() -> bool {
+    USE_DISPERSION
+}
+fn default_s6() -> f64 {
+    S6_DISP_PARAM_OB2
+}
+fn default_s8() -> f64 {
+    S8_DISP_PARAM_OB2
+}
+fn default_a1() -> f64 {
+    A1_DISP_PARAM_OB2
+}
+fn default_a2() -> f64 {
+    A2_DISP_PARAM_OB2
 }
 fn default_mol_config() -> MoleculeConfig {
     let mol_config: MoleculeConfig = toml::from_str("").unwrap();
@@ -166,6 +201,14 @@ fn default_tda_dftb_config() -> TdaDftbConfig {
     let config: TdaDftbConfig = toml::from_str("").unwrap();
     return config;
 }
+fn default_opt_config() -> OptConfig {
+    let opt_config: OptConfig = toml::from_str("").unwrap();
+    return opt_config;
+}
+fn default_dispersion_config() -> DispersionConfig {
+    let disp_config: DispersionConfig = toml::from_str("").unwrap();
+    return disp_config;
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Configuration {
@@ -181,16 +224,20 @@ pub struct Configuration {
     pub scf: SccConfig,
     #[serde(default = "default_lc_config")]
     pub lc: LCConfig,
+    #[serde(default = "default_opt_config")]
+    pub opt: OptConfig,
     #[serde(default = "default_excited_state_config")]
     pub excited: ExcitedStatesConfig,
     #[serde(default = "default_tda_dftb_config")]
-    pub tda_dftb: TdaDftbConfig,
+    pub tddftb: TdaDftbConfig,
     #[serde(default = "default_slater_koster_config")]
     pub slater_koster: SlaterKosterConfig,
     #[serde(default = "default_parallelization_config")]
     pub parallelization: ParallelizationConfig,
     #[serde(default = "default_lcmo_config")]
     pub fmo_lc_tddftb: LcmoConfig,
+    #[serde(default = "default_dispersion_config")]
+    pub dispersion: DispersionConfig,
     #[serde(default = "default_density_config")]
     pub density: DensityConfig,
 }
@@ -253,6 +300,8 @@ pub struct ExcitedStatesConfig {
     pub davidson_iterations: usize,
     #[serde(default = "default_davidson_subspace_multiplier")]
     pub davidson_subspace_multiplier: usize,
+    #[serde(default = "default_use_casida")]
+    pub use_casida: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -303,6 +352,34 @@ pub struct LcmoConfig {
 pub struct ParallelizationConfig {
     #[serde(default = "default_number_of_cores")]
     pub number_of_cores: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct OptConfig {
+    #[serde(default = "default_state_to_optimize")]
+    pub state_to_optimize: usize,
+    #[serde(default = "default_geom_opt_max_cycles")]
+    pub geom_opt_max_cycles: usize,
+    #[serde(default = "default_geom_opt_tol_displacement")]
+    pub geom_opt_tol_displacement: f64,
+    #[serde(default = "default_geom_opt_tol_gradient")]
+    pub geom_opt_tol_gradient: f64,
+    #[serde(default = "default_geom_opt_tol_energy")]
+    pub geom_opt_tol_energy: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct DispersionConfig {
+    #[serde(default = "default_use_dispersion")]
+    pub use_dispersion: bool,
+    #[serde(default = "default_s6")]
+    pub s6: f64,
+    #[serde(default = "default_s8")]
+    pub s8: f64,
+    #[serde(default = "default_a1")]
+    pub a1: f64,
+    #[serde(default = "default_a2")]
+    pub a2: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

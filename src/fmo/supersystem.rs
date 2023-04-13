@@ -1,28 +1,18 @@
 use crate::fmo::fragmentation::{build_graph, fragmentation, Graph};
 use crate::fmo::helpers::{MolIncrements, MolIndices, MolecularSlice};
 use crate::fmo::{get_pair_type, ESDPair, Monomer, Pair, PairType};
-use crate::initialization::parameters::{
-    RepulsivePotential, RepulsivePotentialTable, SkfHandler, SlaterKoster, SlaterKosterTable,
-};
-use crate::initialization::{
-    get_unique_atoms, get_unique_atoms_mio, initialize_gamma_function, Atom, Geometry,
-};
-use crate::io::{frame_to_atoms, frame_to_coordinates, read_file_to_frame, Configuration};
-use crate::param::elements::Element;
+use crate::initialization::parameters::{RepulsivePotential, SlaterKoster};
+use crate::initialization::{initialize_gamma_function, Atom};
+use crate::io::Configuration;
 use crate::properties::Properties;
-use crate::scc::gamma_approximation;
-use crate::scc::gamma_approximation::{gamma_atomwise, gamma_atomwise_par, GammaFunction};
-use crate::scc::h0_and_s::h0_and_s;
+use crate::scc::gamma_approximation::{gamma_atomwise, GammaFunction};
+use crate::scc::h0_and_s::{h0_and_s, s_supersystem};
 use crate::utils::Timer;
 use chemfiles::Frame;
-use hashbrown::{HashMap, HashSet};
-use itertools::{sorted, Itertools};
+use hashbrown::HashMap;
 use log::info;
 use ndarray::prelude::*;
 use ndarray::Slice;
-use std::hash::Hash;
-use std::result::IntoIter;
-use std::vec;
 
 #[derive(Debug, Clone)]
 pub struct SuperSystem<'a> {
@@ -78,12 +68,16 @@ impl<'a>
         let atoms: Vec<Atom> = input.5;
 
         // Get the number of unpaired electrons from the input option
-        let n_unpaired: usize = match input.1.mol.multiplicity {
+        let _n_unpaired: usize = match input.1.mol.multiplicity {
             1u8 => 0,
-            2u8 => 1,
-            3u8 => 2,
             _ => panic!("The specified multiplicity is not implemented"),
         };
+        match input.1.mol.charge {
+            0 => {}
+            _ => {
+                panic!("Charged systems are not implemented for the FMO routines.")
+            }
+        }
 
         // Create a new Properties type, which is empty
         let mut properties: Properties = Properties::new();
@@ -129,7 +123,7 @@ impl<'a>
             let n_elec: usize = monomer_atoms.iter().map(|atom| atom.n_elec).sum();
 
             // Number of occupied orbitals.
-            let n_occ: usize = (n_elec / 2);
+            let n_occ: usize = n_elec / 2;
 
             // Number of virtual orbitals.
             let n_virt: usize = m_n_orbs - n_occ;
@@ -205,7 +199,6 @@ impl<'a>
 
         // The construction of the [Pair]s requires that the [Atom]s in the atoms are ordered after
         // each monomer
-        // TODO: Read the vdw scaling parameter from the input file instead of setting hard to 2.0
         for (i, m_i) in monomers.iter().enumerate() {
             for (j, m_j) in monomers[(i + 1)..].iter().enumerate() {
                 match get_pair_type(
@@ -214,13 +207,13 @@ impl<'a>
                     2.0,
                 ) {
                     PairType::Pair => {
-                        pairs.push(Pair::new(i, (i + j + 1), m_i, m_j, input.2, input.3));
+                        pairs.push(Pair::new(i, i + j + 1, m_i, m_j, input.2, input.3));
                         pair_types.insert((m_i.index, m_j.index), PairType::Pair);
                         pair_indices.insert((m_i.index, m_j.index), pair_iter);
                         pair_iter += 1;
                     }
                     PairType::ESD => {
-                        esd_pairs.push(ESDPair::new(i, (i + j + 1), m_i, m_j, input.2, input.3));
+                        esd_pairs.push(ESDPair::new(i, i + j + 1, m_i, m_j, input.2, input.3));
                         pair_types.insert((m_i.index, m_j.index), PairType::ESD);
                         esd_pair_indices.insert((m_i.index, m_j.index), esd_iter);
                         esd_iter += 1;
@@ -235,7 +228,7 @@ impl<'a>
 
         info!("{}", timer);
 
-        let (s, h0) = h0_and_s(n_orbs, &atoms, input.2);
+        let s = s_supersystem(n_orbs, &atoms, input.2);
         properties.set_s(s);
 
         Self {
@@ -253,11 +246,8 @@ impl<'a>
 }
 
 impl SuperSystem<'_> {
-    pub fn update_xyz(&mut self, coordinates: Array1<f64>) {
-        let coordinates: Array2<f64> = coordinates.into_shape([self.atoms.len(), 3]).unwrap();
-        // TODO: The IntoIterator trait was released for ndarray 0.15. The dependencies should be
-        // updated, so that this can be used. At the moment of writing ndarray-linalg is not yet
-        // compatible with ndarray 0.15x
+    pub fn update_xyz(&mut self, coordinates: ArrayView1<f64>) {
+        let coordinates: ArrayView2<f64> = coordinates.into_shape([self.atoms.len(), 3]).unwrap();
         // PARALLEL
         for (atom, xyz) in self.atoms.iter_mut().zip(coordinates.outer_iter()) {
             atom.position_from_ndarray(xyz.to_owned());
@@ -271,7 +261,7 @@ impl SuperSystem<'_> {
             .iter()
             .map(|atom| atom.xyz.iter().cloned().collect())
             .collect();
-        Array1::from_shape_vec((3 * self.atoms.len()), itertools::concat(xyz_list)).unwrap()
+        Array1::from_shape_vec(3 * self.atoms.len(), itertools::concat(xyz_list)).unwrap()
     }
 
     pub fn gamma_a(&self, a: usize, lrc: LRC) -> ArrayView2<f64> {
@@ -327,7 +317,7 @@ impl SuperSystem<'_> {
     pub fn update_s(&mut self) {
         let n_orbs: usize = self.properties.n_occ().unwrap() + self.properties.n_virt().unwrap();
         let slako = &self.monomers[0].slako;
-        let (s, h0) = h0_and_s(n_orbs, &self.atoms, slako);
+        let s = s_supersystem(n_orbs, &self.atoms, slako);
         self.properties.set_s(s);
     }
 }

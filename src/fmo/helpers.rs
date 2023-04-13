@@ -1,7 +1,6 @@
-use crate::fmo::SuperSystem;
 use crate::initialization::Atom;
 use ndarray::Slice;
-use std::ops::{AddAssign, Range};
+use std::ops::Range;
 
 /// The atoms in the pair are two blocks in the Vec<Atom>, but these two blocks are in general not
 /// connected. Since non-contiguous views of data structures are not trivial, the blocks are just

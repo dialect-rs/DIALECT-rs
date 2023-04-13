@@ -1,7 +1,7 @@
 use crate::fmo::helpers::get_pair_slice;
 use crate::fmo::scc::helpers::*;
 use crate::fmo::scc::logging;
-use crate::fmo::{Monomer, Pair, SuperSystem};
+use crate::fmo::{Monomer, SuperSystem};
 use crate::initialization::Atom;
 use crate::scc::get_repulsive_energy;
 use ndarray::prelude::*;

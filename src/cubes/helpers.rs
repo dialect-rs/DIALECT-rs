@@ -1,11 +1,8 @@
 use crate::initialization::Atom;
-use nalgebra::Vector3;
-use ndarray::prelude::*;
 use ndarray_linalg::{c64, Scalar};
 use rusty_fitpack::splrep;
 use sphrs::*;
 use splines::{Interpolation, Key, Spline};
-use std::cmp::{max, min};
 
 pub fn spherical_harmonics_yreal(l: i8, m: i8, r: (f64, f64, f64)) -> f64 {
     let mut yreal: c64 = c64::complex(0.0, 0.0);

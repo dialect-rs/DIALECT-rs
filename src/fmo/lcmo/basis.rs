@@ -1,21 +1,15 @@
-use crate::excited_states::tda::*;
 use crate::excited_states::ExcitedState;
-use crate::fmo::{ESDPair, ExcitonStates, Monomer, Pair, PairType, SuperSystem};
-use crate::initialization::{Atom, MO};
+use crate::fmo::{ExcitonStates, Monomer, PairType, SuperSystem};
+use crate::initialization::Atom;
 use crate::io::settings::LcmoConfig;
 use crate::properties::Properties;
-use crate::utils::Timer;
 use crate::{initial_subspace, Davidson};
-use nalgebra::{max, Vector3};
+use nalgebra::Vector3;
 use ndarray::prelude::*;
-use ndarray::{concatenate, AssignElem, Slice};
+use ndarray::{concatenate, Slice};
 use ndarray_linalg::{Eigh, UPLO};
-use ndarray_npy::write_npy;
 use rayon::prelude::*;
-use std::any::Any;
 use std::fmt::{Display, Formatter};
-use std::sync::Mutex;
-use std::time::Instant;
 
 impl SuperSystem<'_> {
     pub fn create_diabatic_basis(&self, n_ct: usize) -> Vec<BasisState> {
@@ -91,13 +85,13 @@ impl SuperSystem<'_> {
                         let type_ij: PairType = self.properties.type_of_pair(m_i.index, m_j.index);
 
                         // create both CT states
-                        let mut state_1 = PairChargeTransfer {
+                        let mut state_1 = ChargeTransferPreparation {
                             m_h: m_i,
                             m_l: m_j,
                             pair_type: type_ij,
                             properties: Properties::new(),
                         };
-                        let mut state_2 = PairChargeTransfer {
+                        let mut state_2 = ChargeTransferPreparation {
                             m_h: m_j,
                             m_l: m_i,
                             pair_type: type_ij,
@@ -373,7 +367,6 @@ pub enum BasisState<'a> {
     // Locally excited state that is on one monomer.
     LE(LocallyExcited<'a>),
     // Charge transfer state between two different monomers and two MOs.
-    CT(ChargeTransfer<'a>),
     PairCT(ChargeTransferPair),
 }
 
@@ -381,7 +374,6 @@ impl Display for BasisState<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             BasisState::LE(state) => write!(f, "{}", state),
-            BasisState::CT(state) => write!(f, "{}", state),
             BasisState::PairCT(state) => write!(f, "{}", state),
         }
     }
@@ -430,7 +422,7 @@ impl PartialEq for LocallyExcited<'_> {
 }
 
 #[derive(Clone, Debug)]
-pub struct PairChargeTransfer<'a> {
+pub struct ChargeTransferPreparation<'a> {
     pub m_h: &'a Monomer<'a>,
     pub m_l: &'a Monomer<'a>,
     pub pair_type: PairType,
@@ -472,49 +464,56 @@ impl Display for ChargeTransferPair {
     }
 }
 
-/// Type that holds all the relevant data that characterize a charge-transfer diabatic basis state.
-#[derive(Copy, Clone, Debug)]
-pub struct ChargeTransfer<'a> {
-    // // Reference to the total system. This is needed to access the complete Gamma matrix.
-    // pub system: &'a SuperSystem,
-    // The hole of the CT state.
-    pub hole: Particle<'a>,
-    // The electron of the CT state.
-    pub electron: Particle<'a>,
+#[derive(Clone, Debug)]
+pub enum ReducedBasisState {
+    LE(ReducedLE),
+    CT(ChargeTransferPair),
 }
 
-impl Display for ChargeTransfer<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CT: {} -> {}", self.hole, self.electron)
+#[derive(Clone, Debug)]
+pub struct ReducedLE {
+    pub energy: f64,
+    pub monomer_index: usize,
+    pub state_index: usize,
+    pub state_coefficient: f64,
+    pub homo: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReducedCT {
+    pub energy: f64,
+    pub monomer_index_h: usize,
+    pub monomer_index_e: usize,
+    pub state_index: usize,
+    pub state_coefficient: f64,
+}
+
+impl Display for ReducedBasisState {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            ReducedBasisState::LE(state) => write!(f, "{}", state),
+            ReducedBasisState::CT(state) => write!(f, "{}", state),
+        }
     }
 }
 
-impl PartialEq for ChargeTransfer<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.hole == other.hole && self.electron == other.electron
-    }
-}
-#[derive(Copy, Clone, Debug)]
-pub struct Particle<'a> {
-    /// The index of the corresponding monomer.
-    pub idx: usize,
-    /// The atoms of the corresponding monomer.
-    pub atoms: &'a [Atom],
-    /// The corresponding monomer itself.
-    pub monomer: &'a Monomer<'a>,
-    /// The corresponding molecular orbital.
-    pub mo: MO<'a>,
-}
-
-impl Display for Particle<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Frag. {: >4}", self.monomer.index + 1)
+impl Display for ReducedLE {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "LE(S{}) on Frag. {:>4}",
+            self.state_index + 1,
+            self.monomer_index + 1
+        )
     }
 }
 
-// TODO: this definition could lead to mistakes for degenerate orbitals
-impl PartialEq for Particle<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx && self.mo.e == other.mo.e
+impl Display for ReducedCT {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "CT(Nr.{}) between Frag.: {} -> {}",
+            self.state_index, self.monomer_index_h, self.monomer_index_e
+        )
     }
 }

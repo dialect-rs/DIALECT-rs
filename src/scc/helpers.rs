@@ -4,7 +4,6 @@ use crate::initialization::Atom;
 use itertools::Itertools;
 use log::debug;
 use ndarray::prelude::*;
-use ndarray_linalg::Norm;
 
 // find indices of HOMO and LUMO orbitals (starting from 0)
 pub fn get_frontier_orbitals(n_elec: usize) -> (usize, usize) {
@@ -98,7 +97,7 @@ pub fn get_electronic_energy_unrestricted(
     let e_spin: f64 = 0.5 * m_squared.dot(&spin_couplings);
 
     // electronic energy as sum of band structure energy and Coulomb energy
-    let mut e_elec: f64 = e_band_structure + e_coulomb + e_spin;
+    let e_elec: f64 = e_band_structure + e_coulomb + e_spin;
 
     return e_elec;
 }
@@ -180,7 +179,7 @@ pub fn get_electronic_energy_new(
     // Coulomb energy from monopoles
     let e_coulomb: f64 = 0.5 * &dq.dot(&gamma.dot(&dq));
     // electronic energy as sum of band structure energy and Coulomb energy
-    let mut e_elec: f64 = e_band_structure + e_coulomb;
+    let e_elec: f64 = e_band_structure + e_coulomb;
 
     return e_elec;
 }

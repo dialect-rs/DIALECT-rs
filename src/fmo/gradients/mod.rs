@@ -1,11 +1,7 @@
 use crate::fmo::*;
 use crate::initialization::*;
-use crate::scc::*;
-use crate::utils::Timer;
-use log::info;
 use nalgebra::Vector3;
 use ndarray::prelude::*;
-use std::iter::FromIterator;
 use std::ops::AddAssign;
 mod embedding;
 mod es_dimer;
@@ -15,6 +11,7 @@ mod pair;
 // mod numerical;
 use crate::fmo::gradients::embedding::diag_of_last_dimensions;
 use crate::fmo::helpers::get_pair_slice;
+use crate::gradients::dispersion::gradient_disp;
 pub use monomer::*;
 pub use pair::*;
 use rayon::prelude::*;
@@ -38,6 +35,11 @@ impl SuperSystem<'_> {
             mol.properties.set_q_vo(q_vo);
         }
         let mut grad: Array1<f64> = Array1::zeros(3 * atoms.len());
+
+        if self.config.dispersion.use_dispersion {
+            grad = grad + gradient_disp(&atoms, &self.config.dispersion);
+        }
+
         let monomer_gradient: Array1<f64> = self.monomer_gradients();
 
         let pair_gradient: Array1<f64> = self.pair_gradients(monomer_gradient.view());
@@ -58,7 +60,7 @@ impl SuperSystem<'_> {
         let mut grad_dq: Array1<f64> = Array1::zeros([3 * self.atoms.len()]);
 
         // Parallelization
-        let mut gradient_vec: Vec<Array1<f64>> = self
+        let gradient_vec: Vec<Array1<f64>> = self
             .monomers
             .par_iter_mut()
             .map(|mol| {

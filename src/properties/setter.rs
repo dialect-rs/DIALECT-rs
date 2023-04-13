@@ -1,7 +1,8 @@
 use crate::excited_states::ProductCache;
-use crate::fmo::PairType;
-use crate::fmo::SuperSystem;
-use crate::initialization::{Atom, MO};
+use crate::fmo::old_supersystem::OldSupersystem;
+use crate::fmo::{PairType, ReducedBasisState};
+use crate::initialization::old_system::OldSystem;
+use crate::initialization::Atom;
 use crate::properties::property::Property;
 use crate::properties::Properties;
 use crate::scc::mixer::{AndersonAccel, BroydenMixer};
@@ -331,7 +332,7 @@ impl Properties {
 
     /// set the difference of the excitation vectors x and y
     pub fn set_xmy(&mut self, xmy: Array3<f64>) {
-        self.set("xpy", Property::from(xmy))
+        self.set("xmy", Property::from(xmy))
     }
 
     /// Set the f matrix for the long-range contribution of the exc gradient
@@ -359,5 +360,25 @@ impl Properties {
 
     pub fn set_coupling_signs(&mut self, arr: Array1<f64>) {
         self.set("coupling_signs", Property::from(arr))
+    }
+
+    pub fn set_u_matrix(&mut self, u_matrix: Array3<f64>) {
+        self.set("u_matrix", Property::from(u_matrix))
+    }
+
+    pub fn set_orbs_derivative(&mut self, orbs_derivative: Array3<f64>) {
+        self.set("orbs_derivative", Property::from(orbs_derivative))
+    }
+
+    pub fn set_basis_states(&mut self, basis: Vec<ReducedBasisState>) {
+        self.set("basis_states", Property::from(basis))
+    }
+
+    pub fn set_old_supersystem(&mut self, supersystem: OldSupersystem) {
+        self.set("old_supersystem", Property::from(supersystem))
+    }
+
+    pub fn set_old_system(&mut self, system: OldSystem) {
+        self.set("old_system", Property::from(system))
     }
 }

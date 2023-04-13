@@ -2,7 +2,6 @@ use crate::defaults;
 use crate::initialization::Atom;
 use ndarray::prelude::*;
 use ndarray_linalg::Norm;
-use nshare::RefNdarray1;
 
 pub fn get_xyz_2d(atoms: &[Atom]) -> Array2<f64> {
     let mut xyz: Array2<f64> = Array2::zeros([0, 3]);
@@ -143,7 +142,7 @@ pub fn distance_matrix_pair(
     let cutoff: f64 = cutoff.unwrap_or(defaults::PROXIMITY_CUTOFF);
     let n_atoms_i: usize = coordinates_i.nrows();
     let n_atoms_j: usize = coordinates_j.nrows();
-    let n_atoms: usize = n_atoms_i + n_atoms_j;
+    let _n_atoms: usize = n_atoms_i + n_atoms_j;
     let mut dist_matrix: Array2<f64> = Array::zeros((n_atoms_i, n_atoms_j));
     let mut directions_matrix: Array3<f64> = Array::zeros((n_atoms_i, n_atoms_j, 3));
     let mut prox_matrix: Array2<bool> = Array::from_elem((n_atoms_i, n_atoms_j), false);

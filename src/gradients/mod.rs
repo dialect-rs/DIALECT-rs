@@ -1,3 +1,5 @@
+pub mod dispersion;
+mod excited_state;
 mod ground_state;
 pub mod helpers;
-mod numerical;
+pub mod numerical;

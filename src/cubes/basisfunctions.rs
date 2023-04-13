@@ -1,13 +1,10 @@
-use crate::cubes::helpers::{
-    spherical_harmonics_yreal, spline_radial_wavefunction, spline_radial_wavefunction_v2,
-};
-use crate::initialization::parameters::{PseudoAtom, PseudoAtomMio};
+use crate::cubes::helpers::{spherical_harmonics_yreal, spline_radial_wavefunction_v2};
+use crate::initialization::parameters::PseudoAtom;
 use crate::initialization::Atom;
 use hashbrown::HashMap;
 use nalgebra::Vector3;
 use ndarray::prelude::*;
 use ndarray_npy::write_npy;
-use rusty_fitpack::splev_uniform;
 use splines::Spline;
 
 #[derive(Debug, Clone)]
@@ -51,7 +48,7 @@ impl AtomicBasisFunction {
     pub fn eval_full_spline(&self) {
         let r_arr: Array1<f64> = Array::linspace(self.rmin + 1.0e-5, self.rmax - 0.05, 1000);
         let mut spline: Array1<f64> = Array1::zeros(r_arr.len());
-        for (r, mut spl) in r_arr.iter().zip(spline.iter_mut()) {
+        for (r, spl) in r_arr.iter().zip(spline.iter_mut()) {
             *spl = self.spline.sample(*r).unwrap();
         }
         write_npy(format!("spline_{}_{}.npy", self.z, self.l), &spline);
@@ -137,7 +134,7 @@ pub fn load_pseudo_atoms(
             let n = pseudo_atom.nshell[orb as usize];
             let l = pseudo_atom.angular_momenta[orb as usize];
 
-            for m in (-l..l + 1) {
+            for m in -l..l + 1 {
                 qnumber.push((n - 1, l, m));
                 radial_wavefunction.push(pseudo_atom.radial_wavefunctions[orb as usize].clone());
             }

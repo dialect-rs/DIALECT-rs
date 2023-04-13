@@ -2,7 +2,6 @@ use crate::defaults;
 use crate::scc::mixer::Mixer;
 use ndarray::*;
 use ndarray_linalg::{Inverse, Norm};
-use ndarray_stats::QuantileExt;
 
 /// Modified Broyden mixer
 ///
@@ -70,7 +69,7 @@ impl Mixer for BroydenMixer {
 
     /// Mixes dq from current diagonalization and the difference to the last iteration
     fn mix(&mut self, q: Array1<f64>, delta_q: Array1<f64>) -> Array1<f64> {
-        let q_in: Array1<f64> = q.clone();
+        let _q_in: Array1<f64> = q.clone();
         let mut q: Array1<f64> = q;
 
         let rel_change: f64 = &delta_q.norm() / &self.delta_q_old.norm();

@@ -1,14 +1,6 @@
 use crate::fmo::*;
-use crate::initialization::*;
 use crate::scc::gamma_approximation::gamma_gradients_atomwise_2d;
-use crate::scc::*;
-use crate::utils::array_helper::ToOwnedF;
-use crate::utils::Timer;
-use nalgebra::Vector3;
 use ndarray::prelude::*;
-use ndarray::RawData;
-use std::iter::FromIterator;
-use std::ops::{AddAssign, SubAssign};
 
 impl SuperSystem<'_> {
     /// Computes and returns the gradient of the embedding energy.

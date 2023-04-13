@@ -2,15 +2,11 @@ use crate::initialization::*;
 use hashbrown::HashMap;
 use libm;
 use nalgebra::Vector3;
-use ndarray::parallel::prelude::{
-    IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator,
-};
+use ndarray::parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator};
 use ndarray::prelude::*;
-use ndarray::AssignElem;
 use rayon::iter::IndexedParallelIterator;
 use rayon::iter::ParallelIterator;
 use std::f64::consts::PI;
-use std::iter::FromIterator;
 
 const PI_SQRT: f64 = 1.7724538509055159;
 
@@ -77,9 +73,9 @@ impl GammaFunction {
     fn eval(&self, r: f64, z_a: u8, z_b: u8) -> f64 {
         let result: f64 = match *self {
             GammaFunction::Gaussian {
-                ref sigma,
+                sigma: _,
                 ref c,
-                ref r_lr,
+                r_lr: _,
             } => {
                 assert!(r > 0.0);
                 libm::erf(c[&(z_a, z_b)] * r) / r
@@ -117,7 +113,7 @@ impl GammaFunction {
         let result: f64 = match *self {
             GammaFunction::Gaussian {
                 ref sigma,
-                ref c,
+                c: _,
                 ref r_lr,
             } => 1.0 / (PI * (sigma[&z].powi(2) + 0.25 * r_lr.powi(2))).sqrt(),
             GammaFunction::Slater { ref tau } => (5.0 / 16.0) * tau[&z],
@@ -128,9 +124,9 @@ impl GammaFunction {
     fn deriv(&self, r: f64, z_a: u8, z_b: u8) -> f64 {
         let result: f64 = match *self {
             GammaFunction::Gaussian {
-                ref sigma,
+                sigma: _,
                 ref c,
-                ref r_lr,
+                r_lr: _,
             } => {
                 assert!(r > 0.0);
                 let c_v: f64 = c[&(z_a, z_b)];
@@ -188,54 +184,6 @@ pub fn gamma_atomwise(gamma_func: &GammaFunction, atoms: &[Atom], n_atoms: usize
         }
     }
     return g0;
-}
-
-pub fn gamma_atomwise_unsafe(
-    gamma_func: &GammaFunction,
-    atoms: &[Atom],
-    n_atoms: usize,
-) -> Array2<f64> {
-    let mut g0: Array2<f64> = Array2::zeros((n_atoms, n_atoms));
-    unsafe {
-        for (i, atomi) in atoms.iter().enumerate() {
-            for (j, atomj) in atoms.iter().enumerate() {
-                if i == j {
-                    *g0.uget_mut([i, j]) = gamma_func.eval_limit0(atomi.number);
-                } else if i < j {
-                    *g0.uget_mut([i, j]) =
-                        gamma_func.eval((atomi - atomj).norm(), atomi.number, atomj.number);
-                } else {
-                    *g0.uget_mut([i, j]) = *g0.uget([j, i]);
-                }
-            }
-        }
-    }
-    return g0;
-}
-
-pub fn gamma_atomwise_par(gamma_func: &GammaFunction, atoms: &[Atom]) -> Array2<f64> {
-    let mut gamma = Array2::zeros((atoms.len(), atoms.len()));
-    /// The Gamma matrix is computed in parallel.
-    gamma
-        .axis_iter_mut(Axis(0))
-        .into_par_iter()
-        .zip(atoms.par_iter())
-        .enumerate()
-        .for_each(|(i, (mut row, atom_i))| {
-            row.assign(&Array::from_iter(atoms.iter().enumerate().map(
-                |(j, atom_j)| {
-                    if i == j {
-                        gamma_func.eval_limit0(atom_i.number)
-                    } else if i < j {
-                        gamma_func.eval((atom_i - atom_j).norm(), atom_i.number, atom_j.number)
-                    } else {
-                        0.0
-                    }
-                },
-            )))
-        });
-    gamma = &gamma + &gamma.t() - &Array::from_diag(&gamma.diag());
-    return gamma;
 }
 
 /// Compute the atomwise Coulomb interaction between two sets of atoms.
@@ -336,39 +284,11 @@ pub fn gamma_ao_wise(
     return (g0, g0_a0);
 }
 
-pub fn gamma_ao_wise_faster(
-    gamma_func: &GammaFunction,
-    atoms: &[Atom],
-    n_atoms: usize,
-    n_orbs: usize,
-) -> (Array2<f64>, Array2<f64>) {
-    let g0: Array2<f64> = gamma_atomwise(gamma_func, &atoms, n_atoms);
-    let mut g0_a0: Array2<f64> = Array2::zeros((n_orbs, n_orbs));
-    let mut mu: usize = 0;
-    let mut nu: usize;
-    for (atom_i, g0_i) in atoms.iter().zip(g0.outer_iter()) {
-        for _ in 0..atom_i.n_orbs {
-            nu = 0;
-            for (atom_j, g0_ij) in atoms.iter().zip(g0_i.iter()) {
-                for _ in 0..atom_j.n_orbs {
-                    if mu <= nu {
-                        g0_a0[[mu, nu]] = *g0_ij;
-                        g0_a0[[nu, mu]] = *g0_ij;
-                    }
-                    nu = nu + 1;
-                }
-            }
-            mu = mu + 1;
-        }
-    }
-    return (g0, g0_a0);
-}
-
 pub fn gamma_ao_wise_from_gamma_atomwise(
     gamma_atomwise: ArrayView2<f64>,
     atoms: &[Atom],
     n_orbs: usize,
-) -> (Array2<f64>) {
+) -> Array2<f64> {
     let mut g0_a0: Array2<f64> = Array2::zeros((n_orbs, n_orbs));
     let mut mu: usize = 0;
     let mut nu: usize;
@@ -451,43 +371,6 @@ pub fn gamma_gradients_ao_wise_from_atomwise(
         }
     }
     return g1_a0;
-}
-
-pub fn gamma_gradients_ao_wise_faster(
-    gamma_func: &GammaFunction,
-    atoms: &[Atom],
-    n_atoms: usize,
-    n_orbs: usize,
-) -> (Array3<f64>, Array3<f64>) {
-    let g1: Array3<f64> = gamma_gradients_atomwise(gamma_func, &atoms, n_atoms);
-    let mut g1_a0: Array3<f64> = Array3::zeros((3 * n_atoms, n_orbs, n_orbs));
-    let mut mu: usize = 0;
-    let mut nu: usize;
-
-    for (i, atomi) in atoms.iter().enumerate() {
-        for _ in 0..atomi.n_orbs {
-            nu = 0;
-            for (j, (atomj, g_ij)) in atoms
-                .iter()
-                .zip(g1.slice(s![(3 * i)..(3 * i + 3), i, ..]).axis_iter(Axis(1)))
-                .enumerate()
-            {
-                for _ in 0..atomj.n_orbs {
-                    if i != j {
-                        g1_a0
-                            .slice_mut(s![(3 * i)..(3 * i + 3), mu, nu])
-                            .assign(&g_ij);
-                        g1_a0
-                            .slice_mut(s![(3 * i)..(3 * i + 3), nu, mu])
-                            .assign(&g_ij);
-                    }
-                    nu = nu + 1;
-                }
-            }
-            mu = mu + 1;
-        }
-    }
-    return (g1, g1_a0);
 }
 
 #[cfg(test)]

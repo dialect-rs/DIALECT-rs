@@ -1,13 +1,13 @@
 mod ct_pair;
-mod moments;
+pub mod moments;
 mod monomer;
-mod new_mod;
-mod system;
+pub mod new_mod;
+pub mod system;
 
 use crate::excited_states::solvers::davidson::Davidson;
-use crate::excited_states::tda::new_mod::TdaStates;
-use crate::excited_states::{initial_subspace, orbe_differences, ExcitedState, ProductCache};
-use crate::fmo::{Fragment, Monomer};
+use crate::excited_states::tda::new_mod::ExcitedStates;
+use crate::excited_states::{initial_subspace, ProductCache};
+use crate::fmo::Monomer;
 use crate::initialization::{Atom, System};
 use moments::{mulliken_dipoles, oscillator_strength};
 use ndarray::prelude::*;
@@ -64,7 +64,7 @@ impl Monomer<'_> {
             .into_shape([n_occ, n_virt, f.len()])
             .unwrap();
 
-        let states: TdaStates = TdaStates {
+        let states: ExcitedStates = ExcitedStates {
             total_energy: self.properties.last_energy().unwrap(),
             energies: davidson.eigenvalues.clone(),
             tdm: tdm,
@@ -81,7 +81,7 @@ impl Monomer<'_> {
         self.properties.set_oscillator_strengths(f);
 
         println!("{}", states);
-        // states.ntos_to_molden(&atoms, 0, "/Users/hochej/Downloads/s1.molden");
+        // states.ntos_to_molden(&atoms, 0, "/path");
     }
 }
 
@@ -92,6 +92,7 @@ impl System {
         max_iter: usize,
         tolerance: f64,
         subspace_multiplier: usize,
+        print_states: bool,
     ) {
         // Set an empty product cache.
         self.properties.set_cache(ProductCache::new());
@@ -136,7 +137,7 @@ impl System {
             .into_shape([n_occ, n_virt, f.len()])
             .unwrap();
 
-        let states: TdaStates = TdaStates {
+        let states: ExcitedStates = ExcitedStates {
             total_energy: self.properties.last_energy().unwrap(),
             energies: davidson.eigenvalues.clone(),
             tdm: tdm,
@@ -155,7 +156,9 @@ impl System {
         self.properties.set_tr_dipoles(tr_dipoles);
         self.properties.set_oscillator_strengths(f);
 
-        println!("{}", states);
+        if print_states {
+            println!("{}", states);
+        }
 
         //print_states(&self, n_roots);
     }
@@ -203,10 +206,10 @@ impl System {
         let mut n_occ: usize = self.properties.occ_indices().unwrap().len();
         let mut n_virt: usize = self.properties.virt_indices().unwrap().len();
 
-        n_occ = (self.occ_indices.len() as f64 * self.config.tda_dftb.active_orbital_threshold)
-            as usize;
-        n_virt = (self.virt_indices.len() as f64 * self.config.tda_dftb.active_orbital_threshold)
-            as usize;
+        n_occ =
+            (self.occ_indices.len() as f64 * self.config.tddftb.active_orbital_threshold) as usize;
+        n_virt =
+            (self.virt_indices.len() as f64 * self.config.tddftb.active_orbital_threshold) as usize;
 
         let tdm: Array3<f64> = davidson
             .eigenvectors
@@ -216,7 +219,7 @@ impl System {
             .into_shape([n_occ, n_virt, f.len()])
             .unwrap();
 
-        let states: TdaStates = TdaStates {
+        let states: ExcitedStates = ExcitedStates {
             total_energy: self.properties.last_energy().unwrap(),
             energies: davidson.eigenvalues.clone(),
             tdm: tdm,
@@ -265,7 +268,7 @@ impl System {
             .into_shape([n_occ, n_virt, f.len()])
             .unwrap();
 
-        let states: TdaStates = TdaStates {
+        let states: ExcitedStates = ExcitedStates {
             total_energy: self.properties.last_energy().unwrap(),
             energies: eigenvalues.clone(),
             tdm: tdm,

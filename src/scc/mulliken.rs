@@ -1,5 +1,4 @@
 use crate::initialization::Atom;
-use itertools::Itertools;
 use ndarray::prelude::*;
 
 /// Calculate Mulliken charges according to:
@@ -11,7 +10,7 @@ pub fn mulliken(p: ArrayView2<f64>, s: ArrayView2<f64>, atoms: &[Atom]) -> Array
     let q_ao: Array1<f64> = s.dot(&p).diag().to_owned();
 
     let mut mu = 0;
-    for (mut q_i, atomi) in q.iter_mut().zip(atoms.iter()) {
+    for (q_i, atomi) in q.iter_mut().zip(atoms.iter()) {
         for _ in 0..atomi.n_orbs {
             *q_i += q_ao[mu];
             mu += 1;
@@ -25,7 +24,7 @@ pub fn mulliken_atomwise(
     s: ArrayView2<f64>,
     atoms: &[Atom],
     n_atoms: usize,
-) -> (Array1<f64>) {
+) -> Array1<f64> {
     let mut q: Array1<f64> = Array1::<f64>::zeros(n_atoms);
 
     // iterate over atoms A

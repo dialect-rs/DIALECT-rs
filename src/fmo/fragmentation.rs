@@ -1,10 +1,9 @@
-use crate::constants::{ATOM_NAMES, BOND_THRESHOLD};
+use crate::constants::BOND_THRESHOLD;
 use crate::initialization::Atom;
 use hashbrown::HashSet;
 use petgraph::graphmap::GraphMap;
 use petgraph::prelude::*;
 use petgraph::visit::Bfs;
-use std::collections::HashMap;
 
 pub type Graph = GraphMap<usize, (), Undirected>;
 

@@ -1,4 +1,3 @@
-use crate::utils::array_helper::argsort;
 use ndarray::concatenate;
 use ndarray::prelude::*;
 use ndarray_linalg::SVD;
@@ -114,9 +113,9 @@ impl CropCoeffs {
     }
 }
 
-pub fn get_nto_singular_values(tdm: ArrayView2<f64>) -> (Array1<f64>) {
+pub fn get_nto_singular_values(tdm: ArrayView2<f64>) -> Array1<f64> {
     // Singular value decomposition of the reduced transition density matrix in MO basis.
-    let (u, sigma, vt): (Option<Array2<f64>>, Array1<f64>, Option<Array2<f64>>) =
+    let (_u, sigma, _vt): (Option<Array2<f64>>, Array1<f64>, Option<Array2<f64>>) =
         tdm.svd(false, false).unwrap();
 
     // Singular values.

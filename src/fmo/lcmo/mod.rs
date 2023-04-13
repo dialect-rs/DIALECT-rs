@@ -2,27 +2,18 @@ pub mod basis;
 mod hamiltonian;
 mod integrals;
 mod lcmo_trans_charges;
-
 use crate::constants::HARTREE_TO_EV;
 use crate::excited_states::ntos::get_nto_singular_values;
 use crate::excited_states::ExcitedState;
-use crate::fmo::helpers::get_pair_slice;
-use crate::fmo::lcmo::lcmo_trans_charges::q_pp;
-use crate::initialization::{get_xyz_2d, Atom};
-use crate::utils::array_helper::{argsort32_abs, argsort_abs};
-use crate::MoldenExporter;
-use crate::MoldenExporterBuilder;
+use crate::initialization::Atom;
+use crate::utils::array_helper::argsort_abs;
 pub use basis::*;
 use nalgebra::Vector3;
 use ndarray::prelude::*;
-use ndarray::Data;
-use ndarray_linalg::{Lapack, Scalar};
-use ndarray_npy::{write_npy, WriteNpyError};
+use ndarray_npy::write_npy;
 use num_traits::Zero;
 use rayon::prelude::*;
 use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::Write;
 use std::ops::AddAssign;
 
 /// Structure that contains all necessary information to specify the excited states in
@@ -83,15 +74,6 @@ impl ExcitedState for ExcitonStates<'_> {
                         tdm.slice_mut(s![occs, virts])
                             .add_assign(&(*c * &state_tdm));
                     }
-                    BasisState::CT(state) => {
-                        // Monomer indices
-                        let h_mo: usize = state.hole.mo.idx;
-                        let e_mo: usize = state.electron.mo.idx
-                            - state.electron.monomer.properties.n_occ().unwrap();
-                        let hole_slice = state.hole.monomer.slice.occ_orb;
-                        let particle_slice = state.electron.monomer.slice.virt_orb;
-                        tdm.slice_mut(s![hole_slice, particle_slice])[[h_mo, e_mo]] += *c;
-                    }
                     BasisState::PairCT(state) => {
                         let occs = state.occ_orb;
                         let virts = state.virt_orb;
@@ -99,7 +81,6 @@ impl ExcitedState for ExcitonStates<'_> {
                         tdm.slice_mut(s![occs, virts])
                             .add_assign(&(*c * &state.eigenvectors));
                     }
-                    _ => {}
                 }
             }
         }
@@ -128,15 +109,15 @@ impl<'a> ExcitonStates<'a> {
         basis: Vec<BasisState<'a>>,
         dim: (usize, usize),
         orbs: Array2<f64>,
-        overlap: ArrayView2<f64>,
-        atoms: &[Atom],
+        _overlap: ArrayView2<f64>,
+        _atoms: &[Atom],
     ) -> Self {
         // The transition dipole moments and oscillator strengths need to be computed.
         let mut f: Array1<f64> = Array1::zeros([eig.0.len()]);
         let mut transition_dipoles: Vec<Vector3<f64>> = Vec::with_capacity(eig.0.len());
 
         // Iterate over all exciton states.
-        for (mut fi, (e, vs)) in f.iter_mut().zip(eig.0.iter().zip(eig.1.axis_iter(Axis(1)))) {
+        for (fi, (e, vs)) in f.iter_mut().zip(eig.0.iter().zip(eig.1.axis_iter(Axis(1)))) {
             // Initialize the transition dipole moment for the current state.
             let mut tr_dip: Vector3<f64> = Vector3::zero();
 
@@ -148,24 +129,9 @@ impl<'a> ExcitonStates<'a> {
                     BasisState::LE(state) => {
                         tr_dip += state.tr_dipole.scale(*v);
                     }
-                    BasisState::CT(state) => {
-                        let (i, j): (&Particle, &Particle) = (&state.electron, &state.hole);
-                        let s_ij: ArrayView2<f64> =
-                            overlap.slice(s![i.monomer.slice.orb, j.monomer.slice.orb]);
-                        let q_ia: Array1<f64> = q_pp(&i, &j, s_ij.view());
-                        let pair_atoms: Vec<Atom> = get_pair_slice(
-                            &atoms,
-                            i.monomer.slice.atom_as_range(),
-                            j.monomer.slice.atom_as_range(),
-                        );
-                        let atoms_2d = get_xyz_2d(&pair_atoms);
-                        let dip = q_ia.dot(&atoms_2d);
-                        tr_dip += Vector3::new(dip[0], dip[1], dip[2]).scale(*v);
-                    }
                     BasisState::PairCT(state) => {
                         tr_dip += state.tr_dipole.scale(*v);
                     }
-                    _ => {}
                 }
             }
             *fi = 2.0 / 3.0 * e * tr_dip.dot(&tr_dip);
@@ -258,7 +224,7 @@ impl<'a> ExcitonStates<'a> {
         let mut participation_numbers: Array1<f64> = Array1::zeros(self.energies.raw_dim());
 
         // Create the output for each exciton state.
-        for (n, (e, v)) in self
+        for (n, (_e, v)) in self
             .energies
             .iter()
             .zip(self.coefficients.axis_iter(Axis(1)))
@@ -277,14 +243,11 @@ impl<'a> ExcitonStates<'a> {
 
                 let state = self.basis.get(i).unwrap();
                 match state {
-                    BasisState::LE(ref a) => {
+                    BasisState::LE(ref _a) => {
                         amplitudes.push(c);
                         squared_value += c.powi(2);
                     }
-                    BasisState::PairCT(ref a) => {
-                        squared_value += c.powi(2);
-                    }
-                    BasisState::CT(ref a) => {
+                    BasisState::PairCT(ref _a) => {
                         squared_value += c.powi(2);
                     }
                 }

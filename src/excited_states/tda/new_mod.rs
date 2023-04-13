@@ -1,14 +1,10 @@
 use crate::constants::HARTREE_TO_EV;
 use crate::excited_states::ExcitedState;
-use nalgebra::Vector3;
 use ndarray::prelude::*;
-use ndarray::Data;
-use ndarray_linalg::{Lapack, Scalar};
-use ndarray_npy::{write_npy, WriteNpyError};
 use std::fmt::{Display, Formatter};
 
 /// Structure that contains all necessary information
-pub struct TdaStates {
+pub struct ExcitedStates {
     /// Total energy of the electronic ground state.
     pub total_energy: f64,
     /// Excitation energies.
@@ -23,7 +19,7 @@ pub struct TdaStates {
     pub orbs: Array2<f64>,
 }
 
-impl ExcitedState for TdaStates {
+impl ExcitedState for ExcitedStates {
     fn get_lumo(&self) -> usize {
         self.tdm.dim().0
     }
@@ -49,14 +45,14 @@ impl ExcitedState for TdaStates {
     }
 }
 
-impl Display for TdaStates {
+impl Display for ExcitedStates {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let threshold: f64 = 0.1;
         // Empty line for the new block.
         let mut txt: String = format!("{:^80}\n", "");
 
         // Header.
-        txt += &format!("{: ^80}\n", "TDA Excitation Energies");
+        txt += &format!("{: ^80}\n", "Excitation Energies");
 
         // Horizontal rule.
         txt += &format!("{:-^75}\n", "");

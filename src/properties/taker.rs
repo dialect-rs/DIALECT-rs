@@ -1,5 +1,4 @@
 use crate::excited_states::ProductCache;
-use crate::fmo::SuperSystem;
 use crate::properties::property::Property;
 use crate::properties::Properties;
 use crate::scc::mixer::{AndersonAccel, BroydenMixer};

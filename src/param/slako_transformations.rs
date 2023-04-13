@@ -1,5 +1,5 @@
-use crate::initialization::parameters::*;
-use nalgebra::{Vector3, VectorSlice3};
+use libm::sqrt;
+use nalgebra::Vector3;
 use ndarray::prelude::*;
 use rusty_fitpack::{splder_uniform, splev_uniform};
 use std::collections::HashMap;
@@ -6402,4 +6402,10140 @@ pub fn slako_transformation_gradients(
         _ => panic!("No combination of l1, m1, l2, m2 found!"),
     };
     return array![grad0, grad1, grad2];
+}
+
+/// transformation rules for dipole matrix elements
+/// taken from the python implementation of A. Humeniuk in the DFTBaby program
+pub fn slako_transformations_dipole(
+    r: f64,
+    x: f64,
+    y: f64,
+    z: f64,
+    dipole: &HashMap<u8, (Vec<f64>, Vec<f64>, usize)>,
+    l1: i8,
+    m1: i8,
+    l2: i8,
+    m2: i8,
+    d1: i8,
+    d2: i8,
+) -> f64 {
+    let value = match (l1, m1, d1, d2, l2, m2) {
+        (0, 0, 1, -1, 0, 0) => y * splev_uniform(&dipole[&3].0, &dipole[&3].1, dipole[&3].2, r),
+        (0, 0, 1, -1, 1, -1) => {
+            (x.powi(2) + z.powi(2)) * splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                + y.powi(2) * splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r)
+        }
+        (0, 0, 1, -1, 1, 0) => {
+            y * z
+                * (-splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                    + splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r))
+        }
+        (0, 0, 1, -1, 1, 1) => {
+            x * y
+                * (-splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                    + splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r))
+        }
+        (0, 0, 1, -1, 2, -2) => {
+            x * ((x.powi(2) - y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                + y.powi(2)
+                    * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                    * sqrt(3.0_f64))
+        }
+        (0, 0, 1, -1, 2, -1) => {
+            z * ((x.powi(2) - y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                + y.powi(2)
+                    * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                    * 3.0_f64.sqrt())
+        }
+        (0, 0, 1, -1, 2, 0) => {
+            -(y * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                + 2.0
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                    * sqrt(3.0)))
+                / 2.0
+        }
+        (0, 0, 1, -1, 2, 1) => {
+            x * y
+                * z
+                * (-2.0 * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                    + splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r) * sqrt(3.0))
+        }
+        (0, 0, 1, -1, 2, 2) => {
+            -(y * (2.0
+                * (2.0 * x.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                + (-x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (0, 0, 1, 0, 0, 0) => z * splev_uniform(&dipole[&3].0, &dipole[&3].1, dipole[&3].2, r),
+        (0, 0, 1, 0, 1, -1) => {
+            y * z
+                * (-splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                    + splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r))
+        }
+        (0, 0, 1, 0, 1, 0) => {
+            (x.powi(2) + y.powi(2)) * splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                + z.powi(2) * splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r)
+        }
+        (0, 0, 1, 0, 1, 1) => {
+            x * z
+                * (-splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                    + splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r))
+        }
+        (0, 0, 1, 0, 2, -2) => {
+            x * y
+                * z
+                * (-2.0 * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                    + splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r) * sqrt(3.0))
+        }
+        (0, 0, 1, 0, 2, -1) => {
+            y * ((x.powi(2) + y.powi(2) - z.powi(2))
+                * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                + z.powi(2)
+                    * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                    * sqrt(3.0))
+        }
+        (0, 0, 1, 0, 2, 0) => {
+            z.powi(3) * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                - ((x.powi(2) + y.powi(2))
+                    * z
+                    * (splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                        - 2.0
+                            * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                            * sqrt(3.0)))
+                    / 2.
+        }
+        (0, 0, 1, 0, 2, 1) => {
+            x * ((x.powi(2) + y.powi(2) - z.powi(2))
+                * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                + z.powi(2)
+                    * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                    * sqrt(3.0))
+        }
+        (0, 0, 1, 0, 2, 2) => {
+            -((x - y)
+                * (x + y)
+                * z
+                * (2.0 * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                    - splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r) * sqrt(3.0)))
+                / 2.
+        }
+        (0, 0, 1, 1, 0, 0) => x * splev_uniform(&dipole[&3].0, &dipole[&3].1, dipole[&3].2, r),
+        (0, 0, 1, 1, 1, -1) => {
+            x * y
+                * (-splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                    + splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r))
+        }
+        (0, 0, 1, 1, 1, 0) => {
+            x * z
+                * (-splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                    + splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r))
+        }
+        (0, 0, 1, 1, 1, 1) => {
+            (y.powi(2) + z.powi(2)) * splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
+                + x.powi(2) * splev_uniform(&dipole[&4].0, &dipole[&4].1, dipole[&4].2, r)
+        }
+        (0, 0, 1, 1, 2, -2) => {
+            y * ((-x.powi(2) + y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                + x.powi(2)
+                    * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                    * sqrt(3.0))
+        }
+        (0, 0, 1, 1, 2, -1) => {
+            x * y
+                * z
+                * (-2.0 * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                    + splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r) * sqrt(3.0))
+        }
+        (0, 0, 1, 1, 2, 0) => {
+            -(x * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                + 2.0
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (0, 0, 1, 1, 2, 1) => {
+            z * ((-x.powi(2) + y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                + x.powi(2)
+                    * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                    * sqrt(3.0))
+        }
+        (0, 0, 1, 1, 2, 2) => {
+            x * (2.0 * y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&2].0, &dipole[&2].1, dipole[&2].2, r)
+                + (x * (x - y)
+                    * (x + y)
+                    * splev_uniform(&dipole[&5].0, &dipole[&5].1, dipole[&5].2, r)
+                    * sqrt(3.0))
+                    / 2.
+        }
+        (1, -1, 1, -1, 0, 0) => {
+            (x.powi(2) + z.powi(2)) * splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                + y.powi(2) * splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r)
+        }
+        (1, -1, 1, -1, 1, -1) => {
+            y * (x.powi(2) + z.powi(2))
+                * (splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    + 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r))
+                + y.powi(3) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)
+        }
+        (1, -1, 1, -1, 1, 0) => {
+            z * ((x.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                + y.powi(2)
+                    * (-2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, -1, 1, -1, 1, 1) => {
+            x * ((x.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                + y.powi(2)
+                    * (-2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, -1, 1, -1, 2, -2) => {
+            (x * y
+                * (-(y.powi(2)
+                    * z.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                    + 2.0
+                        * (x.powi(2) + y.powi(2)).powi(2)
+                        * (x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    - (x.powi(4) + x.powi(2) * y.powi(2) + 2.0 * y.powi(2) * z.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    + (x.powi(2) + y.powi(2)).powi(2)
+                        * ((x.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            + y.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (1, -1, 1, -1, 2, -1) => {
+            (y * z
+                * (y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    - x.powi(2) * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * ((x.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            + y.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, -1, 1, -1, 2, 0) => {
+            (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * ((x.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                    + y.powi(2) * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)))
+                - (y.powi(2)
+                    * z.powi(2)
+                    * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                        + 4.0 * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r))
+                    + x.powi(2)
+                        * (x.powi(2) + y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                    * sqrt(3.0))
+                / 2.
+        }
+        (1, -1, 1, -1, 2, 1) => {
+            (x * z
+                * (y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    - 4.0
+                        * y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + (x.powi(2) + 2.0 * y.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * ((x.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            + y.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, -1, 1, -1, 2, 2) => {
+            (y.powi(2)
+                * (-x + y)
+                * (x + y)
+                * z.powi(2)
+                * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                - 4.0
+                    * y.powi(2)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * (2.0 * x.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                - x.powi(2)
+                    * (x.powi(4) - y.powi(4) + 2.0 * (x.powi(2) + 3.0 * y.powi(2)) * z.powi(2))
+                    * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                + (x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * ((x.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        + y.powi(2)
+                            * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    * sqrt(3.0))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (1, -1, 1, 0, 0, 0) => {
+            y * z
+                * (-splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                    + splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r))
+        }
+        (1, -1, 1, 0, 1, -1) => {
+            z * (-(y.powi(2) * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r))
+                + (x.powi(2) - y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                + y.powi(2) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, -1, 1, 0, 1, 0) => {
+            y * ((x.powi(2) + y.powi(2))
+                * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                - z.powi(2)
+                    * (splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                        + splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        - splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, -1, 1, 0, 1, 1) => {
+            x * y
+                * z
+                * (-splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    - 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                    + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, -1, 1, 0, 2, -2) => {
+            (x * z
+                * (y.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - 3.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + (-x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, -1, 1, 0, 2, -1) => {
+            -(y.powi(2)
+                * z.powi(2)
+                * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                + ((y.powi(2) - z.powi(2)).powi(2) + x.powi(2) * (y.powi(2) + z.powi(2)))
+                    * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                + x.powi(2)
+                    * (x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                + y.powi(2)
+                    * z.powi(2)
+                    * (-splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        + splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    * sqrt(3.0)
+        }
+        (1, -1, 1, 0, 2, 0) => {
+            (y * z
+                * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    + ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                        + 2.0
+                            * (x.powi(2) + y.powi(2) - z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (1, -1, 1, 0, 2, 1) => {
+            x * y
+                * ((x.powi(2) + y.powi(2))
+                    * (splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                        - splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                    - z.powi(2)
+                        * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                            + (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                                - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                                * sqrt(3.0)))
+        }
+        (1, -1, 1, 0, 2, 2) => {
+            (y * z
+                * ((x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (3.0 * x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + 4.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - (x.powi(4) - y.powi(4))
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (1, -1, 1, 1, 0, 0) => {
+            x * y
+                * (-splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                    + splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r))
+        }
+        (1, -1, 1, 1, 1, -1) => {
+            x * (-(y.powi(2) * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r))
+                + (x.powi(2) - y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                + y.powi(2) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, -1, 1, 1, 1, 0) => {
+            x * y
+                * z
+                * (-splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    - 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                    + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, -1, 1, 1, 1, 1) => {
+            y * (-(x.powi(2) * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r))
+                + (-x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                + x.powi(2) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, -1, 1, 1, 2, -2) => {
+            (-(x.powi(2)
+                * y.powi(2)
+                * z.powi(2)
+                * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                + (x.powi(2) + y.powi(2)).powi(2)
+                    * ((x.powi(2) - y.powi(2)).powi(2) + (x.powi(2) + y.powi(2)) * z.powi(2))
+                    * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                + (x.powi(2) * y.powi(2) * (x.powi(2) + y.powi(2))
+                    + (x.powi(4) + y.powi(4)) * z.powi(2))
+                    * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                - y.powi(2)
+                    * (x.powi(3) + x * y.powi(2)).powi(2)
+                    * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    * sqrt(3.0))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (1, -1, 1, 1, 2, -1) => {
+            (x * z
+                * (y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - 3.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    - x.powi(2) * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, -1, 1, 1, 2, 0) => {
+            (x * y
+                * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    + (-(z.powi(2)
+                        * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                            + 4.0
+                                * splev_uniform(
+                                    &dipole[&11].0,
+                                    &dipole[&11].1,
+                                    dipole[&11].2,
+                                    r,
+                                )))
+                        + (x.powi(2) + y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (1, -1, 1, 1, 2, 1) => {
+            (y * z
+                * (x.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    - y.powi(2) * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - x.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        * sqrt(3.0)
+                    + (x.powi(2) + y.powi(2))
+                        * ((-3.0 * x.powi(2) + y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, -1, 1, 1, 2, 2) => {
+            (x * (x - y)
+                * y
+                * (x + y)
+                * (-(z.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                    - 4.0
+                        * (x.powi(2) + y.powi(2)).powi(2)
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - (x.powi(2) + y.powi(2)).powi(2)
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (1, 0, 1, -1, 0, 0) => {
+            y * z
+                * (-splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                    + splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r))
+        }
+        (1, 0, 1, -1, 1, -1) => {
+            z * (-(y.powi(2) * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r))
+                + (x.powi(2) - y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                + y.powi(2) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 0, 1, -1, 1, 0) => {
+            y * ((x.powi(2) + y.powi(2))
+                * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                - z.powi(2)
+                    * (splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                        + splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        - splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, 0, 1, -1, 1, 1) => {
+            x * y
+                * z
+                * (-splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    - 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                    + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 0, 1, -1, 2, -2) => {
+            (x * z
+                * (y.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - 3.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + (-x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, 0, 1, -1, 2, -1) => {
+            -(y.powi(2)
+                * z.powi(2)
+                * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                + ((y.powi(2) - z.powi(2)).powi(2) + x.powi(2) * (y.powi(2) + z.powi(2)))
+                    * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                + x.powi(2)
+                    * (x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                + y.powi(2)
+                    * z.powi(2)
+                    * (-splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        + splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    * sqrt(3.0)
+        }
+        (1, 0, 1, -1, 2, 0) => {
+            (y * z
+                * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    + ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                        + 2.0
+                            * (x.powi(2) + y.powi(2) - z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (1, 0, 1, -1, 2, 1) => {
+            x * y
+                * ((x.powi(2) + y.powi(2))
+                    * (splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                        - splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                    - z.powi(2)
+                        * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                            + (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                                - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                                * sqrt(3.0)))
+        }
+        (1, 0, 1, -1, 2, 2) => {
+            (y * z
+                * ((x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (3.0 * x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + 4.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - (x.powi(4) - y.powi(4))
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (1, 0, 1, 0, 0, 0) => {
+            (x.powi(2) + y.powi(2)) * splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                + z.powi(2) * splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r)
+        }
+        (1, 0, 1, 0, 1, -1) => {
+            y * ((x.powi(2) + y.powi(2))
+                * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                + z.powi(2)
+                    * (-2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, 0, 1, 0, 1, 0) => {
+            (x.powi(2) + y.powi(2))
+                * z
+                * (splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    + 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r))
+                + z.powi(3) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)
+        }
+        (1, 0, 1, 0, 1, 1) => {
+            x * ((x.powi(2) + y.powi(2))
+                * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                + z.powi(2)
+                    * (-2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, 0, 1, 0, 2, -2) => {
+            x * y
+                * (-((x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                    + (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        * sqrt(3.0)
+                    + z.powi(2)
+                        * (-4.0 * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                                * sqrt(3.0)))
+        }
+        (1, 0, 1, 0, 2, -1) => {
+            y * (x.powi(2) + y.powi(2))
+                * z
+                * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + 2.0 * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r) * sqrt(3.0))
+                + y * z.powi(3)
+                    * (-2.0 * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                        + splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                            * sqrt(3.0))
+        }
+        (1, 0, 1, 0, 2, 0) => {
+            (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * ((x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                    + z.powi(2) * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)))
+                - (x.powi(2) + y.powi(2))
+                    * ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                        - 4.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r))
+                    * sqrt(3.0))
+                / 2.
+        }
+        (1, 0, 1, 0, 2, 1) => {
+            x * (x.powi(2) + y.powi(2))
+                * z
+                * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + 2.0 * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r) * sqrt(3.0))
+                + x * z.powi(3)
+                    * (-2.0 * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                        + splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                            * sqrt(3.0))
+        }
+        (1, 0, 1, 0, 2, 2) => {
+            ((x - y)
+                * (x + y)
+                * (-((x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                    + (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        * sqrt(3.0)
+                    + z.powi(2)
+                        * (-4.0 * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                                * sqrt(3.0))))
+                / 2.
+        }
+        (1, 0, 1, 1, 0, 0) => {
+            x * z
+                * (-splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                    + splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r))
+        }
+        (1, 0, 1, 1, 1, -1) => {
+            x * y
+                * z
+                * (-splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    - 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                    + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 0, 1, 1, 1, 0) => {
+            x * ((x.powi(2) + y.powi(2))
+                * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                - z.powi(2)
+                    * (splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                        + splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        - splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, 0, 1, 1, 1, 1) => {
+            z * (-(x.powi(2) * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r))
+                + (-x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                + x.powi(2) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 0, 1, 1, 2, -2) => {
+            (y * z
+                * (x.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + (x - y)
+                        * (x + y)
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - x.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        * sqrt(3.0)
+                    + (x.powi(2) + y.powi(2))
+                        * ((-3.0 * x.powi(2) + y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, 0, 1, 1, 2, -1) => {
+            x * y
+                * ((x.powi(2) + y.powi(2))
+                    * (splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                        - splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                    - z.powi(2)
+                        * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                            + (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                                - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                                * sqrt(3.0)))
+        }
+        (1, 0, 1, 1, 2, 0) => {
+            (x * z
+                * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    + ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                        + 2.0
+                            * (x.powi(2) + y.powi(2) - z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (1, 0, 1, 1, 2, 1) => {
+            x.powi(4) * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                + (y.powi(2) + z.powi(2))
+                    * (z.powi(2) * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                        + y.powi(2)
+                            * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                + x.powi(2)
+                    * (y.powi(2)
+                        * (splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                        - z.powi(2)
+                            * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&11].0,
+                                        &dipole[&11].1,
+                                        dipole[&11].2,
+                                        r,
+                                    )
+                                + (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                                    - splev_uniform(
+                                        &dipole[&15].0,
+                                        &dipole[&15].1,
+                                        dipole[&15].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+        }
+        (1, 0, 1, 1, 2, 2) => {
+            (x * z
+                * ((x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - 3.0 * y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    - 4.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    + (-x.powi(4) + y.powi(4))
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (1, 1, 1, -1, 0, 0) => {
+            x * y
+                * (-splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                    + splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r))
+        }
+        (1, 1, 1, -1, 1, -1) => {
+            x * (-(y.powi(2) * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r))
+                + (x.powi(2) - y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                + y.powi(2) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 1, 1, -1, 1, 0) => {
+            x * y
+                * z
+                * (-splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    - 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                    + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 1, 1, -1, 1, 1) => {
+            y * (-(x.powi(2) * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r))
+                + (-x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                + x.powi(2) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 1, 1, -1, 2, -2) => {
+            (-(x.powi(2)
+                * y.powi(2)
+                * z.powi(2)
+                * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                + (x.powi(2) + y.powi(2)).powi(2)
+                    * ((x.powi(2) - y.powi(2)).powi(2) + (x.powi(2) + y.powi(2)) * z.powi(2))
+                    * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                + (x.powi(2) * y.powi(2) * (x.powi(2) + y.powi(2))
+                    + (x.powi(4) + y.powi(4)) * z.powi(2))
+                    * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                - y.powi(2)
+                    * (x.powi(3) + x * y.powi(2)).powi(2)
+                    * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    * sqrt(3.0))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (1, 1, 1, -1, 2, -1) => {
+            (x * z
+                * (y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - 3.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    - x.powi(2) * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, 1, 1, -1, 2, 0) => {
+            (x * y
+                * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    + (-(z.powi(2)
+                        * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                            + 4.0
+                                * splev_uniform(
+                                    &dipole[&11].0,
+                                    &dipole[&11].1,
+                                    dipole[&11].2,
+                                    r,
+                                )))
+                        + (x.powi(2) + y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (1, 1, 1, -1, 2, 1) => {
+            (y * z
+                * (x.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    - y.powi(2) * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - x.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        * sqrt(3.0)
+                    + (x.powi(2) + y.powi(2))
+                        * ((-3.0 * x.powi(2) + y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, 1, 1, -1, 2, 2) => {
+            (x * (x - y)
+                * y
+                * (x + y)
+                * (-(z.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                    - 4.0
+                        * (x.powi(2) + y.powi(2)).powi(2)
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - (x.powi(2) + y.powi(2)).powi(2)
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (1, 1, 1, 0, 0, 0) => {
+            x * z
+                * (-splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                    + splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r))
+        }
+        (1, 1, 1, 0, 1, -1) => {
+            x * y
+                * z
+                * (-splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    - 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                    + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 1, 1, 0, 1, 0) => {
+            x * ((x.powi(2) + y.powi(2))
+                * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                - z.powi(2)
+                    * (splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                        + splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        - splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, 1, 1, 0, 1, 1) => {
+            z * (-(x.powi(2) * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r))
+                + (-x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                + x.powi(2) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r))
+        }
+        (1, 1, 1, 0, 2, -2) => {
+            (y * z
+                * (x.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + (x - y)
+                        * (x + y)
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    - x.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        * sqrt(3.0)
+                    + (x.powi(2) + y.powi(2))
+                        * ((-3.0 * x.powi(2) + y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, 1, 1, 0, 2, -1) => {
+            x * y
+                * ((x.powi(2) + y.powi(2))
+                    * (splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                        - splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                    - z.powi(2)
+                        * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                            + (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                                - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                                * sqrt(3.0)))
+        }
+        (1, 1, 1, 0, 2, 0) => {
+            (x * z
+                * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    + ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                        + 2.0
+                            * (x.powi(2) + y.powi(2) - z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (1, 1, 1, 0, 2, 1) => {
+            x.powi(4) * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                + (y.powi(2) + z.powi(2))
+                    * (z.powi(2) * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                        + y.powi(2)
+                            * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                + x.powi(2)
+                    * (y.powi(2)
+                        * (splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                        - z.powi(2)
+                            * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&11].0,
+                                        &dipole[&11].1,
+                                        dipole[&11].2,
+                                        r,
+                                    )
+                                + (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                                    - splev_uniform(
+                                        &dipole[&15].0,
+                                        &dipole[&15].1,
+                                        dipole[&15].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+        }
+        (1, 1, 1, 0, 2, 2) => {
+            (x * z
+                * ((x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - 3.0 * y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    - 4.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    + (-x.powi(4) + y.powi(4))
+                        * (splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            - splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (1, 1, 1, 1, 0, 0) => {
+            (y.powi(2) + z.powi(2)) * splev_uniform(&dipole[&6].0, &dipole[&6].1, dipole[&6].2, r)
+                + x.powi(2) * splev_uniform(&dipole[&13].0, &dipole[&13].1, dipole[&13].2, r)
+        }
+        (1, 1, 1, 1, 1, -1) => {
+            y * ((y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                + x.powi(2)
+                    * (-2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, 1, 1, 1, 1, 0) => {
+            z * ((y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                + x.powi(2)
+                    * (-2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r)
+                        + splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)))
+        }
+        (1, 1, 1, 1, 1, 1) => {
+            x * (y.powi(2) + z.powi(2))
+                * (splev_uniform(&dipole[&7].0, &dipole[&7].1, dipole[&7].2, r)
+                    + 2.0 * splev_uniform(&dipole[&8].0, &dipole[&8].1, dipole[&8].2, r))
+                + x.powi(3) * splev_uniform(&dipole[&14].0, &dipole[&14].1, dipole[&14].2, r)
+        }
+        (1, 1, 1, 1, 2, -2) => {
+            (x * y
+                * (-(x.powi(2)
+                    * z.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                    - (y.powi(4) + x.powi(2) * (y.powi(2) + 2.0 * z.powi(2)))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    + (x.powi(2) + y.powi(2)).powi(2)
+                        * (y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        * sqrt(3.0)
+                    + (x.powi(2) + y.powi(2)).powi(2)
+                        * (2.0
+                            * (-x.powi(2) + y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (1, 1, 1, 1, 2, -1) => {
+            (y * z
+                * (x.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    - 4.0
+                        * x.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    + (2.0 * x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * ((y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, 1, 1, 1, 2, 0) => {
+            (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * ((y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                    + x.powi(2) * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r)))
+                - (x.powi(2)
+                    * z.powi(2)
+                    * (splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                        + 4.0 * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r))
+                    + y.powi(2)
+                        * (x.powi(2) + y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r))
+                    * sqrt(3.0))
+                / 2.
+        }
+        (1, 1, 1, 1, 2, 1) => {
+            (x * z
+                * (x.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r)
+                    + 2.0
+                        * (-x.powi(4) + y.powi(4) + (x.powi(2) + y.powi(2)) * z.powi(2))
+                        * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                    - y.powi(2) * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * ((y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (1, 1, 1, 1, 2, 2) => {
+            (-(x.powi(2)
+                * (x - y)
+                * (x + y)
+                * z.powi(2)
+                * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                * splev_uniform(&dipole[&10].0, &dipole[&10].1, dipole[&10].2, r))
+                + 4.0
+                    * x.powi(2)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * (2.0 * y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&11].0, &dipole[&11].1, dipole[&11].2, r)
+                + y.powi(2)
+                    * (-x.powi(4) + y.powi(4) + 2.0 * (3.0 * x.powi(2) + y.powi(2)) * z.powi(2))
+                    * splev_uniform(&dipole[&12].0, &dipole[&12].1, dipole[&12].2, r)
+                + (x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * ((y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&9].0, &dipole[&9].1, dipole[&9].2, r)
+                        + x.powi(2)
+                            * splev_uniform(&dipole[&15].0, &dipole[&15].1, dipole[&15].2, r))
+                    * sqrt(3.0))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, -2, 1, -1, 0, 0) => {
+            x * ((x.powi(2) - y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                + y.powi(2)
+                    * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                    * sqrt(3.0))
+        }
+        (2, -2, 1, -1, 1, -1) => {
+            (x * y
+                * (-((x.powi(4) + x.powi(2) * y.powi(2) + 2.0 * y.powi(2) * z.powi(2))
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                    + (x.powi(2) + y.powi(2)).powi(2)
+                        * (x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    - y.powi(2)
+                        * z.powi(2)
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                    + (x.powi(2) + y.powi(2)).powi(2)
+                        * ((x.powi(2) - y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            + ((x.powi(2) + z.powi(2))
+                                * splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                )
+                                + y.powi(2)
+                                    * splev_uniform(
+                                        &dipole[&29].0,
+                                        &dipole[&29].1,
+                                        dipole[&29].2,
+                                        r,
+                                    ))
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, -1, 1, 0) => {
+            (x * z
+                * ((-x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + y.powi(2)
+                        * ((x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - (x.powi(2) + y.powi(2))
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&28].0,
+                                        &dipole[&28].1,
+                                        dipole[&28].2,
+                                        r,
+                                    )
+                                    + (splev_uniform(
+                                        &dipole[&19].0,
+                                        &dipole[&19].1,
+                                        dipole[&19].2,
+                                        r,
+                                    ) - splev_uniform(
+                                        &dipole[&29].0,
+                                        &dipole[&29].1,
+                                        dipole[&29].2,
+                                        r,
+                                    )) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -2, 1, -1, 1, 1) => {
+            ((x.powi(2) * y.powi(4) + y.powi(4) * z.powi(2) + x.powi(4) * (y.powi(2) + z.powi(2)))
+                * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                + x.powi(2)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * (x.powi(2) - y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                + y.powi(2)
+                    * (-(x.powi(2)
+                        * z.powi(2)
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r))
+                        + (x.powi(2) + y.powi(2)).powi(2)
+                            * ((-x.powi(2) + y.powi(2) + z.powi(2))
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                                + x.powi(2)
+                                    * (-splev_uniform(
+                                        &dipole[&19].0,
+                                        &dipole[&19].1,
+                                        dipole[&19].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&29].0,
+                                        &dipole[&29].1,
+                                        dipole[&29].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, -1, 2, -2) => {
+            (y * (-((x - y)
+                * (x + y)
+                * (x.powi(4) + y.powi(2) * z.powi(2) + x.powi(2) * (y - z) * (y + z))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r))
+                + y.powi(4)
+                    * (y.powi(2) + z.powi(2))
+                    * (2.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + y.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + x.powi(8)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + x.powi(6)
+                    * (z.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + 3.0
+                            * y.powi(2)
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + (y.powi(2) + z.powi(2))
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (-4.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        + y.powi(4)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (-2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                + x.powi(4)
+                    * (2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - y.powi(4)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 6.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (-2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, -1, 2, -1) => {
+            (x * y
+                * z
+                * ((-2.0 * x.powi(4) - x.powi(2) * y.powi(2) + y.powi(4)
+                    - 2.0 * y.powi(2) * z.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    - 2.0
+                        * y.powi(2)
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + y.powi(6)
+                        * (splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 3.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            - (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                    + x.powi(6)
+                        * (-3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                    + y.powi(4)
+                        * z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                    + x.powi(4)
+                        * (-3.0
+                            * (2.0 * y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + y.powi(2)
+                                * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - y.powi(2)
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + z.powi(2)
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * y.powi(2)
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            + (y.powi(2) + z.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                    + x.powi(2)
+                        * y.powi(2)
+                        * (-(y.powi(2)
+                            * (3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + 5.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 6.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                            + z.powi(2)
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&23].0,
+                                        &dipole[&23].1,
+                                        dipole[&23].2,
+                                        r,
+                                    )
+                                    - 4.0
+                                        * splev_uniform(
+                                            &dipole[&25].0,
+                                            &dipole[&25].1,
+                                            dipole[&25].2,
+                                            r,
+                                        )
+                                    + splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                    + 2.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    + 2.0
+                                        * (splev_uniform(
+                                            &dipole[&22].0,
+                                            &dipole[&22].1,
+                                            dipole[&22].2,
+                                            r,
+                                        ) + splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        ))
+                                        * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, -1, 2, 0) => {
+            (x * (-((x.powi(2) + y.powi(2))
+                * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * (x.powi(2) - y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r))
+                + 2.0
+                    * (-x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    * sqrt(3.0)
+                - x.powi(6)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    * sqrt(3.0)
+                + 4.0
+                    * y.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    * sqrt(3.0)
+                + y.powi(6)
+                    * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                - x.powi(4)
+                    * (z.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + y.powi(2)
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                + y.powi(4)
+                    * z.powi(2)
+                    * (-6.0 * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (-2.0
+                            * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                            + 2.0
+                                * (splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )))
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (y.powi(2)
+                        * (3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                ))
+                        * sqrt(3.0)
+                        + 2.0
+                            * z.powi(2)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )
+                                + (-splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, -2, 1, -1, 2, 1) => {
+            (z * ((-x.powi(6)
+                + 2.0 * x.powi(2) * y.powi(4)
+                + y.powi(4) * z.powi(2)
+                + x.powi(4) * (y.powi(2) + z.powi(2)))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - y.powi(6)
+                    * (y.powi(2) + z.powi(2))
+                    * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + x.powi(8)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + x.powi(4)
+                    * y.powi(2)
+                    * (z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        - (y.powi(2) - 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0)
+                        + y.powi(2)
+                            * (3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                - 5.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))
+                + x.powi(6)
+                    * ((4.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + (y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0)
+                        + y.powi(2)
+                            * (splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (-2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) * sqrt(3.0))
+                        - y.powi(4)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, -1, 2, 2) => {
+            (x * (2.0
+                * (2.0 * x.powi(2) * y.powi(2) * (x.powi(2) + y.powi(2))
+                    + (x.powi(4) + 3.0 * y.powi(4)) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + 2.0
+                    * y.powi(4)
+                    * z.powi(4)
+                    * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0 * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                + x.powi(8)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + y.powi(8)
+                    * (-2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 4.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + y.powi(6)
+                    * z.powi(2)
+                    * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0 * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + 2.0
+                                * splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                + x.powi(6)
+                    * (z.powi(2)
+                        * (-3.0
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0))
+                        + y.powi(2)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (-4.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        - y.powi(4)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        - y.powi(2)
+                            * z.powi(2)
+                            * (5.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                - x.powi(4)
+                    * (2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 9.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                - splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) * sqrt(3.0)
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        + y.powi(4)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + 4.0
+                                        * splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, -2, 1, 0, 0, 0) => {
+            x * y
+                * z
+                * (-2.0 * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                    + splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r) * sqrt(3.0))
+        }
+        (2, -2, 1, 0, 1, -1) => {
+            (x * z
+                * ((-x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    - 2.0
+                        * y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    - y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        * sqrt(3.0)
+                    + y.powi(2)
+                        * ((x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + (x.powi(2) + y.powi(2))
+                                * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -2, 1, 0, 1, 0) => {
+            x * y
+                * ((x.powi(2) + y.powi(2))
+                    * (-splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                        + splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                            * sqrt(3.0))
+                    + z.powi(2)
+                        * (-2.0
+                            * (splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                                + splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                                + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r))
+                            + splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                                * sqrt(3.0)))
+        }
+        (2, -2, 1, 0, 1, 1) => {
+            (y * z
+                * ((x - y)
+                    * (x + y)
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    - 2.0
+                        * x.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (-x.powi(2) + y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + x.powi(2)
+                        * ((x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - (x.powi(2) + y.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -2, 1, 0, 2, -2) => {
+            (z * (-((x.powi(2) - y.powi(2)).powi(2)
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r))
+                + 2.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                - x.powi(6) * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + 2.0
+                    * x.powi(4)
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + 2.0
+                    * x.powi(2)
+                    * y.powi(4)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                - y.powi(6) * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + 4.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + x.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + y.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + 2.0
+                    * x.powi(4)
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                + 2.0
+                    * x.powi(2)
+                    * y.powi(4)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                + 4.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                + x.powi(6) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                - x.powi(4)
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                - x.powi(2)
+                    * y.powi(4)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + y.powi(6) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + x.powi(4)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + 2.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + y.powi(4)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + 3.0
+                    * x.powi(4)
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                + 3.0
+                    * x.powi(2)
+                    * y.powi(4)
+                    * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                - 2.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                    * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -2, 1, 0, 2, -1) => {
+            (x * ((-x.powi(2) + y.powi(2))
+                * z.powi(2)
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - 2.0
+                    * y.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                + x.powi(6) * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + x.powi(4)
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                - x.powi(2)
+                    * y.powi(4)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                - y.powi(6) * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                - x.powi(2)
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                - y.powi(4)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                - x.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                - y.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                - x.powi(4)
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                - 2.0
+                    * x.powi(2)
+                    * y.powi(4)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                - y.powi(6) * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                - x.powi(2)
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                - y.powi(4)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                + 2.0
+                    * y.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                + x.powi(4)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                - 2.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                - 3.0
+                    * y.powi(4)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + x.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + y.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + 3.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                + 3.0
+                    * y.powi(4)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                + y.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * (-2.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        + (x.powi(2) + y.powi(2) - z.powi(2))
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                    * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -2, 1, 0, 2, 0) => {
+            (x * y
+                * z
+                * (2.0
+                    * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                    + 6.0
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                    + (2.0
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - 2.0
+                            * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - 4.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (2, -2, 1, 0, 2, 1) => {
+            (y * ((x - y)
+                * (x + y)
+                * z.powi(2)
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + y.powi(2)
+                    * ((y.powi(4) - z.powi(4))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + z.powi(2)
+                            * (y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                - x.powi(6)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                - x.powi(2)
+                    * (z.powi(4)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                            - splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        - y.powi(4)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                - splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                - x.powi(4)
+                    * (y.powi(2)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + 2.0
+                                * splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )
+                                * sqrt(3.0))
+                        + z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -2, 1, 0, 2, 2) => {
+            (x * (x - y)
+                * y
+                * (x + y)
+                * z
+                * (4.0 * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    + (5.0 * (x.powi(2) + y.powi(2)) + 4.0 * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + 2.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + 2.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + 4.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    - 4.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    - 4.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    + 3.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                    + 3.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                        * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, -2, 1, 1, 0, 0) => {
+            y * ((-x.powi(2) + y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                + x.powi(2)
+                    * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                    * sqrt(3.0))
+        }
+        (2, -2, 1, 1, 1, -1) => {
+            ((x.powi(2) * y.powi(4) + y.powi(4) * z.powi(2) + x.powi(4) * (y.powi(2) + z.powi(2)))
+                * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                + y.powi(2)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * (-x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                + x.powi(2)
+                    * (-(y.powi(2)
+                        * z.powi(2)
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r))
+                        + (x.powi(2) + y.powi(2)).powi(2)
+                            * ((x.powi(2) - y.powi(2) + z.powi(2))
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                                + y.powi(2)
+                                    * (-splev_uniform(
+                                        &dipole[&19].0,
+                                        &dipole[&19].1,
+                                        dipole[&19].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&29].0,
+                                        &dipole[&29].1,
+                                        dipole[&29].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, 1, 1, 0) => {
+            (y * z
+                * ((x - y)
+                    * (x + y)
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + (-x.powi(4) + y.powi(4) + (x.powi(2) + y.powi(2)) * z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + x.powi(2)
+                        * ((x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - (x.powi(2) + y.powi(2))
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&28].0,
+                                        &dipole[&28].1,
+                                        dipole[&28].2,
+                                        r,
+                                    )
+                                    + (splev_uniform(
+                                        &dipole[&19].0,
+                                        &dipole[&19].1,
+                                        dipole[&19].2,
+                                        r,
+                                    ) - splev_uniform(
+                                        &dipole[&29].0,
+                                        &dipole[&29].1,
+                                        dipole[&29].2,
+                                        r,
+                                    )) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -2, 1, 1, 1, 1) => {
+            (x * y
+                * (-((y.powi(4) + x.powi(2) * (y.powi(2) + 2.0 * z.powi(2)))
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                    - (x.powi(2) + y.powi(2)).powi(2)
+                        * (x.powi(2) - y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    - x.powi(2)
+                        * z.powi(2)
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                    + (x.powi(2) + y.powi(2)).powi(2)
+                        * ((y.powi(2) + z.powi(2))
+                            * (splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                                + splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) * sqrt(3.0))
+                            + x.powi(2)
+                                * (-splev_uniform(
+                                    &dipole[&28].0,
+                                    &dipole[&28].1,
+                                    dipole[&28].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, 1, 2, -2) => {
+            (x * ((x - y)
+                * (x + y)
+                * (y.powi(4) - y.powi(2) * z.powi(2) + x.powi(2) * (y.powi(2) + z.powi(2)))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + x.powi(8) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + x.powi(6)
+                    * (2.0
+                        * (y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + y.powi(2)
+                            * (3.0
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )
+                                - (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                + y.powi(4)
+                    * (y.powi(2) + z.powi(2))
+                    * (2.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + y.powi(2)
+                            * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                + x.powi(4)
+                    * (2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (-2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                        - y.powi(4)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 6.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (-4.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        + y.powi(4)
+                            * (3.0
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (-2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, 1, 2, -1) => {
+            (z * ((2.0 * x.powi(4) * y.powi(2) + x.powi(2) * y.powi(4) - y.powi(6)
+                + (x.powi(4) + y.powi(4)) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + x.powi(8)
+                    * (-2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + y.powi(6)
+                    * (y.powi(2) + z.powi(2))
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (-2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        + y.powi(4)
+                            * (4.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) - 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                + x.powi(4)
+                    * y.powi(2)
+                    * (z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + 2.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        + (-y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0)
+                        + y.powi(2)
+                            * (3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                - 5.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))
+                - x.powi(6)
+                    * (z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + y.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, 1, 2, 0) => {
+            (y * ((x.powi(2) + y.powi(2))
+                * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * (x.powi(2) - y.powi(2) - z.powi(2))
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                + 2.0
+                    * (x - y)
+                    * (x + y)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    * sqrt(3.0)
+                - y.powi(4)
+                    * (y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    * sqrt(3.0)
+                + x.powi(6)
+                    * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                + x.powi(4)
+                    * (-6.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (y.powi(2)
+                            * (3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                            + z.powi(2)
+                                * (-2.0
+                                    * splev_uniform(
+                                        &dipole[&23].0,
+                                        &dipole[&23].1,
+                                        dipole[&23].2,
+                                        r,
+                                    )
+                                    + 3.0
+                                        * splev_uniform(
+                                            &dipole[&25].0,
+                                            &dipole[&25].1,
+                                            dipole[&25].2,
+                                            r,
+                                        )
+                                    + 2.0
+                                        * (splev_uniform(
+                                            &dipole[&26].0,
+                                            &dipole[&26].1,
+                                            dipole[&26].2,
+                                            r,
+                                        ) - 2.0
+                                            * splev_uniform(
+                                                &dipole[&30].0,
+                                                &dipole[&30].1,
+                                                dipole[&30].2,
+                                                r,
+                                            )
+                                            + splev_uniform(
+                                                &dipole[&31].0,
+                                                &dipole[&31].1,
+                                                dipole[&31].2,
+                                                r,
+                                            ))))
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * (4.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        * sqrt(3.0)
+                        - y.powi(4)
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            * sqrt(3.0)
+                        + 2.0
+                            * y.powi(2)
+                            * z.powi(2)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )
+                                + (-splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, -2, 1, 1, 2, 1) => {
+            (x * y
+                * z
+                * ((x.powi(4) - 2.0 * y.powi(4) - x.powi(2) * (y.powi(2) + 2.0 * z.powi(2)))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    - 2.0
+                        * x.powi(2)
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + (x.powi(2) + y.powi(2)).powi(2)
+                        * (-3.0
+                            * y.powi(2)
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 3.0
+                                * x.powi(2)
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + y.powi(2)
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * x.powi(2)
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            + (-x + y)
+                                * (x + y)
+                                * (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                    + (x.powi(2) + y.powi(2))
+                        * z.powi(2)
+                        * (2.0
+                            * x.powi(2)
+                            * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - (x.powi(2) + 3.0 * y.powi(2))
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + y.powi(2)
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + (x.powi(2) + y.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -2, 1, 1, 2, 2) => {
+            (y * (-2.0
+                * (2.0 * x.powi(2) * y.powi(2) * (x.powi(2) + y.powi(2))
+                    + (3.0 * x.powi(4) + y.powi(4)) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + 2.0
+                    * z.powi(4)
+                    * (2.0
+                        * x.powi(2)
+                        * (-x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (-x.powi(4) + 4.0 * x.powi(2) * y.powi(2) + y.powi(4))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0
+                            * x.powi(2)
+                            * (-x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                - (x.powi(2) + y.powi(2)).powi(2)
+                    * (-((x - y)
+                        * (x + y)
+                        * ((2.0 * x.powi(2) - y.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + x.powi(2)
+                                * (-4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        ))))
+                        + (x.powi(2) - y.powi(2)).powi(2)
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0)
+                        - 4.0
+                            * x.powi(2)
+                            * y.powi(2)
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (y.powi(4)
+                        * (3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0))
+                        + 2.0
+                            * x.powi(2)
+                            * y.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0))
+                        - x.powi(4)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                - (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, -1, 1, -1, 0, 0) => {
+            z * ((x.powi(2) - y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                + y.powi(2)
+                    * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                    * sqrt(3.0))
+        }
+        (2, -1, 1, -1, 1, -1) => {
+            (y * z
+                * (-(x.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + y.powi(2)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                    + x.powi(4) * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    - y.powi(4) * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + x.powi(2)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + y.powi(2)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * ((x.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                            + y.powi(2)
+                                * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, -1, 1, 0) => {
+            x.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                + z.powi(2)
+                    * (x.powi(2) - y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                + y.powi(2)
+                    * ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                        - z.powi(2)
+                            * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                                + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                                + (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                )) * sqrt(3.0)))
+        }
+        (2, -1, 1, -1, 1, 1) => {
+            (x * z
+                * (-(x.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + y.powi(2)
+                        * (z.powi(2)
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - (x.powi(2) + y.powi(2))
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&28].0,
+                                        &dipole[&28].1,
+                                        dipole[&28].2,
+                                        r,
+                                    )
+                                    + (splev_uniform(
+                                        &dipole[&19].0,
+                                        &dipole[&19].1,
+                                        dipole[&19].2,
+                                        r,
+                                    ) - splev_uniform(
+                                        &dipole[&29].0,
+                                        &dipole[&29].1,
+                                        dipole[&29].2,
+                                        r,
+                                    )) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, -1, 2, -2) => {
+            (x * y
+                * z
+                * (-2.0
+                    * x.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    - 2.0
+                        * y.powi(2)
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                    + y.powi(6)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 3.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            - (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                    + x.powi(6)
+                        * (-3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                    + y.powi(4)
+                        * z.powi(2)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                    + x.powi(4)
+                        * (z.powi(2)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                            + y.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) - 5.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    - splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )
+                                    + (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )) * sqrt(3.0)))
+                    + x.powi(2)
+                        * y.powi(2)
+                        * (-(y.powi(2)
+                            * (-2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 5.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 6.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                            + z.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) - 5.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    + 2.0
+                                        * (splev_uniform(
+                                            &dipole[&26].0,
+                                            &dipole[&26].1,
+                                            dipole[&26].2,
+                                            r,
+                                        ) + splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        ) + (splev_uniform(
+                                            &dipole[&22].0,
+                                            &dipole[&22].1,
+                                            dipole[&22].2,
+                                            r,
+                                        ) + splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        )) * sqrt(3.0))))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -1, 1, -1, 2, -1) => {
+            (y * (x.powi(2)
+                * ((x.powi(2) + y.powi(2)).powi(2) - z.powi(4))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + 2.0
+                    * x.powi(6)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + y.powi(6) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + y.powi(2)
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                - y.powi(4)
+                    * z.powi(2)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * (2.0
+                        * y.powi(4)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        - y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                        + z.powi(4)
+                            * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                + x.powi(4)
+                    * (y.powi(2)
+                        * (4.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + z.powi(2)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, -1, 2, 0) => {
+            (z * (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * (x.powi(2) - y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r))
+                - 6.0
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                + 2.0
+                    * x.powi(2)
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    * sqrt(3.0)
+                - (-(y.powi(2)
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r))
+                    + ((x.powi(2) + y.powi(2)).powi(2) + x.powi(2) * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + y.powi(2)
+                        * (2.0
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                ))
+                            - (x.powi(2) + y.powi(2))
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    - splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))))
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, -1, 1, -1, 2, 1) => {
+            (x * (x.powi(2)
+                * ((x.powi(2) + y.powi(2)).powi(2) - z.powi(4))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - y.powi(2)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + z.powi(4)
+                    * (x.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + y.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ))
+                        + (x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + (x - y)
+                            * (x + y)
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0)
+                        - y.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, -1, 2, 2) => {
+            -(z * (2.0
+                * (x.powi(6) - x.powi(2) * y.powi(4))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - 2.0
+                    * y.powi(4)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                + x.powi(8)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + y.powi(8)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        - splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + y.powi(6)
+                    * z.powi(2)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - 2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0
+                            * (splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + 2.0
+                                * splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                - x.powi(6)
+                    * (z.powi(2)
+                        * (-3.0
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0))
+                        + y.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 6.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (2.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ))
+                        + y.powi(4)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - 10.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                + x.powi(4)
+                    * (2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - y.powi(4)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 16.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 10.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + 4.0
+                                        * splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        ))
+                                    * sqrt(3.0))
+                        - y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) * sqrt(3.0)
+                                - 2.0
+                                    * (splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    ) - splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ) * sqrt(3.0))))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, -1, 1, 0, 0, 0) => {
+            y * ((x.powi(2) + y.powi(2) - z.powi(2))
+                * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                + z.powi(2)
+                    * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                    * sqrt(3.0))
+        }
+        (2, -1, 1, 0, 1, -1) => {
+            x.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                + y.powi(2)
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                + z.powi(2)
+                    * ((x.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                        - y.powi(2)
+                            * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                                + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                                + (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                )) * sqrt(3.0)))
+        }
+        (2, -1, 1, 0, 1, 0) => {
+            y * z
+                * ((x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        + z.powi(2)
+                            * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                        * sqrt(3.0))
+        }
+        (2, -1, 1, 0, 1, 1) => {
+            x * y
+                * (-splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    - z.powi(2)
+                        * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            + (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                                - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                                * sqrt(3.0)))
+        }
+        (2, -1, 1, 0, 2, -2) => {
+            (x * ((x.powi(4) - y.powi(4))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - y.powi(2)
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                + z.powi(2)
+                    * ((-2.0 * x.powi(4) + y.powi(4) - x.powi(2) * (y.powi(2) + 2.0 * z.powi(2)))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + (x.powi(2) + y.powi(2))
+                            * (-2.0
+                                * y.powi(2)
+                                * splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + (x.powi(2) - 3.0 * y.powi(2) + z.powi(2))
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * y.powi(2)
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )))
+                + y.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * ((x.powi(2) + y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        - 2.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                    * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, 0, 2, -1) => {
+            z * (x.powi(2) * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + (x.powi(2) + z.powi(2))
+                    * (2.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + y.powi(4)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + y.powi(2)
+                    * (x.powi(2)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                        - z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))))
+        }
+        (2, -1, 1, 0, 2, 0) => {
+            (y * (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * (x.powi(2) + y.powi(2) - z.powi(2))
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r))
+                + 6.0
+                    * (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                - ((x.powi(2) + y.powi(2))
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    + z.powi(2)
+                        * ((x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * (x.powi(2) + y.powi(2))
+                                * splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                            - 2.0
+                                * (x.powi(2) + y.powi(2) - z.powi(2))
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                            + (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )))
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, -1, 1, 0, 2, 1) => {
+            x * y
+                * z
+                * (-splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    - (2.0 * (x.powi(2) + y.powi(2)) + z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + x.powi(2) * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + y.powi(2) * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    - z.powi(2) * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + x.powi(2) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    + y.powi(2) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    - 3.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    + 3.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                        * sqrt(3.0))
+        }
+        (2, -1, 1, 0, 2, 2) => {
+            (y * (-4.0
+                * x.powi(2)
+                * (x.powi(2) + y.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - (x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                + z.powi(2)
+                    * ((7.0 * x.powi(4)
+                        + 8.0 * x.powi(2) * y.powi(2)
+                        + y.powi(4)
+                        + 2.0 * (3.0 * x.powi(2) + y.powi(2)) * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0
+                            * (-x.powi(4) + y.powi(4))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - 2.0
+                            * (x.powi(2) + y.powi(2))
+                            * (3.0 * x.powi(2) - y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + 3.0
+                            * (x.powi(4) - y.powi(4))
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                + (x.powi(4) - y.powi(4))
+                    * ((x.powi(2) + y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        - 2.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                    * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, -1, 1, 1, 0, 0) => {
+            x * y
+                * z
+                * (-2.0 * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                    + splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r) * sqrt(3.0))
+        }
+        (2, -1, 1, 1, 1, -1) => {
+            (x * z
+                * (-(x.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                    - 2.0
+                        * y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (x.powi(2) - y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    - y.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        * sqrt(3.0)
+                    + y.powi(2)
+                        * (z.powi(2)
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + (x.powi(2) + y.powi(2))
+                                * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, 1, 1, 0) => {
+            -(x * y
+                * (splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    - (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                            + splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            + (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                                - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+        }
+        (2, -1, 1, 1, 1, 1) => {
+            (y * z
+                * ((2.0 * x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    - x.powi(2)
+                        * (-(z.powi(2)
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r))
+                            + 2.0
+                                * (x.powi(2) + y.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&18].0,
+                                    &dipole[&18].1,
+                                    dipole[&18].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&28].0,
+                                    &dipole[&28].1,
+                                    dipole[&28].2,
+                                    r,
+                                )))
+                    + (x.powi(2) + y.powi(2))
+                        * ((y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                            + x.powi(2)
+                                * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, 1, 2, -2) => {
+            (z * ((-x.powi(6) + x.powi(4) * y.powi(2) + 3.0 * x.powi(2) * y.powi(4) + y.powi(6))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + z.powi(4)
+                    * (-2.0
+                        * x.powi(2)
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (x.powi(4) + y.powi(4))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                + (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (x.powi(2)
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + x.powi(2)
+                            * (y.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) + 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    ))
+                                + (x.powi(2) + y.powi(2))
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ))
+                        + y.powi(2)
+                            * (x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + (x.powi(2) + y.powi(2)).powi(2)
+                    * (x.powi(4)
+                        * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + y.powi(4)
+                            * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0))
+                        + x.powi(2)
+                            * y.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, -1, 1, 1, 2, -1) => {
+            (x * (-((y.powi(4) + x.powi(2) * (y.powi(2) + z.powi(2)))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r))
+                + x.powi(6) * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + y.powi(6)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + y.powi(2)
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + x.powi(4)
+                    * (y.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + (y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                - y.powi(4)
+                    * z.powi(2)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + 2.0
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                - x.powi(2)
+                    * (y.powi(4)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        + z.powi(4)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                - splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, 1, 2, 0) => {
+            (x * y
+                * z
+                * (-(z.powi(2)
+                    * (4.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        + 6.0 * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (2.0
+                            * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                            + splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + 2.0
+                                * (splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )))
+                            * sqrt(3.0)))
+                    + (x.powi(2) + y.powi(2))
+                        * (2.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + (-2.0
+                                * splev_uniform(
+                                    &dipole[&21].0,
+                                    &dipole[&21].1,
+                                    dipole[&21].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / 2.
+        }
+        (2, -1, 1, 1, 2, 1) => {
+            (y * (-((x.powi(4) - y.powi(2) * z.powi(2)
+                + x.powi(2) * (y.powi(2) - 2.0 * z.powi(2)))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r))
+                + (x.powi(2) + y.powi(2)).powi(2)
+                    * ((-x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + x.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + z.powi(4)
+                    * (-(y.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                        + x.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ))
+                        + (x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                - (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (-(y.powi(2)
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        * sqrt(3.0))
+                        + x.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, -1, 1, 1, 2, 2) => {
+            (x * y
+                * z
+                * (2.0
+                    * (x.powi(2) + y.powi(2))
+                    * (3.0 * x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    + 2.0
+                        * y.powi(2)
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                    + x.powi(6)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 4.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 6.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0))
+                    - y.powi(6)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 4.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            - 2.0
+                                * (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                * sqrt(3.0))
+                    - y.powi(4)
+                        * z.powi(2)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + 2.0
+                                * (splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))
+                    + x.powi(2)
+                        * (-2.0
+                            * z.powi(4)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ))
+                            - 4.0
+                                * y.powi(2)
+                                * z.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0))
+                            - y.powi(4)
+                                * (splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) + 4.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    + 2.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    + 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )
+                                    - 2.0
+                                        * (splev_uniform(
+                                            &dipole[&22].0,
+                                            &dipole[&22].1,
+                                            dipole[&22].2,
+                                            r,
+                                        ) + 4.0
+                                            * splev_uniform(
+                                                &dipole[&24].0,
+                                                &dipole[&24].1,
+                                                dipole[&24].2,
+                                                r,
+                                            ))
+                                        * sqrt(3.0)))
+                    + x.powi(4)
+                        * (y.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 10.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                            + z.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    ) - splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ) * sqrt(3.0))))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 0, 1, -1, 0, 0) => {
+            -(y * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                + 2.0
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, -1, 1, -1) => {
+            (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * ((x.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                    + y.powi(2) * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)))
+                - (x.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + y.powi(2)
+                        * z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                            + splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)))
+                    * sqrt(3.0))
+                / 2.
+        }
+        (2, 0, 1, -1, 1, 0) => {
+            -(y * z.powi(3)
+                * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                    - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                    + splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r) * sqrt(3.0)))
+                + (y * (x.powi(2) + y.powi(2))
+                    * z
+                    * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                        + (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r))
+                            * sqrt(3.0)))
+                    / 2.
+        }
+        (2, 0, 1, -1, 1, 1) => {
+            (x * y
+                * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                    + (splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                        - z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&18].0,
+                                    &dipole[&18].1,
+                                    dipole[&18].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&20].0,
+                                    &dipole[&20].1,
+                                    dipole[&20].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&28].0,
+                                        &dipole[&28].1,
+                                        dipole[&28].2,
+                                        r,
+                                    )))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, -1, 2, -2) => {
+            (x * ((-x.powi(4) + x.powi(2) * z.powi(2) + 2.0 * z.powi(4))
+                * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                - x.powi(2)
+                    * (x.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    * sqrt(3.0)
+                + 4.0
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    * sqrt(3.0)
+                + 2.0
+                    * z.powi(2)
+                    * (-x + z)
+                    * (x + z)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    * sqrt(3.0)
+                - (4.0
+                    * x.powi(2)
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                    * sqrt(3.0))
+                    / (x.powi(2) + y.powi(2))
+                + y.powi(4)
+                    * (splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                            * sqrt(3.0))
+                + y.powi(2)
+                    * (x.powi(2)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                        * sqrt(3.0)
+                        + z.powi(2)
+                            * (-6.0
+                                * splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&21].0,
+                                    &dipole[&21].1,
+                                    dipole[&21].2,
+                                    r,
+                                ) + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&23].0,
+                                        &dipole[&23].1,
+                                        dipole[&23].2,
+                                        r,
+                                    ) + 2.0
+                                        * splev_uniform(
+                                            &dipole[&25].0,
+                                            &dipole[&25].1,
+                                            dipole[&25].2,
+                                            r,
+                                        )
+                                        - splev_uniform(
+                                            &dipole[&26].0,
+                                            &dipole[&26].1,
+                                            dipole[&26].2,
+                                            r,
+                                        )
+                                        - 2.0
+                                            * splev_uniform(
+                                                &dipole[&30].0,
+                                                &dipole[&30].1,
+                                                dipole[&30].2,
+                                                r,
+                                            )
+                                        + splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )))
+                                    * sqrt(3.0)))))
+                / 2.
+        }
+        (2, 0, 1, -1, 2, -1) => {
+            (2.0 * z.powi(5) * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                - z.powi(3)
+                    * (6.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        - (x.powi(2) - 3.0 * y.powi(2))
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (x.powi(2)
+                            * (splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    ))
+                            + y.powi(2)
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&23].0,
+                                        &dipole[&23].1,
+                                        dipole[&23].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                    + 2.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    - 2.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )))
+                            * sqrt(3.0))
+                - (x.powi(2) + y.powi(2))
+                    * z
+                    * ((x - y)
+                        * (x + y)
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + x.powi(2)
+                            * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                            * sqrt(3.0)
+                        + (-2.0
+                            * x.powi(2)
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + y.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )))
+                            * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, -1, 2, 0) => {
+            (y * ((x.powi(2) + y.powi(2)).powi(2)
+                * (3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                + 4.0
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        - (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + 2.0
+                    * (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (3.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + 3.0 * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 6.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 2.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))))
+                / 4.
+        }
+        (2, 0, 1, -1, 2, 1) => {
+            (x * y
+                * z
+                * (splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r) * sqrt(3.0)
+                    - z.powi(2)
+                        * (6.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + 4.0
+                                * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            + (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                                * sqrt(3.0))
+                    + (x.powi(2) + y.powi(2))
+                        * (2.0 * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            + (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / 2.
+        }
+        (2, 0, 1, -1, 2, 2) => {
+            (2.0 * y
+                * (x.powi(2) + y.powi(2))
+                * (3.0
+                    * (-x + y)
+                    * (x + y)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                    + (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                        * (2.0 * x.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                + y * (4.0
+                    * x.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * (x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    + 2.0
+                        * (x - y)
+                        * (x + y)
+                        * z.powi(2)
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    + x.powi(6) * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + x.powi(4)
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    - x.powi(2)
+                        * y.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    - y.powi(6) * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + 10.0
+                        * x.powi(4)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + 8.0
+                        * x.powi(2)
+                        * y.powi(2)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    - 2.0
+                        * y.powi(4)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + 8.0
+                        * x.powi(2)
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    - 2.0
+                        * x.powi(4)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + 2.0
+                        * y.powi(4)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    - 4.0
+                        * x.powi(4)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    + 4.0
+                        * y.powi(4)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    - (x.powi(4) - y.powi(4))
+                        * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0))
+                / (4. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 0, 1, 0, 0, 0) => {
+            z.powi(3) * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                - ((x.powi(2) + y.powi(2))
+                    * z
+                    * (splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                        - 2.0
+                            * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                            * sqrt(3.0)))
+                    / 2.
+        }
+        (2, 0, 1, 0, 1, -1) => {
+            (y * (x.powi(2) + y.powi(2))
+                * z
+                * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                    - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                    + (2.0 * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                        + splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r))
+                        * sqrt(3.0)))
+                / 2.
+                - y * z.powi(3)
+                    * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                        + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            * sqrt(3.0))
+        }
+        (2, 0, 1, 0, 1, 0) => {
+            (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * ((x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                    + z.powi(2) * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)))
+                - (x.powi(2) + y.powi(2))
+                    * ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                        - 2.0
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                                + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)))
+                    * sqrt(3.0))
+                / 2.
+        }
+        (2, 0, 1, 0, 1, 1) => {
+            (x * (x.powi(2) + y.powi(2))
+                * z
+                * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                    - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                    + (2.0 * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                        + splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r))
+                        * sqrt(3.0)))
+                / 2.
+                - x * z.powi(3)
+                    * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                        + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            * sqrt(3.0))
+        }
+        (2, 0, 1, 0, 2, -2) => {
+            (x * y
+                * z
+                * (6.0
+                    * (x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                    + (-2.0
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0
+                            * (x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - 4.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, 0, 2, -1) => {
+            -(y * (-6.0
+                * (x.powi(2) + y.powi(2))
+                * z.powi(2)
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                + (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                - 2.0
+                    * (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    * sqrt(3.0)
+                + ((x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * ((x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 2.0
+                                * z.powi(2)
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                    + z.powi(2)
+                        * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, 0, 2, 0) => {
+            z.powi(5) * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                + (x.powi(2) + y.powi(2))
+                    * z.powi(3)
+                    * (3.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                - ((x.powi(2) + y.powi(2)).powi(2)
+                    * z
+                    * (6.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - 3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 6.0 * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + 2.0
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0)))
+                    / 4.
+        }
+        (2, 0, 1, 0, 2, 1) => {
+            -(x * (-6.0
+                * (x.powi(2) + y.powi(2))
+                * z.powi(2)
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                + (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                - 2.0
+                    * (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    * sqrt(3.0)
+                + ((x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * ((x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 2.0
+                                * z.powi(2)
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                    + z.powi(2)
+                        * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, 0, 2, 2) => {
+            ((x - y)
+                * (x + y)
+                * z
+                * (6.0
+                    * (x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                    + (-2.0
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0
+                            * (x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - 4.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                        * sqrt(3.0)))
+                / 4.
+        }
+        (2, 0, 1, 1, 0, 0) => {
+            -(x * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                + 2.0
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, 1, 1, -1) => {
+            (x * y
+                * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                    + (splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                        - z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&18].0,
+                                    &dipole[&18].1,
+                                    dipole[&18].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&20].0,
+                                    &dipole[&20].1,
+                                    dipole[&20].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&28].0,
+                                        &dipole[&28].1,
+                                        dipole[&28].2,
+                                        r,
+                                    )))
+                        * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, 1, 1, 0) => {
+            -(x * z.powi(3)
+                * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                    - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                    + splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r) * sqrt(3.0)))
+                + (x * (x.powi(2) + y.powi(2))
+                    * z
+                    * (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                        + (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r))
+                            * sqrt(3.0)))
+                    / 2.
+        }
+        (2, 0, 1, 1, 1, 1) => {
+            (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * ((y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                    + x.powi(2) * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)))
+                - (y.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + x.powi(2)
+                        * z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                            + splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)))
+                    * sqrt(3.0))
+                / 2.
+        }
+        (2, 0, 1, 1, 2, -2) => {
+            (y * (2.0
+                * z.powi(4)
+                * ((x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                    + (2.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (x - y)
+                            * (x + y)
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                        * sqrt(3.0))
+                + (x.powi(2) + y.powi(2)).powi(2)
+                    * ((x - y)
+                        * (x + y)
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + ((x - y)
+                            * (x + y)
+                            * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                            + x.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )))
+                            * sqrt(3.0))
+                + (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (-6.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        + (-3.0 * x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (x - y)
+                            * (x + y)
+                            * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                            * sqrt(3.0)
+                        + 2.0
+                            * (-(y.powi(2)
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ))
+                                + x.powi(2)
+                                    * (splev_uniform(
+                                        &dipole[&23].0,
+                                        &dipole[&23].1,
+                                        dipole[&23].2,
+                                        r,
+                                    ) + 2.0
+                                        * splev_uniform(
+                                            &dipole[&25].0,
+                                            &dipole[&25].1,
+                                            dipole[&25].2,
+                                            r,
+                                        )
+                                        - splev_uniform(
+                                            &dipole[&26].0,
+                                            &dipole[&26].1,
+                                            dipole[&26].2,
+                                            r,
+                                        )
+                                        - 2.0
+                                            * splev_uniform(
+                                                &dipole[&30].0,
+                                                &dipole[&30].1,
+                                                dipole[&30].2,
+                                                r,
+                                            )
+                                        + splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )))
+                            * sqrt(3.0))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 0, 1, 1, 2, -1) => {
+            (x * y
+                * z
+                * (splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r) * sqrt(3.0)
+                    - z.powi(2)
+                        * (6.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + 4.0
+                                * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            + (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                                * sqrt(3.0))
+                    + (x.powi(2) + y.powi(2))
+                        * (2.0 * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            + (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / 2.
+        }
+        (2, 0, 1, 1, 2, 0) => {
+            (x * ((x.powi(2) + y.powi(2)).powi(2)
+                * (3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                + 4.0
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        - (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + 2.0
+                    * (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (3.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + 3.0 * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 6.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 2.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))))
+                / 4.
+        }
+        (2, 0, 1, 1, 2, 1) => {
+            (2.0 * z.powi(5) * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                - z.powi(3)
+                    * (6.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        + (3.0 * x.powi(2) - y.powi(2))
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (y.powi(2)
+                            * (splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    ))
+                            + x.powi(2)
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&23].0,
+                                        &dipole[&23].1,
+                                        dipole[&23].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                    + 2.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    - 2.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )))
+                            * sqrt(3.0))
+                - (x.powi(2) + y.powi(2))
+                    * z
+                    * ((-x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (y.powi(2)
+                            * (splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    ))
+                            + x.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )))
+                            * sqrt(3.0)))
+                / 2.
+        }
+        (2, 0, 1, 1, 2, 2) => {
+            (x * (6.0
+                * (-x.powi(4) + y.powi(4))
+                * z.powi(2)
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                - 4.0
+                    * y.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    * sqrt(3.0)
+                + 4.0
+                    * z.powi(4)
+                    * ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + ((x - y)
+                            * (x + y)
+                            * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - 2.0
+                                * y.powi(2)
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                + 2.0
+                    * (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (-((x.powi(2) - 3.0 * y.powi(2))
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                        + (x - y)
+                            * (x + y)
+                            * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            * sqrt(3.0)
+                        + ((x.powi(2) - 5.0 * y.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - (x - y)
+                                * (x + y)
+                                * (splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    - splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )))
+                            * sqrt(3.0))
+                + (x.powi(2) + y.powi(2)).powi(2)
+                    * (-4.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (x - y)
+                            * (x + y)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))))
+                / (4. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 1, 1, -1, 0, 0) => {
+            x * y
+                * z
+                * (-2.0 * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                    + splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r) * sqrt(3.0))
+        }
+        (2, 1, 1, -1, 1, -1) => {
+            (x * z
+                * ((x.powi(2) + 2.0 * y.powi(2))
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    - y.powi(2)
+                        * (-(z.powi(2)
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r))
+                            + 2.0
+                                * (x.powi(2) + y.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&18].0,
+                                    &dipole[&18].1,
+                                    dipole[&18].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&28].0,
+                                    &dipole[&28].1,
+                                    dipole[&28].2,
+                                    r,
+                                )))
+                    + (x.powi(2) + y.powi(2))
+                        * ((x.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                            + y.powi(2)
+                                * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                        * sqrt(3.0)))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, -1, 1, 0) => {
+            -(x * y
+                * (splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    - (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                            + splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            + (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                                - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+        }
+        (2, 1, 1, -1, 1, 1) => {
+            (y * z
+                * (-(y.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                    - 2.0
+                        * x.powi(2)
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * (-x.powi(2) + y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + x.powi(2)
+                        * (z.powi(2)
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - (x.powi(2) + y.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, -1, 2, -2) => {
+            (z * ((x.powi(6) + 3.0 * x.powi(4) * y.powi(2) + x.powi(2) * y.powi(4) - y.powi(6))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + y.powi(4)
+                    * (-y.powi(4) + z.powi(4))
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + y.powi(6)
+                    * (y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + x.powi(8)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + x.powi(6)
+                    * (z.powi(2)
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        * sqrt(3.0)
+                        + y.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (-2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (-2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ))
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0))
+                        + y.powi(4)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                + x.powi(4)
+                    * (z.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        + y.powi(4)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 5.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - (4.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, 1, 1, -1, 2, -1) => {
+            (x * (-((y.powi(4) - 2.0 * y.powi(2) * z.powi(2) + x.powi(2) * (y - z) * (y + z))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r))
+                + x.powi(6) * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + y.powi(6)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + y.powi(2)
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + x.powi(4)
+                    * (y.powi(2)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + z.powi(2)
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                - y.powi(4)
+                    * z.powi(2)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 3.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + (2.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                - x.powi(2)
+                    * (y.powi(4)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        + z.powi(4)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                - splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, -1, 2, 0) => {
+            (x * y
+                * z
+                * (-(z.powi(2)
+                    * (4.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        + 6.0 * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (2.0
+                            * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                            + splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + 2.0
+                                * (splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )))
+                            * sqrt(3.0)))
+                    + (x.powi(2) + y.powi(2))
+                        * (2.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + (-2.0
+                                * splev_uniform(
+                                    &dipole[&21].0,
+                                    &dipole[&21].1,
+                                    dipole[&21].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / 2.
+        }
+        (2, 1, 1, -1, 2, 1) => {
+            (y * (-((x.powi(4) + x.powi(2) * y.powi(2) + y.powi(2) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r))
+                + x.powi(6)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + y.powi(2)
+                    * ((y.powi(4) - z.powi(4))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + z.powi(2)
+                            * (y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + x.powi(2)
+                    * (y.powi(4)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + z.powi(4)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        - y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                - x.powi(4)
+                    * (y.powi(2)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        + z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, -1, 2, 2) => {
+            -(x * y
+                * z
+                * (2.0
+                    * (x.powi(2) + y.powi(2))
+                    * (x.powi(2) + 3.0 * y.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    - 2.0
+                        * y.powi(2)
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                    + y.powi(6)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 4.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 6.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0))
+                    - x.powi(6)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 4.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            - 2.0
+                                * (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                * sqrt(3.0))
+                    + y.powi(4)
+                        * z.powi(2)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + 2.0
+                                * (splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))
+                    + x.powi(2)
+                        * (2.0
+                            * z.powi(4)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ))
+                            - 4.0
+                                * y.powi(2)
+                                * z.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0))
+                            + y.powi(4)
+                                * (splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) + 4.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    - 10.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    + 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )
+                                    - 2.0
+                                        * splev_uniform(
+                                            &dipole[&22].0,
+                                            &dipole[&22].1,
+                                            dipole[&22].2,
+                                            r,
+                                        )
+                                        * sqrt(3.0)
+                                    + 4.0
+                                        * splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        )
+                                        * sqrt(3.0)))
+                    + x.powi(4)
+                        * (-(y.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + 4.0
+                                        * splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        ))
+                                    * sqrt(3.0)))
+                            - z.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ) - splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ) * sqrt(3.0))))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 1, 1, 0, 0, 0) => {
+            x * ((x.powi(2) + y.powi(2) - z.powi(2))
+                * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                + z.powi(2)
+                    * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                    * sqrt(3.0))
+        }
+        (2, 1, 1, 0, 1, -1) => {
+            x * y
+                * (-splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    - z.powi(2)
+                        * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            + (splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                                - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                                * sqrt(3.0)))
+        }
+        (2, 1, 1, 0, 1, 0) => {
+            x * z
+                * ((x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        + z.powi(2)
+                            * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                        * sqrt(3.0))
+        }
+        (2, 1, 1, 0, 1, 1) => {
+            y.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                + x.powi(2)
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                + z.powi(2)
+                    * ((y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                        - x.powi(2)
+                            * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                                + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                                + (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                )) * sqrt(3.0)))
+        }
+        (2, 1, 1, 0, 2, -2) => {
+            (y * ((-x.powi(4) + y.powi(4))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - x.powi(2)
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                + z.powi(4)
+                    * (-2.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + (x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + x.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                    * sqrt(3.0)
+                - (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (y.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + x.powi(2)
+                            * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, 0, 2, -1) => {
+            x * y
+                * z
+                * (-splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    - (2.0 * (x.powi(2) + y.powi(2)) + z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + x.powi(2) * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + y.powi(2) * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    - z.powi(2) * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + x.powi(2) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    + y.powi(2) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    - 3.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    + 3.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                    + (x.powi(2) + y.powi(2) - z.powi(2))
+                        * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                        * sqrt(3.0))
+        }
+        (2, 1, 1, 0, 2, 0) => {
+            (x * (-((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * (x.powi(2) + y.powi(2) - z.powi(2))
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r))
+                + 6.0
+                    * (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                - ((x.powi(2) + y.powi(2))
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    + z.powi(2)
+                        * ((x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 2.0
+                                * (x.powi(2) + y.powi(2))
+                                * splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                            - 2.0
+                                * (x.powi(2) + y.powi(2) - z.powi(2))
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                            + (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )))
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, 1, 1, 0, 2, 1) => {
+            z * (y.powi(2) * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + (y.powi(2) + z.powi(2))
+                    * (2.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + x.powi(4)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * (y.powi(2)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))
+                        - z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))))
+        }
+        (2, 1, 1, 0, 2, 2) => {
+            (x * (4.0
+                * y.powi(2)
+                * (x.powi(2) + y.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - (x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                + (x.powi(4) - y.powi(4))
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                    * sqrt(3.0)
+                + z.powi(2)
+                    * (-((x.powi(4)
+                        + 7.0 * y.powi(4)
+                        + 6.0 * y.powi(2) * z.powi(2)
+                        + 2.0 * x.powi(2) * (4.0 * y.powi(2) + z.powi(2)))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                        + 2.0
+                            * (x.powi(2) + y.powi(2))
+                            * (-x.powi(2) + 3.0 * y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - (x.powi(4) - y.powi(4))
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 1, 1, 1, 0, 0) => {
+            z * ((-x.powi(2) + y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                + x.powi(2)
+                    * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                    * sqrt(3.0))
+        }
+        (2, 1, 1, 1, 1, -1) => {
+            (y * z
+                * (-(y.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                    + (-x.powi(4) + y.powi(4) + (x.powi(2) + y.powi(2)) * z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + x.powi(2)
+                        * (z.powi(2)
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - (x.powi(2) + y.powi(2))
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&28].0,
+                                        &dipole[&28].1,
+                                        dipole[&28].2,
+                                        r,
+                                    )
+                                    + (splev_uniform(
+                                        &dipole[&19].0,
+                                        &dipole[&19].1,
+                                        dipole[&19].2,
+                                        r,
+                                    ) - splev_uniform(
+                                        &dipole[&29].0,
+                                        &dipole[&29].1,
+                                        dipole[&29].2,
+                                        r,
+                                    )) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, 1, 1, 0) => {
+            y.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                + z.powi(2)
+                    * (-x.powi(2) + y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                + x.powi(2)
+                    * ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                        - z.powi(2)
+                            * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                                + splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                                + (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                )) * sqrt(3.0)))
+        }
+        (2, 1, 1, 1, 1, 1) => {
+            (x * z
+                * (-(y.powi(2) * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                    + (-x.powi(4) + y.powi(4) + (x.powi(2) + y.powi(2)) * z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + (x.powi(2) + y.powi(2))
+                        * ((-x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            + (y.powi(2)
+                                * splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                )
+                                + x.powi(2)
+                                    * splev_uniform(
+                                        &dipole[&29].0,
+                                        &dipole[&29].1,
+                                        dipole[&29].2,
+                                        r,
+                                    ))
+                                * sqrt(3.0))
+                    + z.powi(2)
+                        * (x.powi(2)
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + (x.powi(2) + y.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&28].0,
+                                    &dipole[&28].1,
+                                    dipole[&28].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, 1, 2, -2) => {
+            (x * y
+                * z
+                * (-2.0
+                    * y.powi(2)
+                    * (x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    - 2.0
+                        * x.powi(2)
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                    + (x.powi(2) + y.powi(2)).powi(2)
+                        * (x.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                            + y.powi(2)
+                                * (-3.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )) * sqrt(3.0)))
+                    + (x.powi(2) + y.powi(2))
+                        * z.powi(2)
+                        * (y.powi(2)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                            + x.powi(2)
+                                * (splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) - 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    + 2.0
+                                        * splev_uniform(
+                                            &dipole[&26].0,
+                                            &dipole[&26].1,
+                                            dipole[&26].2,
+                                            r,
+                                        )
+                                    + splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2)).powi(2)
+        }
+        (2, 1, 1, 1, 2, -1) => {
+            (y * (y.powi(2)
+                * ((x.powi(2) + y.powi(2)).powi(2) - z.powi(4))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - x.powi(2)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + z.powi(4)
+                    * (x.powi(2)
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (2.0 * x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + x.powi(2)
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + (x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * ((x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + (-x.powi(2) + y.powi(2))
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0)
+                        - x.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, 1, 2, 0) => {
+            (z * ((x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * (x.powi(2) - y.powi(2) - z.powi(2))
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                - 6.0
+                    * x.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                + 2.0
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    * sqrt(3.0)
+                + (x.powi(2)
+                    * (x.powi(2) + y.powi(2) - z.powi(2))
+                    * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    - ((x.powi(2) + y.powi(2)).powi(2) + y.powi(2) * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + x.powi(2)
+                        * (-2.0
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                ))
+                            + (x.powi(2) + y.powi(2))
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    - splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))))
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, 1, 1, 1, 2, 1) => {
+            (x * (y.powi(2)
+                * ((x.powi(2) + y.powi(2)).powi(2) - z.powi(4))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + x.powi(6) * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                + y.powi(2)
+                    * (y.powi(2) + z.powi(2))
+                    * (2.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + z.powi(2)
+                            * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                + x.powi(2)
+                    * (y.powi(4)
+                        * (4.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        - y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                        + z.powi(4)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                - x.powi(4)
+                    * (-2.0
+                        * y.powi(2)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))))
+                / (x.powi(2) + y.powi(2))
+        }
+        (2, 1, 1, 1, 2, 2) => {
+            (z * (2.0
+                * y.powi(2)
+                * (-x.powi(4) + y.powi(4))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + x.powi(8)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        - splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                - y.powi(4)
+                    * (y.powi(2) + z.powi(2))
+                    * (-((y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                        + y.powi(2)
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0))
+                + x.powi(6)
+                    * (y.powi(2)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - 10.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                            + 2.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )
+                            + 4.0
+                                * splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )
+                                * sqrt(3.0))
+                        + z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ))
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                + x.powi(4)
+                    * (-((y.powi(4) + 2.0 * z.powi(4))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r))
+                        + y.powi(2)
+                            * (-((16.0 * y.powi(2) + 3.0 * z.powi(2))
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ))
+                                + 2.0
+                                    * (5.0 * y.powi(2) + 2.0 * z.powi(2))
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * y.powi(2)
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (2.0 * y.powi(2) + z.powi(2))
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + 4.0
+                                        * splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        ))
+                                    * sqrt(3.0)))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (2.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ))
+                        - y.powi(4)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 6.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        - y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) * sqrt(3.0)
+                                - 2.0
+                                    * (splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    ) - splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ) * sqrt(3.0))))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, -1, 0, 0) => {
+            -(y * (2.0
+                * (2.0 * x.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                + (-x.powi(2) + y.powi(2))
+                    * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                    * sqrt(3.0)))
+                / 2.
+        }
+        (2, 2, 1, -1, 1, -1) => {
+            (-(x.powi(2)
+                * (x.powi(4) - y.powi(4) + 2.0 * (x.powi(2) + 3.0 * y.powi(2)) * z.powi(2))
+                * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r))
+                - 2.0
+                    * (x.powi(2) * y + y.powi(3)).powi(2)
+                    * (2.0 * x.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                + y.powi(2)
+                    * (-x + y)
+                    * (x + y)
+                    * z.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                - 2.0
+                    * (x.powi(2) * y + y.powi(3)).powi(2)
+                    * (2.0 * x.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                + (x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * ((x.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        + y.powi(2)
+                            * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                    * sqrt(3.0))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, -1, 1, 0) => {
+            (y * (4.0
+                * x.powi(2)
+                * z
+                * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                - 2.0
+                    * (x.powi(2) + y.powi(2))
+                    * (2.0 * x.powi(2) * z + z.powi(3))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                + 2.0
+                    * (x - y)
+                    * (x + y)
+                    * z.powi(3)
+                    * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                + (x.powi(4) - y.powi(4))
+                    * z
+                    * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                        - 2.0 * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                        + (-splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                            + splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                            * sqrt(3.0))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, -1, 1, 1) => {
+            (x * y
+                * ((x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2)).powi(2)
+                        * (2.0 * x.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2)).powi(2)
+                        * (2.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + (-x.powi(2) + y.powi(2))
+                        * (z.powi(2)
+                            * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + (x.powi(2) + y.powi(2)).powi(2)
+                                * (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, -1, 2, -2) => {
+            (x * (-(((x.powi(2) - y.powi(2)).powi(2) * (x.powi(2) + y.powi(2))
+                + 2.0 * (x.powi(4) + 4.0 * x.powi(2) * y.powi(2) - y.powi(4)) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r))
+                + 2.0
+                    * y.powi(4)
+                    * z.powi(4)
+                    * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + 3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0 * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                + x.powi(8)
+                    * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                    * sqrt(3.0)
+                + y.powi(8)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 4.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + y.powi(6)
+                    * z.powi(2)
+                    * (2.0
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        - (2.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + x.powi(6)
+                    * (y.powi(2)
+                        * (5.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - 4.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )
+                            - 4.0
+                                * splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                )
+                                * sqrt(3.0))
+                        + z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))
+                + x.powi(4)
+                    * (2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (-2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + (-2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0))
+                        + y.powi(4)
+                            * (9.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * (4.0
+                                        * splev_uniform(
+                                            &dipole[&22].0,
+                                            &dipole[&22].1,
+                                            dipole[&22].2,
+                                            r,
+                                        )
+                                        + splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        ))
+                                    * sqrt(3.0)))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (-4.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        + y.powi(4)
+                            * (3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (10.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - (4.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, -1, 2, -1) => {
+            -(z * (x.powi(2)
+                * (x.powi(4) - 5.0 * y.powi(4)
+                    + 6.0 * y.powi(2) * z.powi(2)
+                    + 2.0 * x.powi(2) * (-2.0 * y.powi(2) + z.powi(2)))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - 2.0
+                    * y.powi(4)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                + x.powi(8)
+                    * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                - y.powi(8)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + y.powi(6)
+                    * z.powi(2)
+                    * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - 2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (2.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + x.powi(6)
+                    * (-(y.powi(2)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 6.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )
+                            - 4.0
+                                * splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                )
+                                * sqrt(3.0)))
+                        + z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))
+                + x.powi(4)
+                    * y.powi(2)
+                    * (2.0
+                        * (4.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                        * sqrt(3.0)
+                        - y.powi(2)
+                            * (9.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - 10.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        - z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + y.powi(4)
+                            * (-7.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                        + 4.0
+                            * y.powi(2)
+                            * (y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0)
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (-6.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, -1, 2, 0) => {
+            (y * (2.0
+                * (x.powi(2) + y.powi(2))
+                * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * (2.0 * x.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                + 8.0
+                    * x.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    * sqrt(3.0)
+                - 4.0
+                    * y.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    * sqrt(3.0)
+                + x.powi(6)
+                    * (5.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                + y.powi(6)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                + x.powi(2)
+                    * ((3.0 * y.powi(4) + 4.0 * y.powi(2) * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 4.0
+                            * z.powi(4)
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + y.powi(4)
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                - 2.0
+                    * y.powi(4)
+                    * z.powi(2)
+                    * (-3.0 * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + (-splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                            + splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                            * sqrt(3.0))
+                + x.powi(4)
+                    * (y.powi(2)
+                        * (9.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                        * sqrt(3.0)
+                        + 2.0
+                            * z.powi(2)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )
+                                + (-splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) + 3.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                    - 2.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    + splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (4. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, -1, 2, 1) => {
+            -(x * y
+                * z
+                * ((-5.0 * x.powi(4) - 4.0 * x.powi(2) * y.powi(2)
+                    + y.powi(4)
+                    + 2.0 * (x - y) * (x + y) * z.powi(2))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    - 2.0
+                        * y.powi(2)
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + y.powi(4)
+                        * z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 8.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0))
+                    + y.powi(6)
+                        * (9.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 6.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                                * sqrt(3.0))
+                    + x.powi(6)
+                        * (3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            - 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            + 2.0
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                * sqrt(3.0))
+                    + x.powi(2)
+                        * (2.0
+                            * z.powi(4)
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + 4.0
+                                * y.powi(2)
+                                * z.powi(2)
+                                * (3.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    - splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ))
+                            + 4.0
+                                * y.powi(2)
+                                * (y.powi(2) + z.powi(2))
+                                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0)
+                            + y.powi(4)
+                                * (21.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                    - 10.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    + 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )
+                                    - 2.0
+                                        * splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        )
+                                        * sqrt(3.0)))
+                    + x.powi(4)
+                        * (-(z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )))
+                            + 2.0
+                                * (4.0 * y.powi(2) + z.powi(2))
+                                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0)
+                            + y.powi(2)
+                                * (15.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    - splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                    - 2.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    - 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )
+                                    + 2.0
+                                        * splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        )
+                                        * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, -1, 2, 2) => {
+            (y * (4.0
+                * x.powi(2)
+                * (x.powi(4) - y.powi(4) + 4.0 * y.powi(2) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - 4.0
+                    * y.powi(4)
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                + y.powi(8)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                + x.powi(8)
+                    * (5.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        - 4.0
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                + 2.0
+                    * y.powi(6)
+                    * z.powi(2)
+                    * (-splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + 2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                - 2.0
+                    * x.powi(6)
+                    * (z.powi(2)
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - 2.0
+                            * (y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + z.powi(2)
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - 8.0
+                            * y.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 2.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (2.0 * y.powi(2) + z.powi(2))
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                + 2.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * (4.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        + 2.0
+                            * y.powi(4)
+                            * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 12.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                + 2.0
+                    * x.powi(4)
+                    * (-2.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 14.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                        + y.powi(4)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 16.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (4. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, 0, 0, 0) => {
+            -((x - y)
+                * (x + y)
+                * z
+                * (2.0 * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                    - splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r) * sqrt(3.0)))
+                / 2.
+        }
+        (2, 2, 1, 0, 1, -1) => {
+            (y * z
+                * (4.0
+                    * x.powi(2)
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + 2.0
+                        * (-x.powi(4) + y.powi(4))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (2.0 * x.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + (x - y)
+                        * (x + y)
+                        * ((x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - (x.powi(2) + y.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, 0, 1, 0) => {
+            -((x - y)
+                * (x + y)
+                * ((x.powi(2) + y.powi(2))
+                    * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                        - splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                            * sqrt(3.0))
+                    + z.powi(2)
+                        * (2.0
+                            * (splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                                + splev_uniform(
+                                    &dipole[&20].0,
+                                    &dipole[&20].1,
+                                    dipole[&20].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&28].0,
+                                    &dipole[&28].1,
+                                    dipole[&28].2,
+                                    r,
+                                ))
+                            - splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r)
+                                * sqrt(3.0))))
+                / 2.
+        }
+        (2, 2, 1, 0, 1, 1) => {
+            (x * z
+                * (-4.0
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + 2.0
+                        * (-x.powi(4) + y.powi(4))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (2.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + (x - y)
+                        * (x + y)
+                        * ((x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - (x.powi(2) + y.powi(2))
+                                * (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, 0, 2, -2) => {
+            (x * (x - y)
+                * y
+                * (x + y)
+                * z
+                * (4.0 * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                    + (5.0 * (x.powi(2) + y.powi(2)) + 4.0 * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                    + 2.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + 2.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    + 4.0
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    - 4.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    - 4.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                    + 3.0
+                        * x.powi(2)
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                    + 3.0
+                        * y.powi(2)
+                        * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                        * sqrt(3.0)))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, 0, 2, -1) => {
+            -(y * (-4.0
+                * x.powi(2)
+                * z.powi(2)
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + 2.0
+                    * y.powi(2)
+                    * z.powi(4)
+                    * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + x.powi(6)
+                    * (4.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + y.powi(6)
+                    * (-splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                - y.powi(4)
+                    * z.powi(2)
+                    * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + (2.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * (-2.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + 4.0
+                            * y.powi(2)
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + y.powi(4)
+                            * (4.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))
+                + x.powi(4)
+                    * (y.powi(2)
+                        * (8.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                                * sqrt(3.0))
+                        + z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, 0, 2, 0) => {
+            ((x - y)
+                * (x + y)
+                * z
+                * (2.0
+                    * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                    + 6.0
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                    + (2.0
+                        * (x.powi(2) + y.powi(2))
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - 2.0
+                            * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - 4.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                        * sqrt(3.0)))
+                / 4.
+        }
+        (2, 2, 1, 0, 2, 1) => {
+            (x * (-4.0
+                * y.powi(2)
+                * z.powi(2)
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - 2.0
+                    * y.powi(2)
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + y.powi(6)
+                    * (4.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + x.powi(6)
+                    * (-splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + y.powi(4)
+                    * z.powi(2)
+                    * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 6.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + (2.0 * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * (4.0
+                        * y.powi(2)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + 2.0
+                            * z.powi(4)
+                            * (-splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        + y.powi(4)
+                            * (8.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0)))
+                - x.powi(4)
+                    * (y.powi(2)
+                        * (-4.0
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                                * sqrt(3.0))
+                        + z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, 0, 2, 2) => {
+            (z * (-16.0
+                * x.powi(2)
+                * y.powi(2)
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + 4.0
+                    * y.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                + 4.0
+                    * y.powi(4)
+                    * z.powi(2)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                + x.powi(6)
+                    * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0 * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        - 2.0
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                + y.powi(6)
+                    * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0 * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        - 2.0
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                + x.powi(4)
+                    * (4.0
+                        * z.powi(2)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r))
+                        + y.powi(2)
+                            * (-2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                - 17.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + 16.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                + x.powi(2)
+                    * (4.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - 8.0
+                            * y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                ))
+                        + y.powi(4)
+                            * (-2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                - 17.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                + 16.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (4. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, 1, 0, 0) => {
+            x * (2.0 * y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&16].0, &dipole[&16].1, dipole[&16].2, r)
+                + (x * (x - y)
+                    * (x + y)
+                    * splev_uniform(&dipole[&27].0, &dipole[&27].1, dipole[&27].2, r)
+                    * sqrt(3.0))
+                    / 2.
+        }
+        (2, 2, 1, 1, 1, -1) => {
+            (x * y
+                * ((x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2)).powi(2)
+                        * (2.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    - 2.0
+                        * (x.powi(2) + y.powi(2)).powi(2)
+                        * (2.0 * x.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                    + (-x.powi(2) + y.powi(2))
+                        * (z.powi(2)
+                            * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                            * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            + (x.powi(2) + y.powi(2)).powi(2)
+                                * (splev_uniform(
+                                    &dipole[&19].0,
+                                    &dipole[&19].1,
+                                    dipole[&19].2,
+                                    r,
+                                ) - splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, 1, 1, 0) => {
+            (x * z
+                * (-4.0
+                    * y.powi(2)
+                    * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                    + 2.0
+                        * (x.powi(2) + y.powi(2))
+                        * (2.0 * y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                    + 2.0
+                        * (x - y)
+                        * (x + y)
+                        * z.powi(2)
+                        * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                    + (x.powi(4) - y.powi(4))
+                        * (splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                            + (-splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                                + splev_uniform(
+                                    &dipole[&29].0,
+                                    &dipole[&29].1,
+                                    dipole[&29].2,
+                                    r,
+                                ))
+                                * sqrt(3.0))))
+                / (2. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, 1, 1, 1) => {
+            (y.powi(2)
+                * (-x.powi(4) + y.powi(4) + 2.0 * (3.0 * x.powi(2) + y.powi(2)) * z.powi(2))
+                * splev_uniform(&dipole[&17].0, &dipole[&17].1, dipole[&17].2, r)
+                + 2.0
+                    * (x.powi(3) + x * y.powi(2)).powi(2)
+                    * (2.0 * y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&18].0, &dipole[&18].1, dipole[&18].2, r)
+                - x.powi(2)
+                    * (x - y)
+                    * (x + y)
+                    * z.powi(2)
+                    * (x.powi(2) + y.powi(2) + 2.0 * z.powi(2))
+                    * splev_uniform(&dipole[&20].0, &dipole[&20].1, dipole[&20].2, r)
+                + 2.0
+                    * (x.powi(3) + x * y.powi(2)).powi(2)
+                    * (2.0 * y.powi(2) + z.powi(2))
+                    * splev_uniform(&dipole[&28].0, &dipole[&28].1, dipole[&28].2, r)
+                + (x - y)
+                    * (x + y)
+                    * (x.powi(2) + y.powi(2)).powi(2)
+                    * ((y.powi(2) + z.powi(2))
+                        * splev_uniform(&dipole[&19].0, &dipole[&19].1, dipole[&19].2, r)
+                        + x.powi(2)
+                            * splev_uniform(&dipole[&29].0, &dipole[&29].1, dipole[&29].2, r))
+                    * sqrt(3.0))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, 1, 2, -2) => {
+            (y * (((x.powi(2) - y.powi(2)).powi(2) * (x.powi(2) + y.powi(2))
+                + 2.0 * (-x.powi(4) + 4.0 * x.powi(2) * y.powi(2) + y.powi(4)) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - 2.0
+                    * z.powi(4)
+                    * (2.0
+                        * x.powi(2)
+                        * (x - y)
+                        * (x + y)
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        + (3.0 * x.powi(4) + y.powi(4))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 2.0
+                            * x.powi(2)
+                            * (x - y)
+                            * (x + y)
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                - (x.powi(2) + y.powi(2)).powi(2)
+                    * (x.powi(2)
+                        * (-((x.powi(2) - 5.0 * y.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                            + (x - y)
+                                * (x + y)
+                                * (4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    - 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )))
+                        - 4.0
+                            * x.powi(2)
+                            * y.powi(2)
+                            * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            * sqrt(3.0)
+                        + (x.powi(2) - y.powi(2)).powi(2)
+                            * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + (x.powi(2) + y.powi(2))
+                    * z.powi(2)
+                    * (2.0
+                        * x.powi(2)
+                        * y.powi(2)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0))
+                        - y.powi(4)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ) * sqrt(3.0))
+                        + x.powi(4)
+                            * (-2.0
+                                * (splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) + 3.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    ))
+                                + (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, 1, 2, -1) => {
+            (x * y
+                * z
+                * ((x.powi(4) - 5.0 * y.powi(4) + 2.0 * y.powi(2) * z.powi(2)
+                    - 2.0 * x.powi(2) * (2.0 * y.powi(2) + z.powi(2)))
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    + 2.0
+                        * y.powi(2)
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    - y.powi(4)
+                        * z.powi(2)
+                        * (2.0 * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - 4.0
+                                * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0))
+                    + x.powi(6)
+                        * (9.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 6.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            + 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            - 2.0
+                                * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                                * sqrt(3.0))
+                    + y.powi(6)
+                        * (3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            - splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + 2.0
+                                * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                            - 3.0
+                                * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                            + 2.0
+                                * (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                * sqrt(3.0))
+                    + x.powi(4)
+                        * (z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 8.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    ))
+                            + 2.0
+                                * (2.0 * y.powi(2) + z.powi(2))
+                                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                * sqrt(3.0)
+                            + y.powi(2)
+                                * (21.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                    - 10.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    + 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )
+                                    - 2.0
+                                        * splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        )
+                                        * sqrt(3.0)))
+                    + x.powi(2)
+                        * (-2.0
+                            * z.powi(4)
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + 4.0
+                                * y.powi(2)
+                                * z.powi(2)
+                                * (3.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    - splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) * sqrt(3.0))
+                            + y.powi(4)
+                                * (15.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                    - splev_uniform(
+                                        &dipole[&26].0,
+                                        &dipole[&26].1,
+                                        dipole[&26].2,
+                                        r,
+                                    )
+                                    - 2.0
+                                        * splev_uniform(
+                                            &dipole[&30].0,
+                                            &dipole[&30].1,
+                                            dipole[&30].2,
+                                            r,
+                                        )
+                                    - 3.0
+                                        * splev_uniform(
+                                            &dipole[&31].0,
+                                            &dipole[&31].1,
+                                            dipole[&31].2,
+                                            r,
+                                        )
+                                    + 2.0
+                                        * (4.0
+                                            * splev_uniform(
+                                                &dipole[&22].0,
+                                                &dipole[&22].1,
+                                                dipole[&22].2,
+                                                r,
+                                            )
+                                            + splev_uniform(
+                                                &dipole[&24].0,
+                                                &dipole[&24].1,
+                                                dipole[&24].2,
+                                                r,
+                                            ))
+                                        * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, 1, 2, 0) => {
+            (x * (-2.0
+                * (x.powi(2) + y.powi(2))
+                * (x.powi(2) + y.powi(2) - 2.0 * z.powi(2))
+                * (2.0 * y.powi(2) + z.powi(2))
+                * splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                - 8.0
+                    * y.powi(2)
+                    * z.powi(2)
+                    * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                    * sqrt(3.0)
+                - 4.0
+                    * y.powi(2)
+                    * z.powi(4)
+                    * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                    * sqrt(3.0)
+                + x.powi(6)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                + y.powi(6)
+                    * (-5.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                + x.powi(2)
+                    * (-((9.0 * y.powi(4) + 4.0 * y.powi(2) * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r))
+                        + 4.0
+                            * z.powi(4)
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + y.powi(4)
+                            * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                    * sqrt(3.0)
+                + 2.0
+                    * y.powi(4)
+                    * z.powi(2)
+                    * (3.0 * splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                        + splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            * sqrt(3.0)
+                        - (3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            - 2.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                            + splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                            * sqrt(3.0))
+                - x.powi(4)
+                    * (y.powi(2)
+                        * (3.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                        * sqrt(3.0)
+                        + 2.0
+                            * z.powi(2)
+                            * (3.0
+                                * splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )
+                                + splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                ) * sqrt(3.0)
+                                - (splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                ) - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (4. * (x.powi(2) + y.powi(2)))
+        }
+        (2, 2, 1, 1, 2, 1) => {
+            (z * (y.powi(2)
+                * (-5.0 * x.powi(4) - 4.0 * x.powi(2) * y.powi(2)
+                    + y.powi(4)
+                    + 2.0 * (3.0 * x.powi(2) + y.powi(2)) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                + y.powi(6)
+                    * (y.powi(2) + z.powi(2))
+                    * (2.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                - x.powi(8)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        - 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r)
+                            * sqrt(3.0))
+                + x.powi(2)
+                    * y.powi(2)
+                    * (2.0
+                        * z.powi(4)
+                        * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - y.powi(4)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - 6.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                - 4.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    * sqrt(3.0))
+                        - y.powi(2)
+                            * z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + (-2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                + x.powi(6)
+                    * (y.powi(2)
+                        * (-7.0
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                            + 2.0
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&31].0,
+                                    &dipole[&31].1,
+                                    dipole[&31].2,
+                                    r,
+                                )
+                            + 4.0
+                                * splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                )
+                                * sqrt(3.0))
+                        + z.powi(2)
+                            * (2.0
+                                * splev_uniform(
+                                    &dipole[&23].0,
+                                    &dipole[&23].1,
+                                    dipole[&23].2,
+                                    r,
+                                )
+                                - 2.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 2.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + (2.0
+                                    * splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    )
+                                    + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))
+                + x.powi(4)
+                    * (-3.0
+                        * (3.0 * y.powi(4) + 2.0 * y.powi(2) * z.powi(2))
+                        * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - (y.powi(4) + 2.0 * z.powi(4))
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + y.powi(2)
+                            * (2.0
+                                * (5.0 * y.powi(2) + 2.0 * z.powi(2))
+                                * splev_uniform(
+                                    &dipole[&30].0,
+                                    &dipole[&30].1,
+                                    dipole[&30].2,
+                                    r,
+                                )
+                                - 3.0
+                                    * y.powi(2)
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + (2.0 * y.powi(2) + z.powi(2))
+                                    * (4.0
+                                        * splev_uniform(
+                                            &dipole[&22].0,
+                                            &dipole[&22].1,
+                                            dipole[&22].2,
+                                            r,
+                                        )
+                                        + splev_uniform(
+                                            &dipole[&24].0,
+                                            &dipole[&24].1,
+                                            dipole[&24].2,
+                                            r,
+                                        ))
+                                    * sqrt(3.0)))))
+                / (2. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        (2, 2, 1, 1, 2, 2) => {
+            (x * (4.0
+                * y.powi(2)
+                * (-x.powi(4) + y.powi(4) + 4.0 * x.powi(2) * z.powi(2))
+                * splev_uniform(&dipole[&21].0, &dipole[&21].1, dipole[&21].2, r)
+                - 4.0
+                    * y.powi(4)
+                    * z.powi(4)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                + x.powi(8)
+                    * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r))
+                + y.powi(8)
+                    * (5.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + 3.0 * splev_uniform(&dipole[&31].0, &dipole[&31].1, dipole[&31].2, r)
+                        - 4.0
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                - 2.0
+                    * y.powi(6)
+                    * z.powi(2)
+                    * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                        - 4.0 * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        - 2.0 * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                            + splev_uniform(&dipole[&24].0, &dipole[&24].1, dipole[&24].2, r))
+                            * sqrt(3.0))
+                + 2.0
+                    * x.powi(6)
+                    * (-(z.powi(2)
+                        * splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r))
+                        + 2.0
+                            * (-y.powi(2) + z.powi(2))
+                            * splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                        - z.powi(2)
+                            * splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r)
+                        + 8.0
+                            * y.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + 2.0
+                            * z.powi(2)
+                            * splev_uniform(&dipole[&30].0, &dipole[&30].1, dipole[&30].2, r)
+                        + (2.0 * y.powi(2) + z.powi(2))
+                            * (splev_uniform(&dipole[&22].0, &dipole[&22].1, dipole[&22].2, r)
+                                + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                ))
+                            * sqrt(3.0))
+                + 2.0
+                    * x.powi(2)
+                    * y.powi(2)
+                    * (4.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            + 3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        + 2.0
+                            * y.powi(4)
+                            * (splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                                + 4.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 14.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0)))
+                + 2.0
+                    * x.powi(4)
+                    * (-2.0
+                        * z.powi(4)
+                        * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                            - splev_uniform(&dipole[&25].0, &dipole[&25].1, dipole[&25].2, r)
+                            + splev_uniform(&dipole[&26].0, &dipole[&26].1, dipole[&26].2, r))
+                        + y.powi(2)
+                            * z.powi(2)
+                            * (splev_uniform(&dipole[&23].0, &dipole[&23].1, dipole[&23].2, r)
+                                + 12.0
+                                    * splev_uniform(
+                                        &dipole[&25].0,
+                                        &dipole[&25].1,
+                                        dipole[&25].2,
+                                        r,
+                                    )
+                                + splev_uniform(
+                                    &dipole[&26].0,
+                                    &dipole[&26].1,
+                                    dipole[&26].2,
+                                    r,
+                                )
+                                + 6.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                + (splev_uniform(
+                                    &dipole[&22].0,
+                                    &dipole[&22].1,
+                                    dipole[&22].2,
+                                    r,
+                                ) + splev_uniform(
+                                    &dipole[&24].0,
+                                    &dipole[&24].1,
+                                    dipole[&24].2,
+                                    r,
+                                )) * sqrt(3.0))
+                        + y.powi(4)
+                            * (-3.0
+                                * splev_uniform(
+                                    &dipole[&25].0,
+                                    &dipole[&25].1,
+                                    dipole[&25].2,
+                                    r,
+                                )
+                                + 16.0
+                                    * splev_uniform(
+                                        &dipole[&30].0,
+                                        &dipole[&30].1,
+                                        dipole[&30].2,
+                                        r,
+                                    )
+                                - 3.0
+                                    * splev_uniform(
+                                        &dipole[&31].0,
+                                        &dipole[&31].1,
+                                        dipole[&31].2,
+                                        r,
+                                    )
+                                + 2.0
+                                    * (splev_uniform(
+                                        &dipole[&22].0,
+                                        &dipole[&22].1,
+                                        dipole[&22].2,
+                                        r,
+                                    ) + splev_uniform(
+                                        &dipole[&24].0,
+                                        &dipole[&24].1,
+                                        dipole[&24].2,
+                                        r,
+                                    ))
+                                    * sqrt(3.0)))))
+                / (4. * (x.powi(2) + y.powi(2)).powi(2))
+        }
+        _ => panic!("No combination of l1, m1, l2, m2 found!"),
+    };
+
+    return value;
 }

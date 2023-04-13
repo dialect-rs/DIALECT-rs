@@ -1,18 +1,10 @@
-use crate::fmo::helpers::get_pair_slice;
-use crate::fmo::lcmo::lcmo_trans_charges::{q_le_p, q_lele, q_pp, ElecHole};
-use crate::fmo::PairType::Pair;
+use crate::fmo::lcmo::lcmo_trans_charges::ElecHole;
 use crate::fmo::{
-    BasisState, ChargeTransfer, ChargeTransferPair, LocallyExcited, Monomer, PairType, Particle,
-    SuperSystem, LRC,
+    BasisState, ChargeTransferPair, LocallyExcited, Monomer, PairType, SuperSystem, LRC,
 };
-use crate::initialization::Atom;
-use crate::scc::gamma_approximation::{gamma_ao_wise_from_gamma_atomwise, gamma_atomwise_ab};
-use crate::scc::h0_and_s::h0_and_s_ab;
-use hashbrown::HashSet;
 use ndarray::prelude::*;
-use ndarray::{concatenate, Slice};
-use ndarray_linalg::{into_col, into_row, Trace};
-use peroxide::fuga::gamma;
+use ndarray::Slice;
+use ndarray_linalg::Trace;
 
 impl SuperSystem<'_> {
     pub fn exciton_coupling<'a>(&self, lhs: &'a BasisState<'a>, rhs: &'a BasisState<'a>) -> f64 {
@@ -38,7 +30,6 @@ impl SuperSystem<'_> {
                     self.ct_ct(a, b)
                 }
             }
-            _ => 0.0,
         }
     }
 
@@ -414,8 +405,8 @@ impl SuperSystem<'_> {
         // get all possible pair types of the monomers
         let type_hh: PairType = self.properties.type_of_pair(state_1.m_h, state_2.m_h);
         let type_ll: PairType = self.properties.type_of_pair(state_1.m_l, state_2.m_l);
-        let type_hl: PairType = self.properties.type_of_pair(state_1.m_h, state_2.m_l);
-        let type_lh: PairType = self.properties.type_of_pair(state_1.m_l, state_2.m_h);
+        let _type_hl: PairType = self.properties.type_of_pair(state_1.m_h, state_2.m_l);
+        let _type_lh: PairType = self.properties.type_of_pair(state_1.m_l, state_2.m_h);
 
         let restrict_space: bool = self.config.fmo_lc_tddftb.restrict_active_space;
 
@@ -563,60 +554,5 @@ impl SuperSystem<'_> {
         };
 
         2.0 * coulomb - exchange
-    }
-}
-
-/// Type that specifies what kind of CT-CT coupling is calculated. The letters I,J,K,L indicate the
-/// monomers. The naming follows: IJKL -> < CT J -> I | H | CT L -> K >
-pub enum CTCoupling {
-    IJIJ,
-    IJJI,
-    IJIK,
-    IJJK,
-    IJKI,
-    IJKJ,
-    IJKL,
-}
-
-impl<'a> From<(&Particle<'a>, &Particle<'a>, &Particle<'a>, &Particle<'a>)> for CTCoupling {
-    fn from((i, j, k, l): (&Particle<'a>, &Particle<'a>, &Particle<'a>, &Particle<'a>)) -> Self {
-        // The indices that provide the index of the corresponding monomers.
-        let (a, b): (usize, usize) = (i.idx, j.idx);
-        let (c, d): (usize, usize) = (k.idx, l.idx);
-        // IJ | IJ
-        if a == c && b == d {
-            // println!("Coupling kind: IJIJ");
-            Self::IJIJ
-        }
-        // IJ | JI
-        else if a == d && b == c {
-            // println!("Coupling kind: IJJI");
-            Self::IJJI
-        }
-        // IJ | IK
-        else if a == c {
-            // println!("Coupling kind: IJIK");
-            Self::IJIK
-        }
-        // IJ | JK
-        else if b == c {
-            // println!("Coupling kind: IJJK");
-            Self::IJJK
-        }
-        // IJ | KI
-        else if a == d {
-            // println!("Coupling kind: IJKI");
-            Self::IJKI
-        }
-        // IJ | KJ
-        else if b == d {
-            // println!("Coupling kind: IJKJ");
-            Self::IJKJ
-        }
-        // IJ | KL
-        else {
-            // println!("Coupling kind: IJKL");
-            Self::IJKL
-        }
     }
 }

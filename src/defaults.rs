@@ -6,6 +6,7 @@ pub const AA_TYPE: AAType = AAType::I;
 pub const AA_REGULARIZATION: f64 = 1e-3;
 pub const TOL_SAFEGUARD: f64 = 2.0;
 pub const AA_MAX_NORM: f64 = 1e10;
+
 // MOLECULE SPECIFICATION
 // charge of the molecule in a.u.
 pub const CHARGE: i8 = 0;
@@ -15,15 +16,38 @@ pub const MULTIPLICITY: u8 = 1;
 pub const JOBTYPE: &str = "sp";
 // config file
 pub const CONFIG_FILE_NAME: &str = "dialect.toml";
+pub const DYNAMIC_CONFIG_FILE_NAME: &str = "dynamics.toml";
 // occupation of orbitals is smeared out by Fermi
 // distribution with temperature T in Kelvin
 pub const TEMPERATURE: f64 = 0.0;
+
 pub const LONG_RANGE_RADIUS: f64 = 3.03;
 pub const PROXIMITY_CUTOFF: f64 = 30.00;
 pub const LONG_RANGE_CORRECTION: bool = true;
 pub const DISPERSION_CORRECTION: bool = true;
 
-// PARAMETERS
+// D3 Parameters for wB97X-D3(BJ)
+// Ref:  J. Chem. Theory Comput. 2018, 14, 11, 5725–5738
+pub const S6_DISP_PARAM: f64 = 1.000;
+pub const S8_DISP_PARAM: f64 = 0.2641;
+pub const A1_DISP_PARAM: f64 = 0.000;
+pub const A2_DISP_PARAM: f64 = 5.4959;
+
+// ob2 split dispersion parameters
+pub const S6_DISP_PARAM_OB2: f64 = 1.000;
+pub const S8_DISP_PARAM_OB2: f64 = 0.010;
+pub const A1_DISP_PARAM_OB2: f64 = 0.497;
+pub const A2_DISP_PARAM_OB2: f64 = 3.622;
+
+pub const USE_DISPERSION: bool = false;
+
+// Optimization
+pub const GEOM_OPT_STATE: usize = 0;
+pub const GEOM_OPT_MAX_CYCLES: usize = 500;
+pub const GEOM_OPT_TOL_DISPLACEMENT: f64 = 300.0;
+pub const GEOM_OPT_TOL_GRADIENT: f64 = 1200.0;
+pub const GEOM_OPT_TOL_ENERGY: f64 = 1.0;
+
 // scaling of hubbard parameters by this factor
 pub const HUBBARD_SCALING: f64 = 1.0;
 // scaling of repulsive potentials by this factor

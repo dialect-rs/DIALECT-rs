@@ -15,10 +15,8 @@ that the correction vector is computed.
 */
 
 use crate::excited_states::solvers::utils;
-use crate::excited_states::solvers::{Davidson32Engine, DavidsonEngine};
+use crate::excited_states::solvers::DavidsonEngine;
 use ndarray::prelude::*;
-use ndarray::prelude::*;
-use ndarray::Data;
 use ndarray_linalg::*;
 use ndarray_stats::QuantileExt;
 use std::error;
@@ -46,10 +44,10 @@ impl Davidson {
     /// Compute the lowest eigenvalues of a symmetric, diagonal dominant matrix.
     /// * `engine` an object that implements the `DavidsonEngine` trait.
     /// * `guess` the initial guess for the eigenvectors.
-    /// * `nvalues` - the number of eigenvalues/eigenvectors pair to compute.
     /// * `n_roots` the number of (lowest) eigenvalues/eigenvectors to compute.
     /// * `tolerance` numerical tolerance for convergence.
     /// * `max_iter` the maximal number of iterations.
+    /// * `subspace_multiplier` Determines the maximum size of the number of expansion vectors
     pub fn new<D: DavidsonEngine>(
         engine: &mut D,
         guess: Array2<f64>,

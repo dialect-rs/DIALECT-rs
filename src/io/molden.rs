@@ -101,7 +101,7 @@ impl MoldenExporter<'_> {
         let mut txt: String = "[5D]\n[MO]\n".to_owned();
         let (occs, virts): (Vec<usize>, Vec<usize>) = self.occ_and_virts();
 
-        for (i, idx) in occs.iter().chain(virts.iter()).enumerate() {
+        for (i, _idx) in occs.iter().chain(virts.iter()).enumerate() {
             txt += &format!(" Sym=  {}a\n", i + 1);
             txt += &format!(" Ene=  {:2.7}\n", self.orbe[i]);
             txt += " Spin= Alpha\n";

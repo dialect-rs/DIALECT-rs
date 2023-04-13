@@ -1,26 +1,27 @@
-use crate::constants::HARTREE_TO_EV;
-use crate::excited_states::ntos::natural_transition_orbitals;
-use crate::initialization::Atom;
-use crate::io::MoldenExporter;
-use ndarray::prelude::*;
-use ndarray_npy::{write_npy, WriteNpyError};
-pub use solvers::*;
 use std::fs::File;
 use std::io::Write;
 use std::ops::AddAssign;
-use std::time::Instant;
+
+use ndarray::prelude::*;
+use ndarray_npy::{write_npy, WriteNpyError};
+
+pub use solvers::*;
 pub use tda::*;
 pub use transition_charges::*;
 pub use utils::*;
 
+use crate::constants::HARTREE_TO_EV;
+use crate::excited_states::ntos::natural_transition_orbitals;
+use crate::initialization::Atom;
+use crate::io::MoldenExporter;
+use crate::MoldenExporterBuilder;
+
+pub mod casida;
 pub mod ntos;
 mod solvers;
 pub(crate) mod tda;
 mod transition_charges;
 mod utils;
-use crate::MoldenExporterBuilder;
-use ndarray::Data;
-use ndarray_linalg::{Lapack, Scalar};
 
 /// General trait for all excited states struct, to implement basis functions.
 pub trait ExcitedState {

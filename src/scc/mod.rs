@@ -2,6 +2,7 @@ pub use fermi_occupation::fermi_occupation;
 pub use helpers::*;
 
 //pub mod scc_routine;
+mod dipoles;
 mod fermi_occupation;
 pub mod gamma_approximation;
 pub mod h0_and_s;

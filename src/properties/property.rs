@@ -1,6 +1,7 @@
 use crate::excited_states::ProductCache;
-use crate::fmo::PairType;
-use crate::fmo::SuperSystem;
+use crate::fmo::old_supersystem::OldSupersystem;
+use crate::fmo::{PairType, ReducedBasisState};
+use crate::initialization::old_system::OldSystem;
 use crate::initialization::Atom;
 use crate::scc::mixer::{AndersonAccel, BroydenMixer};
 use enum_as_inner::EnumAsInner;
@@ -65,7 +66,10 @@ pub enum Property {
     Accel(AndersonAccel),
     /// Excited state product cache
     Cache(ProductCache),
-    // SuperSystem(SuperSystem),
+    SuperSystem(OldSupersystem),
+    OldSystem(OldSystem),
+    // Basis States
+    VecBasis(Vec<ReducedBasisState>),
 }
 
 impl Default for Property {
@@ -118,6 +122,12 @@ impl From<Vec<usize>> for Property {
 impl From<Vec<f64>> for Property {
     fn from(value: Vec<f64>) -> Self {
         Property::VecF64(value)
+    }
+}
+
+impl From<Vec<ReducedBasisState>> for Property {
+    fn from(value: Vec<ReducedBasisState>) -> Self {
+        Property::VecBasis(value)
     }
 }
 
@@ -190,5 +200,17 @@ impl From<AndersonAccel> for Property {
 impl From<ProductCache> for Property {
     fn from(value: ProductCache) -> Self {
         Property::Cache(value)
+    }
+}
+
+impl From<OldSupersystem> for Property {
+    fn from(value: OldSupersystem) -> Self {
+        Property::SuperSystem(value)
+    }
+}
+
+impl From<OldSystem> for Property {
+    fn from(value: OldSystem) -> Self {
+        Property::OldSystem(value)
     }
 }
