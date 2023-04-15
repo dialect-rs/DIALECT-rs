@@ -13,7 +13,7 @@ impl System {
                 self.run_casida_restricted(
                     self.config.excited.nstates,
                     self.config.excited.davidson_iterations,
-                    5.0e-6,
+                    self.config.excited.davidson_convergence,
                     self.config.excited.davidson_subspace_multiplier,
                     print_states,
                 );
@@ -21,7 +21,7 @@ impl System {
                 self.run_tda_restricted(
                     self.config.excited.nstates,
                     self.config.excited.davidson_iterations,
-                    1e-4,
+                    self.config.excited.davidson_convergence,
                     self.config.excited.davidson_subspace_multiplier,
                 );
             }
@@ -33,7 +33,7 @@ impl System {
                 self.run_casida(
                     self.config.excited.nstates,
                     self.config.excited.davidson_iterations,
-                    5.0e-6,
+                    self.config.excited.davidson_convergence,
                     self.config.excited.davidson_subspace_multiplier,
                     print_states,
                 );
@@ -41,7 +41,7 @@ impl System {
                 self.run_tda(
                     self.config.excited.nstates,
                     self.config.excited.davidson_iterations,
-                    1e-4,
+                    self.config.excited.davidson_convergence,
                     self.config.excited.davidson_subspace_multiplier,
                     print_states,
                 );

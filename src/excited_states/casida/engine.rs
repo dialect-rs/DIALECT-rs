@@ -1,5 +1,6 @@
 use crate::initialization::System;
 use ndarray::prelude::*;
+use crate::excited_states::ProductCache;
 
 pub trait CasidaEngine {
     /// Compute Matrix * trial vector products
@@ -11,6 +12,8 @@ pub trait CasidaEngine {
 impl CasidaEngine for System {
     /// The products of the TDA/CIS-Hamiltonian with the subspace vectors is computed.
     fn compute_products<'a>(&mut self, x: ArrayView2<'a, f64>) -> (Array2<f64>, Array2<f64>) {
+        // Mutable reference to the product cache.
+        let mut cache: ProductCache = self.properties.take_cache().unwrap();
         // Transition charges between occupied-virtual orbitals, of shape: [n_atoms, n_occ * n_virt]
         let q_ov: ArrayView2<f64> = self.properties.q_ov().unwrap();
         // The gamma matrix of the shape: [n_atoms, n_atoms]
@@ -18,7 +21,20 @@ impl CasidaEngine for System {
         // The energy differences between virtual and occupied orbitals, shape: [n_occ * n_virt]
         let omega: ArrayView1<f64> = self.properties.omega().unwrap();
 
-        let compute_vectors: ArrayView2<f64> = x.view();
+        // The number of products that need to be computed in the current iteration.
+        let n_prod: usize = x.ncols();
+        // The number of products that are already computed.
+        let n_old: usize = cache.count("Casida_A");
+        // Only the new vectors are computed.
+        let compute_vectors: ArrayView2<f64> = if n_prod <= n_old {
+            // If the subspace vectors space was collapsed, the cache needs to be cleared.
+            cache.reset();
+            // All vectors have to be computed.
+            x
+        } else {
+            // Otherwise only the new products have to be computed.
+            x.slice_move(s![.., n_old..])
+        };
         // The number of vectors that needs to be computed in this iteration.
         let n_comp: usize = compute_vectors.ncols();
 
@@ -128,6 +144,9 @@ impl CasidaEngine for System {
             amat = &amat - &k_a;
             bmat = &bmat - &k_b;
         }
+        let amat:Array2<f64> = cache.add("Casida_A", amat).to_owned();
+        let bmat:Array2<f64> = cache.add("Casida_B", bmat).to_owned();
+        self.properties.set_cache(cache);
 
         (amat, bmat)
     }

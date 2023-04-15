@@ -66,6 +66,7 @@ fn default_davidson_iterations() -> usize {
 fn default_davidson_subspace_multiplier() -> usize {
     10
 }
+fn default_davidson_convergence() -> f64 { 1.0e-5 }
 fn default_geom_opt_max_cycles() -> usize {
     GEOM_OPT_MAX_CYCLES
 }
@@ -300,6 +301,8 @@ pub struct ExcitedStatesConfig {
     pub davidson_iterations: usize,
     #[serde(default = "default_davidson_subspace_multiplier")]
     pub davidson_subspace_multiplier: usize,
+    #[serde(default = "default_davidson_convergence")]
+    pub davidson_convergence:f64,
     #[serde(default = "default_use_casida")]
     pub use_casida: bool,
 }

@@ -94,25 +94,26 @@ impl CasidaSolver {
             // 3.1 Compute the Ritz vectors.
             let ritz: Array2<f64> = guess.dot(&v);
 
+            // take the square root of the eigenvalues
             let w: Array1<f64> = u.mapv(f64::sqrt);
             let wsq: Array1<f64> = w.mapv(f64::sqrt);
 
-            // approximate right R = (X+Y) and left L = (X-Y) eigenvectors
+            // 3.2 approximate right R = (X+Y) and left L = (X-Y) eigenvectors
             // in the basis bs
             // (X+Y) = (A-B)^(1/2).T / sqrt(w)
             let rb: Array2<f64> = sq_a_m_b.dot(&v) / &wsq;
             // L = (X-Y) = 1/w * (A+B).(X+Y)
             let lb: Array2<f64> = apb_proj.dot(&rb) / &w;
 
-            // transform to the canonical basis Lb -> L, Rb -> R
+            // 3.3 transform to the canonical basis Lb -> L, Rb -> R
             let l_vector: Array2<f64> = guess.dot(&lb);
             let r_vector: Array2<f64> = guess.dot(&rb);
 
-            // Calculate the residual vectors
+            // 3.4 Calculate the residual vectors
             let wl: Array2<f64> = a_p_b.dot(&rb) - &l_vector * &w;
             let wr: Array2<f64> = a_m_b.dot(&lb) - &r_vector * &w;
 
-            // norms
+            // 3.5 Calculate the norms of the residual vectors
             let mut norms: Array1<f64> = Array::zeros(n_roots);
             let mut norms_l: Array1<f64> = Array::zeros(n_roots);
             let mut norms_r: Array1<f64> = Array::zeros(n_roots);
@@ -121,23 +122,16 @@ impl CasidaSolver {
                 norms_r[i] = wr.slice(s![.., i]).dot(&wr.slice(s![.., i]));
                 norms[i] = norms_l[i] + norms_r[i];
             }
-            // check for convergence
-            let eps: f64 = 0.1 * tolerance;
+            // 4. Check for convergence
             let roots_cvd: usize = norms
                 .iter()
                 .fold(0, |n, &x| if x < tolerance { n + 1 } else { n });
 
             // number of not converged roots
             let roots_lft: usize = n_roots - roots_cvd;
-            // number of norm values that are above the convergence threshold
-            let nc_l: usize = norms_r
-                .iter()
-                .fold(0, |n, &x| if x > 0.1 * eps { n + 1 } else { n });
-            let nc_r: usize = norms_l
-                .iter()
-                .fold(0, |n, &x| if x > 0.1 * eps { n + 1 } else { n });
-
+            // sum of all errors
             let error: f64 = norms.sum();
+            // the maximum value of the errors
             let max_error: f64 = *norms.max().unwrap();
 
             // If all eigenvalues are converged, the Davidson routine finished successfully.
@@ -173,16 +167,8 @@ impl CasidaSolver {
             // 5.1 Correction vectors are added to the current subspace basis, if the new
             //     dimension is lower than the maximal subspace size.
             if dim_sub + roots_lft <= max_space {
-                // Half the new expansion vectors should come from the left residual vectors
-                // the other half from the right residual vectors.
-                let dk_r: usize = ((roots_lft as f64 / 2.0) as usize).min(nc_r);
-                let dk_l: usize = (roots_lft - dk_r).min(nc_l);
-                let mut dk: usize = (dk_r + dk_l) * 2;
-                if dk == 0 {
-                    dk += 2;
-                }
-
-                let mut Qs: Array2<f64> = Array::zeros((guess.dim().0, dk));
+                let dk: usize = roots_lft * 2;
+                let mut q_s: Array2<f64> = Array::zeros((guess.dim().0, dk));
                 let mut nb: usize = 0;
                 // select new expansion vectors among the non-converged left residual vectors
                 for i in 0..n_roots {
@@ -190,15 +176,11 @@ impl CasidaSolver {
                         //got enough new expansion vectors
                         break;
                     }
-                    let w_precon: Array1<f64> = w[i] - &omega;
-                    let temp: Array1<f64> =
-                        w_precon.map(|val| if val < &1.0e-6 { 1.0e-6 } else { 0.0 });
-                    let temp_2: Array1<f64> =
-                        w_precon.map(|&val| if val < 1.0e-6 { 0.0 } else { val });
-                    let w_precon: Array1<f64> = &temp * &omega + temp_2;
+                    let mut w_precon: Array1<f64> = w[i] - &omega;
+                    w_precon.mapv_inplace(|x| if x.abs() < 0.0001 { 1.0 } else { x });
 
                     if norms_l[i] > tolerance {
-                        Qs.slice_mut(s![.., nb])
+                        q_s.slice_mut(s![.., nb])
                             .assign(&((1.0 / &w_precon) * wl.slice(s![.., i])));
                         nb += 1;
                     }
@@ -207,20 +189,29 @@ impl CasidaSolver {
                         break;
                     }
                     if norms_r[i] > tolerance {
-                        Qs.slice_mut(s![.., nb])
+                        q_s.slice_mut(s![.., nb])
                             .assign(&((1.0 / &w_precon) * wr.slice(s![.., i])));
                         nb += 1;
                     }
                 }
-                let mut new_guess: Array2<f64> = Array::zeros((guess.dim().0, dim_sub + dk));
-                new_guess.slice_mut(s![.., ..dim_sub]).assign(&guess);
-                new_guess.slice_mut(s![.., dim_sub..]).assign(&Qs);
+                let mut new_dim:usize = 0;
+                // The new subspace vectors are orthonormalized and added to the existing basis.
+                for vec in q_s.axis_iter(Axis(1)) {
+                    let orth_v: Array1<f64> = &vec - &guess.dot(&guess.t().dot(&vec));
+                    let norm: f64 = orth_v.norm();
+                    if norm > 1.0e-7 {
+                        guess.push_column((&orth_v / norm).view());
+                        new_dim += 1;
+                    }
+                }
+                // if the norm of all new expansion vectors is below 1.0e-7, reset the subspace
+                if new_dim == 0{
+                    // The dimension of the subspace is reset to the initial value.
+                    dim_sub = dim_sub_origin;
+                    guess = ritz.slice(s![.., 0..dim_sub]).to_owned();
+                }
 
-                //QR decomposition
-                let qr = new_guess.qr().unwrap();
-                guess = qr.0;
-
-                dim_sub = dim_sub + dk;
+                dim_sub = dim_sub + new_dim;
             }
             // 5.1 If the dimension is larger than the maximal subspace size, the subspace is
             //     collapsed.
