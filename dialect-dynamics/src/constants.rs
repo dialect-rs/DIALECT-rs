@@ -6,12 +6,12 @@ pub const FS_TO_AU: f64 = 41.34137333;
 pub const K_BOLTZMANN: f64 = 3.166811382 * 1.0e-6; // in hartree/Kelvin
 
 pub const ATOM_NAMES: [&str; 87] = [
-    "dummy", "H", "he", "li", "be", "b", "C", "N", "O", "f", "ne", "na", "mg", "al", "si", "p",
-    "s", "cl", "ar", "k", "ca", "sc", "ti", "v", "cr", "mn", "fe", "co", "ni", "cu", "zn", "ga",
-    "ge", "as", "se", "br", "kr", "rb", "sr", "y", "zr", "nb", "mo", "tc", "ru", "rh", "pd", "ag",
-    "cd", "in", "sn", "sb", "te", "i", "xe", "cs", "ba", "la", "ce", "pr", "nd", "pm", "sm", "eu",
-    "gd", "tb", "dy", "ho", "er", "th", "yt", "lu", "hf", "ta", "w", "re", "os", "ir", "pt", "au",
-    "hg", "tl", "pb", "bi", "po", "at", "rn",
+    "Dummy", "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P",
+    "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga",
+    "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag",
+    "Cd", "In", "Sn", "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu",
+    "Gd", "Tb", "Dy", "Ho", "Er", "Th", "Yt", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au",
+    "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn",
 ];
 
 pub static ATOMIC_MASSES: phf::Map<u8, f64> = phf_map! {

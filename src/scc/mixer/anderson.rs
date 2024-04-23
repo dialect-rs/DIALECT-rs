@@ -271,10 +271,11 @@ impl AndersonAccel {
     /// Set M to S'Y or Y'Y depending on type of Anderson Acceleration used.
     /// M has dimension `len` x `len` after this, where `len` is min(iter, memory).
     fn compute_m(&self, y: ArrayView2<f64>) -> Array2<f64> {
-        let mut m: Array2<f64> = match self.aa_type {
-            AAType::I => self.s.dot(&y.t()),
-            AAType::II => y.dot(&y.t()),
-        };
+        let mut m: Array2<f64> =
+            match self.aa_type {
+                AAType::I => self.s.dot(&y.t()),
+                AAType::II => y.dot(&y.t()),
+            };
         if self.regularization != 0.0 {
             let r = self.compute_regularization(m.view());
             m.diag_mut().add_assign(r);

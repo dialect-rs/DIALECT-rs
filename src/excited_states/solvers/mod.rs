@@ -5,6 +5,7 @@ use ndarray::prelude::*;
 use ndarray::Data;
 pub use utils::*;
 
+pub mod b_solver;
 pub mod casida_davidson;
 pub(crate) mod davidson;
 mod utils;

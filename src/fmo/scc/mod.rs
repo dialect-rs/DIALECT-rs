@@ -7,6 +7,8 @@ mod supersystem;
 use crate::fmo::scc::helpers::get_dispersion_energy;
 use crate::fmo::{Monomer, SuperSystem};
 use crate::initialization::Atom;
+use crate::scc::gamma_approximation::{gamma_atomwise, GammaFunction};
+use crate::scc::h0_and_s::h0_and_s;
 use crate::scc::scc_routine::{RestrictedSCC, SCCError};
 use crate::utils::Timer;
 use ndarray::prelude::*;
@@ -29,6 +31,27 @@ impl RestrictedSCC for SuperSystem<'_> {
         self.monomers.par_iter_mut().for_each(|mol: &mut Monomer| {
             mol.prepare_scc(&atoms[mol.slice.atom_as_range()]);
         });
+        if self.properties.s().is_none() {
+            let skf = self.monomers[0].slako.clone();
+            let norbs: usize = self.properties.n_occ().unwrap() + self.properties.n_virt().unwrap();
+            let (s, h0) = h0_and_s(norbs, &self.atoms, &skf);
+            self.properties.set_s(s);
+        }
+        if self.properties.gamma().is_none() {
+            // Initialize the unscreened Gamma function -> r_lr == 0.00
+            let gf: GammaFunction = self.monomers[0].gammafunction.clone();
+
+            // Initialize the screened gamma function only if LRC is requested
+            let gf_lc: Option<GammaFunction> = self.monomers[0].gammafunction_lc.clone();
+            // Compute the Gamma function between all atoms
+            self.properties
+                .set_gamma(gamma_atomwise(&gf, &atoms, atoms.len()));
+            // Comupate the Gamma function with long-range correction
+            if gf_lc.is_some() {
+                self.properties
+                    .set_gamma_lr(gamma_atomwise(&gf_lc.unwrap(), &atoms, atoms.len()));
+            }
+        }
     }
 
     fn run_scc(&mut self) -> Result<f64, SCCError> {

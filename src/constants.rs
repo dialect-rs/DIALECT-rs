@@ -235,15 +235,16 @@ pub static COVALENCE_RADII: phf::Map<u8, f64> = phf_map! {
 // Manjeera Mantina, Adam C. Chamberlin, Rosendo Valero, Christopher J. Cramer, and Donald G. Truhlar
 // The Journal of Physical Chemistry A 2009 113 (19), 5806-5812
 
-pub static VDW_RADII: phf::Map<u8, f64> = phf_map! {
-    1u8 =>1.10,
-    2u8 =>1.40,
-    6u8 =>1.70,
-    7u8 =>1.55,
-    8u8 =>1.52,
-    9u8 =>1.47,
-    10u8 =>1.54,
-};
+pub static VDW_RADII: phf::Map<u8, f64> =
+    phf_map! {
+        1u8 =>1.10,
+        2u8 =>1.40,
+        6u8 =>1.70,
+        7u8 =>1.55,
+        8u8 =>1.52,
+        9u8 =>1.47,
+        10u8 =>1.54,
+    };
 
 // Tausymbols of the skf files. They correspond to the different orbital interactions
 pub const TAUSYMBOLS_AB: [&str; 10] = [

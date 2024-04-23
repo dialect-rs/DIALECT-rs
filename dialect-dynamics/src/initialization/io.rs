@@ -33,8 +33,8 @@ fn default_restart_flag() -> bool {
 fn default_print_coupling() -> bool {
     PRINT_COUPLING
 }
-fn default_initial_state() -> usize {
-    INITIAL_STATE
+fn default_initial_state() -> Vec<usize> {
+    vec![INITIAL_STATE]
 }
 fn default_nstates() -> usize {
     NSTATES
@@ -48,6 +48,9 @@ fn default_force_switch_to_gs() -> bool {
 fn default_artificial_energy_conservation() -> bool {
     ARTIFICIAL_ENERGY_CONSERVATION
 }
+fn default_use_boltzmann_velocities() -> bool {
+    USE_BOLTZMANN_VELOCITIES
+}
 fn default_gs_dynamic() -> bool {
     GS_DYNAMIC
 }
@@ -57,8 +60,12 @@ fn default_decoherence_correction() -> bool {
 fn default_time_coupling() -> f64 {
     TIME_COUPLING
 }
-fn default_rk_integration()->bool{ RK_INTEGRATION }
-fn default_integration_steps()->usize { INTEGRATION_STEPS }
+fn default_rk_integration() -> bool {
+    RK_INTEGRATION
+}
+fn default_integration_steps() -> usize {
+    INTEGRATION_STEPS
+}
 fn default_hopping_config() -> HoppingConfiguration {
     let hopping_config: HoppingConfiguration = toml::from_str("").unwrap();
     return hopping_config;
@@ -102,6 +109,41 @@ fn default_print_configuration() -> PrintConfiguration {
     let config: PrintConfiguration = toml::from_str("").unwrap();
     config
 }
+fn default_use_ehrenfest() -> bool {
+    USE_EHRENFEST
+}
+fn default_use_state_couplings() -> bool {
+    USE_EHRENFEST
+}
+fn default_use_nacv_couplings() -> bool {
+    true
+}
+fn default_use_nact_couplings() -> bool {
+    USE_EHRENFEST
+}
+fn default_state_threshold() -> f64 {
+    STATE_THRESHOLD
+}
+fn default_use_restraint() -> bool {
+    USE_RESTRAINT
+}
+fn default_force_constant() -> f64 {
+    FORCE_CONSTANT
+}
+fn default_use_rk_integration() -> bool {
+    USE_RK_INTEGRATION
+}
+fn default_print_coefficients() -> bool {
+    PRINT_COEFFICIENTS
+}
+fn default_ehrenfest_configuration() -> EhrenfestConfiguration {
+    let config: EhrenfestConfiguration = toml::from_str("").unwrap();
+    config
+}
+fn default_nonadiabatic_configuration() -> NonadiabaticConfiguration {
+    let config: NonadiabaticConfiguration = toml::from_str("").unwrap();
+    config
+}
 
 /// Struct that loads the configuration of the dynamics from the file "fish.toml"
 /// It holds the structs [HoppingConfiguration] and  [PulseConfigration]
@@ -114,15 +156,21 @@ pub struct DynamicConfiguration {
     #[serde(default = "default_restart_flag")]
     pub restart_flag: bool,
     #[serde(default = "default_initial_state")]
-    pub initial_state: usize,
+    pub initial_state: Vec<usize>,
     #[serde(default = "default_nstates")]
     pub nstates: usize,
     #[serde(default = "default_gs_dynamic")]
     pub gs_dynamic: bool,
+    #[serde(default = "default_use_boltzmann_velocities")]
+    pub use_boltzmann_velocities: bool,
     #[serde(default = "default_artificial_energy_conservation")]
     pub artificial_energy_conservation: bool,
+    #[serde(default = "default_ehrenfest_configuration")]
+    pub ehrenfest_config: EhrenfestConfiguration,
     #[serde(default = "default_hopping_config")]
     pub hopping_config: HoppingConfiguration,
+    #[serde(default = "default_nonadiabatic_configuration")]
+    pub nonadibatic_config: NonadiabaticConfiguration,
     #[serde(default = "default_thermostat_config")]
     pub thermostat_config: ThermostatConfiguration,
     #[serde(default = "default_langevin_config")]
@@ -153,6 +201,36 @@ impl DynamicConfiguration {
     }
 }
 
+/// Structs that holds the parameters for the Ehrenfest routine
+#[derive(Serialize, Deserialize, Clone)]
+pub struct EhrenfestConfiguration {
+    #[serde(default = "default_use_ehrenfest")]
+    pub use_ehrenfest: bool,
+    #[serde(default = "default_use_state_couplings")]
+    pub use_state_couplings: bool,
+    #[serde(default = "default_state_threshold")]
+    pub state_threshold: f64,
+    #[serde(default = "default_use_restraint")]
+    pub use_restraint: bool,
+    #[serde(default = "default_force_constant")]
+    pub force_constant: f64,
+    #[serde(default = "default_use_rk_integration")]
+    pub use_rk_integration: bool,
+    #[serde(default = "default_integration_steps")]
+    pub integration_steps: usize,
+    #[serde(default = "default_print_coefficients")]
+    pub print_coefficients: bool,
+}
+
+/// Structs that holds the parameters for the Nonadiabatic couplings
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NonadiabaticConfiguration {
+    #[serde(default = "default_use_nacv_couplings")]
+    pub use_nacv_couplings: bool,
+    #[serde(default = "default_use_nact_couplings")]
+    pub use_nact_couplings: bool,
+}
+
 /// Structs that holds the parameters for the surface hopping routines
 #[derive(Serialize, Deserialize, Clone)]
 pub struct HoppingConfiguration {
@@ -163,9 +241,9 @@ pub struct HoppingConfiguration {
     #[serde(default = "default_decoherence_correction")]
     pub decoherence_correction: bool,
     #[serde(default = "default_rk_integration")]
-    pub use_rk_integration:bool,
+    pub use_rk_integration: bool,
     #[serde(default = "default_integration_steps")]
-    pub integration_steps:usize,
+    pub integration_steps: usize,
 }
 
 /// Struct that holds the parameters for the Thermostat
@@ -219,16 +297,17 @@ pub fn read_file_to_frame(filename: &str) -> Frame {
 
 /// Extract the atomic numbers and positions (in bohr) from a [Frame](chemfiles::frame)
 pub fn frame_to_coordinates(frame: Frame) -> (Vec<u8>, Array2<f64>) {
-    let mut positions: Array2<f64> = Array2::from_shape_vec(
-        (frame.size() as usize, 3),
-        frame
-            .positions()
-            .iter()
-            .flat_map(|array| array.iter())
-            .cloned()
-            .collect(),
-    )
-    .unwrap();
+    let mut positions: Array2<f64> =
+        Array2::from_shape_vec(
+            (frame.size() as usize, 3),
+            frame
+                .positions()
+                .iter()
+                .flat_map(|array| array.iter())
+                .cloned()
+                .collect(),
+        )
+        .unwrap();
     // transform the coordinates from angstrom to bohr
     positions = positions / constants::BOHR_TO_ANGS;
     // read the atomic number of each coordinate

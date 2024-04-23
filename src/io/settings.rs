@@ -33,6 +33,9 @@ fn default_jobtype() -> String {
 fn default_use_fmo() -> bool {
     false
 }
+fn default_vdw_scaling() -> f64 {
+    2.0
+}
 fn default_long_range_correction() -> bool {
     LONG_RANGE_CORRECTION
 }
@@ -66,7 +69,9 @@ fn default_davidson_iterations() -> usize {
 fn default_davidson_subspace_multiplier() -> usize {
     10
 }
-fn default_davidson_convergence() -> f64 { 1.0e-5 }
+fn default_davidson_convergence() -> f64 {
+    1.0e-5
+}
 fn default_geom_opt_max_cycles() -> usize {
     GEOM_OPT_MAX_CYCLES
 }
@@ -151,6 +156,21 @@ fn default_use_block_implementation() -> bool {
 fn default_n_blocks() -> usize {
     1
 }
+fn default_calculate_nth_step() -> usize {
+    10
+}
+fn default_total_steps() -> usize {
+    1000
+}
+fn default_store_tdm() -> bool {
+    false
+}
+fn default_calc_cube() -> bool {
+    true
+}
+fn default_use_parallelization() -> bool {
+    true
+}
 fn default_use_dispersion() -> bool {
     USE_DISPERSION
 }
@@ -165,6 +185,9 @@ fn default_a1() -> f64 {
 }
 fn default_a2() -> f64 {
     A2_DISP_PARAM_OB2
+}
+fn default_atom_coordinates() -> Vec<Vec<f64>> {
+    vec![vec![0.0, 0.0, 0.0]]
 }
 fn default_mol_config() -> MoleculeConfig {
     let mol_config: MoleculeConfig = toml::from_str("").unwrap();
@@ -210,6 +233,14 @@ fn default_dispersion_config() -> DispersionConfig {
     let disp_config: DispersionConfig = toml::from_str("").unwrap();
     return disp_config;
 }
+fn default_tdm_calculation_config() -> TdmCalculation {
+    let tdm_config: TdmCalculation = toml::from_str("").unwrap();
+    return tdm_config;
+}
+fn default_identification_config() -> IdentificationConfig {
+    let ident_config: IdentificationConfig = toml::from_str("").unwrap();
+    return ident_config;
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Configuration {
@@ -217,6 +248,8 @@ pub struct Configuration {
     pub jobtype: String,
     #[serde(default = "default_use_fmo")]
     pub fmo: bool,
+    #[serde(default = "default_vdw_scaling")]
+    pub vdw_scaling: f64,
     #[serde(default = "default_verbose")]
     pub verbose: i8,
     #[serde(default = "default_mol_config")]
@@ -241,6 +274,10 @@ pub struct Configuration {
     pub dispersion: DispersionConfig,
     #[serde(default = "default_density_config")]
     pub density: DensityConfig,
+    #[serde(default = "default_tdm_calculation_config")]
+    pub tdm_config: TdmCalculation,
+    #[serde(default = "default_identification_config")]
+    pub identification_config: IdentificationConfig,
 }
 
 impl Configuration {
@@ -302,7 +339,7 @@ pub struct ExcitedStatesConfig {
     #[serde(default = "default_davidson_subspace_multiplier")]
     pub davidson_subspace_multiplier: usize,
     #[serde(default = "default_davidson_convergence")]
-    pub davidson_convergence:f64,
+    pub davidson_convergence: f64,
     #[serde(default = "default_use_casida")]
     pub use_casida: bool,
 }
@@ -386,6 +423,24 @@ pub struct DispersionConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TdmCalculation {
+    #[serde(default = "default_calculate_nth_step")]
+    pub calculate_nth_step: usize,
+    #[serde(default = "default_total_steps")]
+    pub total_steps: usize,
+    #[serde(default = "default_store_tdm")]
+    pub store_tdm: bool,
+    #[serde(default = "default_store_tdm")]
+    pub store_hole_particle: bool,
+    #[serde(default = "default_calc_cube")]
+    pub calc_cube: bool,
+    #[serde(default = "default_store_tdm")]
+    pub calc_tdm_cube: bool,
+    #[serde(default = "default_use_parallelization")]
+    pub use_parallelization: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DensityConfig {
     #[serde(default = "default_path_to_density")]
     pub path_to_density: String,
@@ -444,4 +499,10 @@ impl Default for MixConfig {
             max_norm: AA_MAX_NORM,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct IdentificationConfig {
+    #[serde(default = "default_atom_coordinates")]
+    pub atom_coordinates: Vec<Vec<f64>>,
 }

@@ -56,7 +56,9 @@ fn fermi_occupation_t0(orbe: ArrayView1<f64>, n_elec_paired: usize) -> (f64, Vec
     let mut fermi_occ: Vec<f64> = vec![0.0; orbe.len()];
     for a in sort_indx.iter() {
         fermi_occ[*a] = 2.0_f64.min(n_elec_paired);
-        n_elec_paired = n_elec_paired - 2.0;
+        if n_elec_paired > 1.0 {
+            n_elec_paired = n_elec_paired - 2.0;
+        }
     }
     return (0.0, fermi_occ);
 }

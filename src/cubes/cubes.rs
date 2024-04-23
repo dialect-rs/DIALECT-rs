@@ -41,6 +41,24 @@ impl SuperSystem<'_> {
         let output_filename: String = String::from("density.cube");
         generator.generate_density_cube_file(density.view(), output_filename);
     }
+
+    pub fn density_from_tdm(&self, tdm: ArrayView2<f64>, step: usize, string: &str) {
+        // load the density from the file
+        let density: Array2<f32> = tdm.map(|val| *val as f32);
+        // create an object of DensityToCube
+        let generator: DensityToCube = DensityToCube::new(
+            self.config.density.points_per_bohr,
+            &self.atoms,
+            self.config.density.use_block_implementation,
+            self.config.density.n_blocks,
+            self.config.density.threshold as f32,
+        );
+        let mut output_filename: String = String::from("density_");
+        output_filename.push_str(&step.to_string());
+        output_filename.push_str(string);
+        output_filename.push_str(".cube");
+        generator.generate_density_cube_file(density.view(), output_filename);
+    }
 }
 
 pub struct DensityToCube<'a> {
@@ -165,12 +183,13 @@ impl<'a> DensityToCube<'a> {
 
         if !self.use_block_impl {
             // evaluate the basis on the grid
-            let bfs_on_grid: Array4<f32> = evaluate_basis_on_grid(
-                self.basis.basisfunctions.view(),
-                x_grid.view(),
-                y_grid.view(),
-                z_grid.view(),
-            );
+            let bfs_on_grid: Array4<f32> =
+                evaluate_basis_on_grid(
+                    self.basis.basisfunctions.view(),
+                    x_grid.view(),
+                    y_grid.view(),
+                    z_grid.view(),
+                );
             let rho: Array3<f32> = self.evaluate_density_on_grid_loop(density, bfs_on_grid.view());
             return rho;
         } else {
@@ -221,12 +240,13 @@ impl<'a> DensityToCube<'a> {
             }
             let start_i: usize = i * c_len;
 
-            let bf_grid_i: Array4<f32> = evaluate_basis_on_grid(
-                self.basis.basisfunctions.slice(s![start_i..chunck]),
-                x_grid,
-                y_grid,
-                z_grid,
-            );
+            let bf_grid_i: Array4<f32> =
+                evaluate_basis_on_grid(
+                    self.basis.basisfunctions.slice(s![start_i..chunck]),
+                    x_grid,
+                    y_grid,
+                    z_grid,
+                );
 
             for j in 0..n_block {
                 if j == i {

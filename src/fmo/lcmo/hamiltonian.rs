@@ -1,7 +1,9 @@
+use crate::fmo::helpers::get_pair_slice;
 use crate::fmo::{Monomer, SuperSystem};
 use crate::initialization::Atom;
 use crate::utils::array_helper::parallel_matrix_multiply;
 use ndarray::prelude::*;
+use rayon::prelude::*;
 use std::ops::AddAssign;
 
 impl SuperSystem<'_> {

@@ -16,6 +16,8 @@ use rayon::prelude::*;
 use std::fmt::{Display, Formatter};
 use std::ops::AddAssign;
 
+use super::SuperSystem;
+
 /// Structure that contains all necessary information to specify the excited states in
 /// the LCMO-FMO framework.
 pub struct ExcitonStates<'a> {
@@ -177,11 +179,12 @@ impl<'a> ExcitonStates<'a> {
             n + 1,
             rel_energy_ev
         );
-        txt += &format!(
-            "Total energy for state {: >5}: {:22.12} Hartree\n",
-            n + 1,
-            abs_energy
-        );
+        txt +=
+            &format!(
+                "Total energy for state {: >5}: {:22.12} Hartree\n",
+                n + 1,
+                abs_energy
+            );
         txt += &format!("  Multiplicity: Singlet\n");
         txt += &format!(
             "  Trans. Mom. (a.u.): {:10.6} X  {:10.6} Y  {:10.6} Z\n",
@@ -401,5 +404,50 @@ impl Display for ExcitonStates<'_> {
         txt += &format!("{:-^75} \n", "");
 
         write!(f, "{}", txt)
+    }
+}
+
+impl SuperSystem<'_> {
+    fn get_transition_density_matrix_from_coeffs(
+        &self,
+        coeffs: ArrayView1<f64>,
+        dim: (usize, usize),
+        basis_states: Vec<BasisState>,
+    ) -> Array2<f64> {
+        // Initialization of the transition density matrix.
+        let mut tdm: Array2<f64> = Array2::zeros(dim);
+        let threshold = 1e-8;
+        for (state, c) in basis_states.iter().zip(coeffs.slice(s![1..]).iter()) {
+            if c.abs() > threshold {
+                match state {
+                    BasisState::LE(state) => {
+                        // TDM of monomer * c
+                        let occs = state.monomer.slice.occ_orb;
+                        let virts = state.monomer.slice.virt_orb;
+                        let n_occ: usize = state.monomer.properties.n_occ().unwrap();
+                        let n_virt: usize = state.monomer.properties.n_virt().unwrap();
+                        // tdm.slice_mut(s![occs, virts]).add_assign(&(*c * &state.tdm.into_shape((n_occ, n_virt)).unwrap()));
+
+                        let state_tdm = state
+                            .tdm
+                            .as_standard_layout()
+                            .to_owned()
+                            .into_shape((n_occ, n_virt))
+                            .unwrap();
+                        tdm.slice_mut(s![occs, virts])
+                            .add_assign(&(*c * &state_tdm));
+                    }
+                    BasisState::PairCT(state) => {
+                        let occs = state.occ_orb;
+                        let virts = state.virt_orb;
+
+                        tdm.slice_mut(s![occs, virts])
+                            .add_assign(&(*c * &state.eigenvectors));
+                    }
+                }
+            }
+        }
+
+        tdm
     }
 }

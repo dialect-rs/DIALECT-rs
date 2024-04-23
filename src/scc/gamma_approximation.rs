@@ -122,49 +122,50 @@ impl GammaFunction {
     }
 
     fn deriv(&self, r: f64, z_a: u8, z_b: u8) -> f64 {
-        let result: f64 = match *self {
-            GammaFunction::Gaussian {
-                sigma: _,
-                ref c,
-                r_lr: _,
-            } => {
-                assert!(r > 0.0);
-                let c_v: f64 = c[&(z_a, z_b)];
-                2.0 * c_v / PI_SQRT * (-(c_v * r).powi(2)).exp() / r
-                    - libm::erf(c_v * r) / r.powi(2)
-            }
-            GammaFunction::Slater { ref tau } => {
-                let t_a: f64 = tau[&z_a];
-                let t_b: f64 = tau[&z_b];
-                if r.abs() < 1.0e-5 {
-                    // R -> 0 limit
-                    0.0
-                } else if (t_a - t_b).abs() < 1.0e-5 {
-                    // t_A == t_b limit
-                    let x: f64 = t_a * r;
-                    -1.0 / r.powi(2)
-                        * (1.0
-                            - (-x).exp()
-                                * (1.0 + 1.0 / 48.0 * (x * (4.0 + x) * (12.0 + x * (3.0 + x)))))
-                } else {
-                    // general case R != 0 and t_a != t_b
-                    let t_a_r: f64 = t_a * r;
-                    let t_b_r: f64 = t_b * r;
-                    let t_a2: f64 = t_a.powi(2);
-                    let t_b2: f64 = t_b.powi(2);
-                    let denom: f64 = 2.0 * (t_a2 - t_b2).powi(3);
-                    let f_b: f64 =
-                        (2.0 + t_b_r * (2.0 + t_b_r)) * t_a2 - (6.0 + t_b_r * (6.0 + t_b_r)) * t_b2;
-                    let f_a: f64 =
-                        (2.0 + t_a_r * (2.0 + t_a_r)) * t_b2 - (6.0 + t_a_r * (6.0 + t_a_r)) * t_a2;
-                    -1.0 / r.powi(2)
-                        * (1.0
-                            - 1.0 / denom
-                                * (t_a2.powi(2) * f_b * (-t_b_r).exp()
-                                    - t_b2.powi(2) * f_a * (-t_a_r).exp()))
+        let result: f64 =
+            match *self {
+                GammaFunction::Gaussian {
+                    sigma: _,
+                    ref c,
+                    r_lr: _,
+                } => {
+                    assert!(r > 0.0);
+                    let c_v: f64 = c[&(z_a, z_b)];
+                    2.0 * c_v / PI_SQRT * (-(c_v * r).powi(2)).exp() / r
+                        - libm::erf(c_v * r) / r.powi(2)
                 }
-            }
-        };
+                GammaFunction::Slater { ref tau } => {
+                    let t_a: f64 = tau[&z_a];
+                    let t_b: f64 = tau[&z_b];
+                    if r.abs() < 1.0e-5 {
+                        // R -> 0 limit
+                        0.0
+                    } else if (t_a - t_b).abs() < 1.0e-5 {
+                        // t_A == t_b limit
+                        let x: f64 = t_a * r;
+                        -1.0 / r.powi(2)
+                            * (1.0
+                                - (-x).exp()
+                                    * (1.0 + 1.0 / 48.0 * (x * (4.0 + x) * (12.0 + x * (3.0 + x)))))
+                    } else {
+                        // general case R != 0 and t_a != t_b
+                        let t_a_r: f64 = t_a * r;
+                        let t_b_r: f64 = t_b * r;
+                        let t_a2: f64 = t_a.powi(2);
+                        let t_b2: f64 = t_b.powi(2);
+                        let denom: f64 = 2.0 * (t_a2 - t_b2).powi(3);
+                        let f_b: f64 = (2.0 + t_b_r * (2.0 + t_b_r)) * t_a2
+                            - (6.0 + t_b_r * (6.0 + t_b_r)) * t_b2;
+                        let f_a: f64 = (2.0 + t_a_r * (2.0 + t_a_r)) * t_b2
+                            - (6.0 + t_a_r * (6.0 + t_a_r)) * t_a2;
+                        -1.0 / r.powi(2)
+                            * (1.0
+                                - 1.0 / denom
+                                    * (t_a2.powi(2) * f_b * (-t_b_r).exp()
+                                        - t_b2.powi(2) * f_a * (-t_a_r).exp()))
+                    }
+                }
+            };
         return result;
     }
 }
@@ -219,12 +220,16 @@ pub fn gamma_gradients_atomwise(
                 g1_val[[i, j]] = gamma_func.deriv(r_ij, atomi.number, atomj.number);
                 g1.slice_mut(s![(3 * i)..(3 * i + 3), i, j])
                     .assign(&Array1::from_iter((e_ij * g1_val[[i, j]]).iter().cloned()));
+                // g1.slice_mut(s![(3 * i)..(3 * i + 3), j, i])
+                //     .assign(&Array1::from_iter((e_ij * g1_val[[i, j]]).iter().cloned()));
             } else if j < i {
                 g1_val[[i, j]] = g1_val[[j, i]];
                 let r = atomi - atomj;
                 let e_ij: Vector3<f64> = r / r.norm();
                 g1.slice_mut(s![(3 * i)..(3 * i + 3), i, j])
                     .assign(&Array::from_iter((e_ij * g1_val[[i, j]]).iter().cloned()));
+                // g1.slice_mut(s![(3 * i)..(3 * i + 3), j, i])
+                //     .assign(&Array::from_iter((e_ij * g1_val[[i, j]]).iter().cloned()));
             }
         }
     }

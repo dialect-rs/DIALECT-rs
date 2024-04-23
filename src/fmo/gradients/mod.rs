@@ -3,9 +3,13 @@ use crate::initialization::*;
 use nalgebra::Vector3;
 use ndarray::prelude::*;
 use std::ops::AddAssign;
+use std::time::Instant;
+mod ct_state;
 mod embedding;
 mod es_dimer;
+mod le_state;
 mod monomer;
+mod numerical;
 mod pair;
 
 // mod numerical;
@@ -15,6 +19,7 @@ use crate::gradients::dispersion::gradient_disp;
 pub use monomer::*;
 pub use pair::*;
 use rayon::prelude::*;
+use std::time::Duration;
 
 pub trait GroundStateGradient {
     fn get_grad_dq(
@@ -39,14 +44,27 @@ impl SuperSystem<'_> {
         if self.config.dispersion.use_dispersion {
             grad = grad + gradient_disp(&atoms, &self.config.dispersion);
         }
-
+        let timer = Instant::now();
         let monomer_gradient: Array1<f64> = self.monomer_gradients();
-
+        println!(
+            "Time monomer gradient: {:.4}",
+            timer.elapsed().as_secs_f32()
+        );
+        drop(timer);
+        let timer = Instant::now();
         let pair_gradient: Array1<f64> = self.pair_gradients(monomer_gradient.view());
-
+        println!("Time pair gradient: {:.4}", timer.elapsed().as_secs_f32());
+        drop(timer);
+        let timer = Instant::now();
         let embedding_gradient: Array1<f64> = self.embedding_gradient();
-
+        println!(
+            "Time embedding gradient: {:.4}",
+            timer.elapsed().as_secs_f32()
+        );
+        drop(timer);
+        let timer = Instant::now();
         let esd_gradient: Array1<f64> = self.es_dimer_gradient();
+        println!("Time esd gradient: {:.4}", timer.elapsed().as_secs_f32());
 
         grad = grad + monomer_gradient + pair_gradient + embedding_gradient + esd_gradient;
 
@@ -94,6 +112,7 @@ impl SuperSystem<'_> {
         let atoms: &[Atom] = &self.atoms[..];
         let monomers: &Vec<Monomer> = &self.monomers;
 
+        let timer = Instant::now();
         // Parallelization
         let gradient_vec: Vec<Array1<f64>> = self
             .pairs
@@ -110,6 +129,10 @@ impl SuperSystem<'_> {
             })
             .collect();
 
+        println!(
+            "Time pair gradient routines: {:.4}",
+            timer.elapsed().as_secs_f32()
+        );
         for (pair, pair_grad) in self.pairs.iter().zip(gradient_vec.iter()) {
             // get references to the corresponding monomers
             let m_i: &Monomer = &monomers[pair.i];
@@ -125,6 +148,10 @@ impl SuperSystem<'_> {
                     - &monomer_gradient.slice(s![m_j.slice.grad])),
             );
         }
+        println!(
+            "Time slice pair gradient: {:.4}",
+            timer.elapsed().as_secs_f32()
+        );
 
         return gradient;
     }

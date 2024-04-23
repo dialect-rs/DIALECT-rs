@@ -1,5 +1,6 @@
-use crate::excited_states::ExcitedState;
-use crate::fmo::{ExcitonStates, Monomer, PairType, SuperSystem};
+use crate::excited_states::{trans_charges, ExcitedState};
+use crate::fmo::helpers::get_pair_slice;
+use crate::fmo::{ESDPair, ExcitonStates, Monomer, Pair, PairType, SuperSystem};
 use crate::initialization::Atom;
 use crate::io::settings::LcmoConfig;
 use crate::properties::Properties;
@@ -7,9 +8,11 @@ use crate::{initial_subspace, Davidson};
 use nalgebra::Vector3;
 use ndarray::prelude::*;
 use ndarray::{concatenate, Slice};
-use ndarray_linalg::{Eigh, UPLO};
+use ndarray_linalg::{Eigh, SymmetricSqrt, UPLO};
+use ndarray_npy::write_npy;
 use rayon::prelude::*;
 use std::fmt::{Display, Formatter};
+use std::time::Instant;
 
 impl SuperSystem<'_> {
     pub fn create_diabatic_basis(&self, n_ct: usize) -> Vec<BasisState> {
@@ -72,139 +75,153 @@ impl SuperSystem<'_> {
         }
 
         if n_ct > 0 {
-            // Create all CT states.
-            let mut ct_basis: Vec<Vec<_>> = self
-                .monomers
-                .par_iter()
-                .enumerate()
-                .map(|(idx, m_i)| {
-                    let mut ct_basis_temp: Vec<_> = Vec::new();
-
-                    for m_j in self.monomers[idx + 1..].iter() {
-                        // get the PairType
-                        let type_ij: PairType = self.properties.type_of_pair(m_i.index, m_j.index);
-
-                        // create both CT states
-                        let mut state_1 = ChargeTransferPreparation {
-                            m_h: m_i,
-                            m_l: m_j,
-                            pair_type: type_ij,
-                            properties: Properties::new(),
-                        };
-                        let mut state_2 = ChargeTransferPreparation {
-                            m_h: m_j,
-                            m_l: m_i,
-                            pair_type: type_ij,
-                            properties: Properties::new(),
-                        };
-
-                        // prepare the TDA calculation of both states
-                        state_1.prepare_ct_tda(
-                            self.properties.gamma().unwrap(),
-                            self.properties.gamma_lr().unwrap(),
-                            self.properties.s().unwrap(),
-                            atoms,
-                        );
-                        state_2.prepare_ct_tda(
-                            self.properties.gamma().unwrap(),
-                            self.properties.gamma_lr().unwrap(),
-                            self.properties.s().unwrap(),
-                            atoms,
-                        );
-                        // do the TDA calculation using the davidson routine
-                        state_1.run_ct_tda(
-                            atoms,
-                            n_ct,
-                            self.config.excited.davidson_iterations,
-                            1.0e-4,
-                            self.config.excited.davidson_subspace_multiplier,
-                        );
-                        state_2.run_ct_tda(
-                            atoms,
-                            n_ct,
-                            self.config.excited.davidson_iterations,
-                            1.0e-4,
-                            self.config.excited.davidson_subspace_multiplier,
-                        );
-
-                        let q_ov_1: ArrayView2<f64> = state_1.properties.q_ov().unwrap();
-                        let q_ov_2: ArrayView2<f64> = state_2.properties.q_ov().unwrap();
-
-                        for n in 0..n_ct {
-                            let tdm_1: ArrayView1<f64> =
-                                state_1.properties.ci_coefficient(n).unwrap();
-                            let tdm_dim2_1: ArrayView2<f64> = state_1.properties.tdm(n).unwrap();
-
-                            // determine the relevant orbital indices
-                            let mut occ_indices: Vec<usize> = Vec::new();
-                            let mut virt_indices: Vec<usize> = Vec::new();
-                            for (idx_i, val_i) in tdm_dim2_1.outer_iter().enumerate() {
-                                for (idx_j, val_j) in val_i.iter().enumerate() {
-                                    let abs_c_sqr: f64 = val_j.abs().powi(2);
-                                    if abs_c_sqr > threshold_ct {
-                                        if !occ_indices.contains(&idx_i) {
-                                            occ_indices.push(idx_i);
-                                        }
-                                        if !virt_indices.contains(&idx_j) {
-                                            virt_indices.push(idx_j);
-                                        }
-                                    }
-                                }
-                            }
-
-                            let ct_1 = ChargeTransferPair {
-                                m_h: m_i.index,
-                                m_l: m_j.index,
-                                state_index: n,
-                                state_energy: state_1.properties.ci_eigenvalue(n).unwrap(),
-                                eigenvectors: state_1.properties.tdm(n).unwrap().to_owned(),
-                                q_tr: q_ov_1.dot(&tdm_1),
-                                tr_dipole: state_1.properties.tr_dipole(n).unwrap(),
-                                occ_orb: m_i.slice.occ_orb.clone(),
-                                virt_orb: m_j.slice.virt_orb.clone(),
-                                occ_indices,
-                                virt_indices,
-                            };
-
-                            let tdm_2: ArrayView1<f64> =
-                                state_2.properties.ci_coefficient(n).unwrap();
-                            let tdm_dim2_2: ArrayView2<f64> = state_2.properties.tdm(n).unwrap();
-
-                            // determine the relevant orbital indices
-                            let mut occ_indices: Vec<usize> = Vec::new();
-                            let mut virt_indices: Vec<usize> = Vec::new();
-                            for (idx_i, val_i) in tdm_dim2_2.outer_iter().enumerate() {
-                                for (idx_j, val_j) in val_i.iter().enumerate() {
-                                    let abs_c_sqr: f64 = val_j.abs().powi(2);
-                                    if abs_c_sqr > threshold_ct {
-                                        if !occ_indices.contains(&idx_i) {
-                                            occ_indices.push(idx_i);
-                                        }
-                                        if !virt_indices.contains(&idx_j) {
-                                            virt_indices.push(idx_j);
-                                        }
-                                    }
-                                }
-                            }
-
-                            let ct_2 = ChargeTransferPair {
-                                m_h: m_j.index,
-                                m_l: m_i.index,
-                                state_index: n,
-                                state_energy: state_2.properties.ci_eigenvalue(n).unwrap(),
-                                eigenvectors: state_2.properties.tdm(n).unwrap().to_owned(),
-                                q_tr: q_ov_2.dot(&tdm_2),
-                                tr_dipole: state_2.properties.tr_dipole(n).unwrap(),
-                                occ_orb: m_j.slice.occ_orb.clone(),
-                                virt_orb: m_i.slice.virt_orb.clone(),
-                                occ_indices,
-                                virt_indices,
-                            };
-
-                            ct_basis_temp.push(BasisState::PairCT(ct_1));
-                            ct_basis_temp.push(BasisState::PairCT(ct_2));
-                        }
+            // create ct indices
+            let mut idx_vec: Vec<(usize, usize)> = Vec::new();
+            for i in 0..self.n_mol {
+                for j in 0..self.n_mol {
+                    if j > i {
+                        idx_vec.push((i, j));
                     }
+                }
+            }
+
+            // Create all CT states.
+            let mut ct_basis: Vec<_> = idx_vec
+                .par_iter()
+                .map(|(idx_i, idx_j)| {
+                    let mut ct_basis_temp: Vec<_> = Vec::new();
+                    // get the monomers
+                    let m_i = &self.monomers[*idx_i];
+                    let m_j = &self.monomers[*idx_j];
+
+                    // get the PairType
+                    let type_ij: PairType = self.properties.type_of_pair(m_i.index, m_j.index);
+
+                    // create both CT states
+                    let mut state_1 = ChargeTransferPreparation {
+                        m_h: m_i,
+                        m_l: m_j,
+                        pair_type: type_ij,
+                        properties: Properties::new(),
+                    };
+                    let mut state_2 = ChargeTransferPreparation {
+                        m_h: m_j,
+                        m_l: m_i,
+                        pair_type: type_ij,
+                        properties: Properties::new(),
+                    };
+
+                    // prepare the TDA calculation of both states
+                    state_1.prepare_ct_tda(
+                        self.properties.gamma().unwrap(),
+                        self.properties.gamma_lr().unwrap(),
+                        self.properties.s().unwrap(),
+                        atoms,
+                        &self.config,
+                    );
+                    state_2.prepare_ct_tda(
+                        self.properties.gamma().unwrap(),
+                        self.properties.gamma_lr().unwrap(),
+                        self.properties.s().unwrap(),
+                        atoms,
+                        &self.config,
+                    );
+
+                    let nroots: usize = n_ct + 2;
+                    // do the TDA calculation using the davidson routine
+                    state_1.run_ct_tda(
+                        atoms,
+                        nroots,
+                        self.config.excited.davidson_iterations,
+                        self.config.excited.davidson_convergence,
+                        self.config.excited.davidson_subspace_multiplier,
+                        &self.config,
+                    );
+                    state_2.run_ct_tda(
+                        atoms,
+                        nroots,
+                        self.config.excited.davidson_iterations,
+                        self.config.excited.davidson_convergence,
+                        self.config.excited.davidson_subspace_multiplier,
+                        &self.config,
+                    );
+
+                    let q_ov_1: ArrayView2<f64> = state_1.properties.q_ov().unwrap();
+                    let q_ov_2: ArrayView2<f64> = state_2.properties.q_ov().unwrap();
+
+                    for n in 0..n_ct {
+                        let tdm_1: ArrayView1<f64> = state_1.properties.ci_coefficient(n).unwrap();
+                        let tdm_dim2_1: ArrayView2<f64> = state_1.properties.tdm(n).unwrap();
+
+                        // determine the relevant orbital indices
+                        let mut occ_indices: Vec<usize> = Vec::new();
+                        let mut virt_indices: Vec<usize> = Vec::new();
+                        for (idx_i, val_i) in tdm_dim2_1.outer_iter().enumerate() {
+                            for (idx_j, val_j) in val_i.iter().enumerate() {
+                                let abs_c_sqr: f64 = val_j.abs().powi(2);
+                                if abs_c_sqr > threshold_ct {
+                                    if !occ_indices.contains(&idx_i) {
+                                        occ_indices.push(idx_i);
+                                    }
+                                    if !virt_indices.contains(&idx_j) {
+                                        virt_indices.push(idx_j);
+                                    }
+                                }
+                            }
+                        }
+
+                        let ct_1 = ChargeTransferPair {
+                            m_h: m_i.index,
+                            m_l: m_j.index,
+                            state_index: n,
+                            state_energy: state_1.properties.ci_eigenvalue(n).unwrap(),
+                            eigenvectors: state_1.properties.tdm(n).unwrap().to_owned(),
+                            q_tr: q_ov_1.dot(&tdm_1),
+                            tr_dipole: state_1.properties.tr_dipole(n).unwrap(),
+                            occ_orb: m_i.slice.occ_orb.clone(),
+                            virt_orb: m_j.slice.virt_orb.clone(),
+                            occ_indices,
+                            virt_indices,
+                        };
+
+                        let tdm_2: ArrayView1<f64> = state_2.properties.ci_coefficient(n).unwrap();
+                        let tdm_dim2_2: ArrayView2<f64> = state_2.properties.tdm(n).unwrap();
+
+                        // determine the relevant orbital indices
+                        let mut occ_indices: Vec<usize> = Vec::new();
+                        let mut virt_indices: Vec<usize> = Vec::new();
+                        for (idx_i, val_i) in tdm_dim2_2.outer_iter().enumerate() {
+                            for (idx_j, val_j) in val_i.iter().enumerate() {
+                                let abs_c_sqr: f64 = val_j.abs().powi(2);
+                                if abs_c_sqr > threshold_ct {
+                                    if !occ_indices.contains(&idx_i) {
+                                        occ_indices.push(idx_i);
+                                    }
+                                    if !virt_indices.contains(&idx_j) {
+                                        virt_indices.push(idx_j);
+                                    }
+                                }
+                            }
+                        }
+
+                        let ct_2 = ChargeTransferPair {
+                            m_h: m_j.index,
+                            m_l: m_i.index,
+                            state_index: n,
+                            state_energy: state_2.properties.ci_eigenvalue(n).unwrap(),
+                            eigenvectors: state_2.properties.tdm(n).unwrap().to_owned(),
+                            q_tr: q_ov_2.dot(&tdm_2),
+                            tr_dipole: state_2.properties.tr_dipole(n).unwrap(),
+                            occ_orb: m_j.slice.occ_orb.clone(),
+                            virt_orb: m_i.slice.virt_orb.clone(),
+                            occ_indices,
+                            virt_indices,
+                        };
+
+                        ct_basis_temp.push(BasisState::PairCT(ct_1));
+                        ct_basis_temp.push(BasisState::PairCT(ct_2));
+                    }
+
                     ct_basis_temp
                 })
                 .collect();
@@ -224,10 +241,9 @@ impl SuperSystem<'_> {
 
         // Reference to the atoms of the total system.
         let atoms: &[Atom] = &self.atoms[..];
-        let max_iter: usize = 50;
-        let tolerance: f64 = 1e-4;
         // Number of LE states per monomer.
         let n_le: usize = self.config.fmo_lc_tddftb.n_le;
+        let n_roots: usize = n_le + 3;
 
         let fock_matrix: ArrayView2<f64> = self.properties.lcmo_fock().unwrap();
         // Calculate the excited states of the monomers
@@ -239,18 +255,51 @@ impl SuperSystem<'_> {
                     .diag()
                     .to_owned(),
             );
-            mol.prepare_tda(&atoms[mol.slice.atom_as_range()]);
+            mol.prepare_tda(&atoms[mol.slice.atom_as_range()], &self.config);
             mol.run_tda(
                 &atoms[mol.slice.atom_as_range()],
-                n_le,
-                max_iter,
-                tolerance,
+                n_roots,
+                self.config.excited.davidson_iterations,
+                self.config.excited.davidson_convergence,
                 self.config.excited.davidson_subspace_multiplier,
+                true,
+                &self.config,
             );
         });
 
+        // prepare trans charges for the pairs
+        self.pairs.par_iter_mut().for_each(|pair| {
+            // get the pair atoms
+            let pair_atoms: Vec<Atom> = get_pair_slice(
+                &self.atoms,
+                self.monomers[pair.i].slice.atom_as_range(),
+                self.monomers[pair.j].slice.atom_as_range(),
+            );
+            // get the orbitals of the pair
+            let orbs_pair: ArrayView2<f64> = pair.properties.orbs().unwrap();
+            // get the overlap matrix of the pair
+            let s_pair: ArrayView2<f64> = pair.properties.s().unwrap();
+            // get the occupied and virtual orbitals of the pair
+            let occ_indices_ij = pair.properties.occ_indices().unwrap();
+            let virt_indices_ij = pair.properties.virt_indices().unwrap();
+
+            // get the transition charges of the pair
+            let (qov, qoo, qvv) = trans_charges(
+                pair.n_atoms,
+                &pair_atoms,
+                orbs_pair,
+                s_pair,
+                occ_indices_ij,
+                virt_indices_ij,
+            );
+            pair.properties.set_q_oo(qoo);
+            pair.properties.set_q_ov(qov);
+            pair.properties.set_q_vv(qvv);
+        });
+
         // Construct the basis states.
-        let states: Vec<BasisState> = self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
+        let states: Vec<BasisState> =
+            self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
 
         let dim: usize = states.len();
         // Initialize the Exciton-Hamiltonian.
@@ -272,11 +321,10 @@ impl SuperSystem<'_> {
                         }
                     });
             });
-
         let mut h: Array2<f64> = Array::from(h).into_shape((dim, dim)).unwrap();
 
-        let mut energies: Array1<f64>;
-        let mut eigvectors: Array2<f64>;
+        let energies: Array1<f64>;
+        let eigvectors: Array2<f64>;
 
         // calculate all excited states
         if self.config.fmo_lc_tddftb.calculate_all_states {
@@ -358,6 +406,216 @@ impl SuperSystem<'_> {
                 self.properties.s().unwrap(),
             );
         }
+    }
+
+    pub fn get_excitonic_matrix(&mut self) ->Array2<f64> {
+        // Calculate the H' matrix
+        let timer: Instant = Instant::now();
+        let hamiltonian = self.build_lcmo_fock_matrix();
+        self.properties.set_lcmo_fock(hamiltonian);
+        println!("Time h_lcmo matrix {:.5}", timer.elapsed().as_secs_f32());
+        drop(timer);
+        let timer: Instant = Instant::now();
+
+        // Reference to the atoms of the total system.
+        let atoms: &[Atom] = &self.atoms[..];
+        // Number of LE states per monomer.
+        let n_le: usize = self.config.fmo_lc_tddftb.n_le;
+        let n_roots: usize = n_le + 3;
+
+        let fock_matrix: ArrayView2<f64> = self.properties.lcmo_fock().unwrap();
+        // Calculate the excited states of the monomers
+        // Swap the orbital energies of the monomers with the elements of the H' matrix
+        self.monomers.par_iter_mut().for_each(|mol| {
+            mol.properties.set_orbe(
+                fock_matrix
+                    .slice(s![mol.slice.orb, mol.slice.orb])
+                    .diag()
+                    .to_owned(),
+            );
+            mol.prepare_tda(&atoms[mol.slice.atom_as_range()], &self.config);
+            mol.run_tda(
+                &atoms[mol.slice.atom_as_range()],
+                n_roots,
+                self.config.excited.davidson_iterations,
+                self.config.excited.davidson_convergence,
+                self.config.excited.davidson_subspace_multiplier,
+                false,
+                &self.config,
+            );
+        });
+        println!(
+            "Time monomer tda routine {:.5}",
+            timer.elapsed().as_secs_f32()
+        );
+        drop(timer);
+        let timer: Instant = Instant::now();
+
+        // Construct the basis states.
+        let mut states: Vec<BasisState> =
+            self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
+        println!(
+            "Time charge transfer tda routine and basis states {:.5}",
+            timer.elapsed().as_secs_f32()
+        );
+        drop(timer);
+        let timer: Instant = Instant::now();
+
+        let dim: usize = states.len();
+        // Initialize the Exciton-Hamiltonian.
+        let mut h = vec![0.0; dim * dim];
+
+        // calculate the state couplings
+        states
+            .par_iter()
+            .enumerate()
+            .zip(h.par_chunks_exact_mut(dim))
+            .for_each(|((i, state_i), h_i)| {
+                states
+                    .par_iter()
+                    .enumerate()
+                    .zip(h_i.par_iter_mut())
+                    .for_each(|((j, state_j), h_ij)| {
+                        if j >= i {
+                            *h_ij = self.exciton_coupling(state_i, state_j);
+                        }
+                    });
+            });
+        println!(
+            "Calculate excitonic couplings {:.5}",
+            timer.elapsed().as_secs_f32()
+        );
+
+        let mut h: Array2<f64> = Array::from(h).into_shape((dim, dim)).unwrap();
+
+        // Use the davidson algorithm to obtain a limited number of eigenvalues
+        let diag = h.diag();
+        h = &h + &h.t() - Array::from_diag(&diag);
+
+        // Construct Reduced dibatic basis states
+        let mut reduced_states: Vec<ReducedBasisState> = Vec::new();
+        for (idx, state) in states.iter().enumerate() {
+            match state {
+                BasisState::LE(ref a) => {
+                    // get index and the Atom vector of the monomer
+                    let new_state = ReducedLE {
+                        energy: h[[idx, idx]],
+                        monomer_index: a.monomer.index,
+                        state_index: a.n,
+                        state_coefficient: 0.0,
+                        homo: a.monomer.properties.homo().unwrap(),
+                    };
+
+                    reduced_states.push(ReducedBasisState::LE(new_state));
+                }
+                BasisState::PairCT(ref a) => {
+                    reduced_states.push(ReducedBasisState::CT(a.to_owned()));
+                }
+                _ => {}
+            };
+        }
+        // save the basis in the properties
+        self.properties.set_basis_states(reduced_states);
+
+        return h;
+    }
+
+    pub fn get_tdm_for_ehrenfest(
+        &mut self,
+        coeffs: ArrayView1<f64>,
+        step: usize,
+    ) -> (Array2<f64>, Array2<f64>, Array2<f64>) {
+        // Calculate the H' matrix
+        let hamiltonian = self.build_lcmo_fock_matrix();
+        self.properties.set_lcmo_fock(hamiltonian);
+
+        // Reference to the atoms of the total system.
+        let atoms: &[Atom] = &self.atoms[..];
+        // Number of LE states per monomer.
+        let n_le: usize = self.config.fmo_lc_tddftb.n_le;
+        let n_roots: usize = n_le + 3;
+
+        let fock_matrix: ArrayView2<f64> = self.properties.lcmo_fock().unwrap();
+        // Calculate the excited states of the monomers
+        // Swap the orbital energies of the monomers with the elements of the H' matrix
+        self.monomers.par_iter_mut().for_each(|mol| {
+            mol.properties.set_orbe(
+                fock_matrix
+                    .slice(s![mol.slice.orb, mol.slice.orb])
+                    .diag()
+                    .to_owned(),
+            );
+            mol.prepare_tda(&atoms[mol.slice.atom_as_range()], &self.config);
+            mol.run_tda(
+                &atoms[mol.slice.atom_as_range()],
+                n_roots,
+                self.config.excited.davidson_iterations,
+                self.config.excited.davidson_convergence,
+                self.config.excited.davidson_subspace_multiplier,
+                false,
+                &self.config,
+            );
+        });
+
+        // Construct the basis states.
+        let mut states: Vec<BasisState> =
+            self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
+
+        // get the number of occupied and virtual orbitals
+        let n_occ: usize = self
+            .monomers
+            .iter()
+            .map(|m| m.properties.n_occ().unwrap())
+            .sum();
+        let n_virt: usize = self
+            .monomers
+            .iter()
+            .map(|m| m.properties.n_virt().unwrap())
+            .sum();
+        let n_orbs: usize = n_occ + n_virt;
+        let mut occ_orbs: Array2<f64> = Array2::zeros([n_orbs, n_occ]);
+        let mut virt_orbs: Array2<f64> = Array2::zeros([n_orbs, n_virt]);
+
+        // get all occupide and virtual orbitals of the system
+        for mol in self.monomers.iter() {
+            let mol_orbs: ArrayView2<f64> = mol.properties.orbs().unwrap();
+            let lumo: usize = mol.properties.lumo().unwrap();
+            occ_orbs
+                .slice_mut(s![mol.slice.orb, mol.slice.occ_orb])
+                .assign(&mol_orbs.slice(s![.., ..lumo]));
+            virt_orbs
+                .slice_mut(s![mol.slice.orb, mol.slice.virt_orb])
+                .assign(&mol_orbs.slice(s![.., lumo..]));
+        }
+        let orbs: Array2<f64> = concatenate![Axis(1), occ_orbs, virt_orbs];
+
+        let tdm: Array2<f64> =
+            self.get_transition_density_matrix_from_coeffs(coeffs, (n_occ, n_virt), states);
+        let tdm_ao: Array2<f64> = occ_orbs.dot(&tdm.dot(&virt_orbs.t()));
+
+        // hole and particle densities
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+        let h_mat: Array2<f64> = tdm_ao.dot(&s.dot(&tdm_ao.t()));
+        let p_mat: Array2<f64> = tdm_ao.t().dot(&s.dot(&tdm_ao));
+
+        if self.config.tdm_config.store_tdm{
+            let mut tmp_string: String = String::from("transition_density_");
+            tmp_string.push_str(&step.to_string());
+            tmp_string.push_str(".npy");
+            write_npy(tmp_string, &tdm_ao).unwrap();
+        }
+        if self.config.tdm_config.store_hole_particle{
+            let mut tmp_string: String = String::from("hole_density_");
+            tmp_string.push_str(&step.to_string());
+            tmp_string.push_str(".npy");
+            write_npy(tmp_string, &h_mat).unwrap();
+
+            let mut tmp_string: String = String::from("particle_density_");
+            tmp_string.push_str(&step.to_string());
+            tmp_string.push_str(".npy");
+            write_npy(tmp_string, &p_mat).unwrap();
+        }
+        (tdm_ao, h_mat, p_mat)
     }
 }
 

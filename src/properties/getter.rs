@@ -116,9 +116,26 @@ impl Properties {
         }
     }
 
+    /// Returns the CI coefficients (in MO basis) for a specific excited state.
+    /// The first excited state has the index 0.
+    pub fn ci_coefficient_b(&self, idx: usize) -> Option<ArrayView1<f64>> {
+        match self.get("ci_coefficients_b") {
+            Some(value) => Some(value.as_array2().unwrap().column(idx)),
+            _ => None,
+        }
+    }
+
     /// Returns the CI coefficients (in MO basis) for all computed states.
     pub fn ci_coefficients(&self) -> Option<ArrayView2<f64>> {
         match self.get("ci_coefficients") {
+            Some(value) => Some(value.as_array2().unwrap().view()),
+            _ => None,
+        }
+    }
+
+    /// Returns the CI coefficients (in MO basis) for all computed states.
+    pub fn ci_coefficients_b(&self) -> Option<ArrayView2<f64>> {
+        match self.get("ci_coefficients_b") {
             Some(value) => Some(value.as_array2().unwrap().view()),
             _ => None,
         }
@@ -144,6 +161,26 @@ impl Properties {
         }
     }
 
+    /// Returns the 1-particle transition density matrix (in MO basis) for an excited state.
+    /// The first excited state has the index 0.
+    pub fn tdm_b(&self, idx: usize) -> Option<ArrayView2<f64>> {
+        let n_occ: usize = self.occ_indices().unwrap().len();
+        let n_virt: usize = self.virt_indices().unwrap().len();
+        let n_states: usize = self.ci_eigenvalues_b().unwrap().len();
+        match self.get("ci_coefficients_b") {
+            Some(value) => Some(
+                value
+                    .as_array2()
+                    .unwrap()
+                    .view()
+                    .into_shape([n_occ, n_virt, n_states])
+                    .unwrap()
+                    .slice_move(s![.., .., idx]),
+            ),
+            _ => None,
+        }
+    }
+
     /// Returns the excitation energy of an excited state.
     /// The first excited state has the index 0.
     pub fn ci_eigenvalue(&self, idx: usize) -> Option<f64> {
@@ -153,9 +190,26 @@ impl Properties {
         }
     }
 
+    /// Returns the excitation energy of an excited state.
+    /// The first excited state has the index 0.
+    pub fn ci_eigenvalue_b(&self, idx: usize) -> Option<f64> {
+        match self.get("ci_eigenvalues_b") {
+            Some(value) => Some(value.as_array1().unwrap()[idx]),
+            _ => None,
+        }
+    }
+
     /// Returns a reference to the excitation energies for all excited states.
     pub fn ci_eigenvalues(&self) -> Option<ArrayView1<f64>> {
         match self.get("ci_eigenvalues") {
+            Some(value) => Some(value.as_array1().unwrap().view()),
+            _ => None,
+        }
+    }
+
+    /// Returns a reference to the excitation energies for all excited states.
+    pub fn ci_eigenvalues_b(&self) -> Option<ArrayView1<f64>> {
+        match self.get("ci_eigenvalues_b") {
             Some(value) => Some(value.as_array1().unwrap().view()),
             _ => None,
         }
@@ -404,9 +458,25 @@ impl Properties {
         }
     }
 
+    /// Returns a reference to the transition charges between occupied orbitals
+    pub fn q_oo_restricted(&self) -> Option<ArrayView2<f64>> {
+        match self.get("q_oo_restricted") {
+            Some(value) => Some(value.as_array2().unwrap().view()),
+            _ => None,
+        }
+    }
+
     /// Returns a reference to the transition charges between virtual orbitals
     pub fn q_vv(&self) -> Option<ArrayView2<f64>> {
         match self.get("q_vv") {
+            Some(value) => Some(value.as_array2().unwrap().view()),
+            _ => None,
+        }
+    }
+
+    /// Returns a reference to the transition charges between virtual orbitals
+    pub fn q_vv_restricted(&self) -> Option<ArrayView2<f64>> {
+        match self.get("q_vv_restricted") {
             Some(value) => Some(value.as_array2().unwrap().view()),
             _ => None,
         }
@@ -731,9 +801,22 @@ impl Properties {
             _ => None,
         }
     }
+    pub fn ref_supersystem(&self) -> Option<&OldSupersystem> {
+        match self.get("ref_supersystem") {
+            Some(value) => Some(value.as_super_system().unwrap()),
+            _ => None,
+        }
+    }
     pub fn old_system(&self) -> Option<&OldSystem> {
         match self.get("old_system") {
             Some(value) => Some(value.as_old_system().unwrap()),
+            _ => None,
+        }
+    }
+
+    pub fn state_order(&self) -> Option<&[usize]> {
+        match self.get("state_order") {
+            Some(value) => Some(value.as_vec_usize().unwrap()),
             _ => None,
         }
     }

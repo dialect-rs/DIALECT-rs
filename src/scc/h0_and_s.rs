@@ -357,6 +357,79 @@ pub fn h0_and_s_gradients(
     return (grad_s, grad_h0);
 }
 
+pub fn s_gradient(atoms: &[Atom], n_orbs: usize, skt: &SlaterKoster) -> Array3<f64> {
+    let n_atoms: usize = atoms.len();
+    let mut grad_s: Array3<f64> = Array3::zeros((3 * n_atoms, n_orbs, n_orbs));
+
+    // iterate over atoms
+    let mut mu: usize = 0;
+    for (i, atomi) in atoms.iter().enumerate() {
+        // iterate over orbitals on center i
+        for orbi in atomi.valorbs.iter() {
+            // iterate over atoms
+            let mut nu: usize = 0;
+            for (j, atomj) in atoms.iter().enumerate() {
+                // iterate over orbitals on center j
+                for orbj in atomj.valorbs.iter() {
+                    if (atomi - atomj).norm() < PROXIMITY_CUTOFF && mu != nu {
+                        let mut s_deriv: Array1<f64> = Array1::zeros([3]);
+                        if atomi <= atomj {
+                            if i != j {
+                                // the hardcoded Slater-Koster rules compute the gradient
+                                // with respect to r = posj - posi
+                                // but we want the gradient with respect to posi, so an additional
+                                // minus sign is introduced
+                                let (r, x, y, z): (f64, f64, f64, f64) =
+                                    directional_cosines(&atomi.xyz, &atomj.xyz);
+                                s_deriv = -1.0
+                                    * slako_transformation_gradients(
+                                        r,
+                                        x,
+                                        y,
+                                        z,
+                                        &skt.get(atomi.kind, atomj.kind).s_spline,
+                                        orbi.l,
+                                        orbi.m,
+                                        orbj.l,
+                                        orbj.m,
+                                    );
+                            }
+                        } else {
+                            // swap atoms if Zj > Zi, since posi and posj are swapped, the gradient
+                            // with respect to r = posi - posj equals the gradient with respect to
+                            // posi, so no additional minus sign is needed.
+                            let (r, x, y, z): (f64, f64, f64, f64) =
+                                directional_cosines(&atomj.xyz, &atomi.xyz);
+                            s_deriv = slako_transformation_gradients(
+                                r,
+                                x,
+                                y,
+                                z,
+                                &skt.get(atomi.kind, atomj.kind).s_spline,
+                                orbj.l,
+                                orbj.m,
+                                orbi.l,
+                                orbi.m,
+                            );
+                        }
+
+                        grad_s
+                            .slice_mut(s![(3 * i)..(3 * i + 3), mu, nu])
+                            .assign(&s_deriv);
+                        // S and H0 are hermitian/symmetric
+                        grad_s
+                            .slice_mut(s![(3 * i)..(3 * i + 3), nu, mu])
+                            .assign(&s_deriv);
+                    }
+                    nu = nu + 1;
+                }
+            }
+            mu = mu + 1;
+        }
+    }
+    return grad_s;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

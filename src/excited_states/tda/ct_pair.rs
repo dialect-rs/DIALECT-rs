@@ -1,8 +1,11 @@
 use crate::excited_states::tda::moments::{mulliken_dipoles, oscillator_strength};
-use crate::excited_states::{orbe_differences, ProductCache};
+use crate::excited_states::{
+    orbe_differences, trans_oo_restricted, trans_vv_restricted, ProductCache,
+};
 use crate::fmo::helpers::get_pair_slice;
 use crate::fmo::{ChargeTransferPreparation, PairType};
 use crate::initialization::Atom;
+use crate::io::Configuration;
 use crate::{initial_subspace, Davidson};
 use ndarray::prelude::*;
 
@@ -14,6 +17,7 @@ impl ChargeTransferPreparation<'_> {
         g0_lr: ArrayView2<f64>,
         s_full: ArrayView2<f64>,
         atoms: &[Atom],
+        config: &Configuration,
     ) {
         // indices of the occupied and virtual orbitals of the CT state
         let occ_indices: &[usize] = self.m_h.properties.occ_indices().unwrap();
@@ -42,18 +46,27 @@ impl ChargeTransferPreparation<'_> {
 
         // get the overlap matrix
         let s: ArrayView2<f64> = s_full.slice(s![self.m_h.slice.orb, self.m_l.slice.orb]);
+        self.properties.set_s(s.to_owned());
         self.properties.set_gamma(gamma);
 
         // set the gamma lr matrix
-        if self.pair_type == PairType::Pair {
-            let gamma_lr: ArrayView2<f64> =
-                g0_lr.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
-            self.properties.set_gamma_lr(gamma_lr.to_owned());
-        } else {
-            let gamma_lr: ArrayView2<f64> =
-                g0_lr.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
-            self.properties.set_gamma_lr(gamma_lr.to_owned());
-        }
+        let mut gamma_lr_full: Array2<f64> = Array2::zeros([n_atoms, n_atoms]);
+        gamma_lr_full
+            .slice_mut(s![..natoms_h, ..natoms_h])
+            .assign(&self.m_h.properties.gamma_lr().unwrap());
+        gamma_lr_full
+            .slice_mut(s![natoms_h.., natoms_h..])
+            .assign(&self.m_l.properties.gamma_lr().unwrap());
+        let gamma_ab: ArrayView2<f64> = g0_lr.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
+        gamma_lr_full
+            .slice_mut(s![..natoms_h, natoms_h..])
+            .assign(&gamma_ab);
+        gamma_lr_full
+            .slice_mut(s![natoms_h.., ..natoms_h])
+            .assign(&gamma_ab.t());
+        let gamma_lr: ArrayView2<f64> = g0_lr.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
+        self.properties.set_gamma_lr(gamma_lr.to_owned());
+        self.properties.set_gamma_lr_ao(gamma_lr_full);
 
         // The index of the HOMO (zero based).
         let homo: usize = occ_indices[occ_indices.len() - 1];
@@ -61,16 +74,26 @@ impl ChargeTransferPreparation<'_> {
         // The index of the LUMO (zero based).
         let lumo: usize = virt_indices[0];
 
+        let nocc: usize = occ_indices.len();
+        let nvirt: usize = virt_indices.len();
+
         // Energies of the occupied orbitals.
         let orbe_h: ArrayView1<f64> = self.m_h.properties.orbe().unwrap();
-        let orbe_occ: ArrayView1<f64> = orbe_h.slice(s![0..homo + 1]);
+        let mut orbe_occ: Array1<f64> = orbe_h.slice(s![0..homo + 1]).to_owned();
 
         // Energies of the virtual orbitals.
         let orbe_l: ArrayView1<f64> = self.m_l.properties.orbe().unwrap();
-        let orbe_virt: ArrayView1<f64> = orbe_l.slice(s![lumo..]);
+        let mut orbe_virt: Array1<f64> = orbe_l.slice(s![lumo..]).to_owned();
 
+        if config.tddftb.restrict_active_orbitals {
+            let dim_o: usize = (nocc as f64 * config.tddftb.active_orbital_threshold) as usize;
+            let dim_v: usize = (nvirt as f64 * config.tddftb.active_orbital_threshold) as usize;
+
+            orbe_occ = orbe_occ.slice(s![homo + 1 - dim_o..homo + 1]).to_owned();
+            orbe_virt = orbe_virt.slice(s![..dim_v]).to_owned();
+        }
         // Energy differences between virtual and occupied orbitals.
-        let omega: Array1<f64> = orbe_differences(orbe_occ, orbe_virt);
+        let omega: Array1<f64> = orbe_differences(orbe_occ.view(), orbe_virt.view());
 
         // Energy differences are stored
         self.properties.set_omega(omega);
@@ -82,13 +105,20 @@ impl ChargeTransferPreparation<'_> {
         let atoms_l: &[Atom] = &atoms[self.m_l.slice.atom_as_range()];
 
         // calculate the transition charges q_ov
-        let q_ov: Array2<f64> = self.calculate_q_ov(s, atoms_h, atoms_l);
+        let q_ov: Array2<f64> = self.calculate_q_ov(s, atoms_h, atoms_l, config);
         // store the transition charges
-        self.properties
-            .set_q_oo(self.m_h.properties.q_oo().unwrap().to_owned());
         self.properties.set_q_ov(q_ov);
-        self.properties
-            .set_q_vv(self.m_l.properties.q_vv().unwrap().to_owned());
+        if config.tddftb.restrict_active_orbitals {
+            self.properties
+                .set_q_oo(self.m_h.properties.q_oo_restricted().unwrap().to_owned());
+            self.properties
+                .set_q_vv(self.m_h.properties.q_vv_restricted().unwrap().to_owned());
+        } else {
+            self.properties
+                .set_q_oo(self.m_h.properties.q_oo().unwrap().to_owned());
+            self.properties
+                .set_q_vv(self.m_l.properties.q_vv().unwrap().to_owned());
+        }
         self.properties.set_occ_indices(occ_indices.to_vec());
         self.properties.set_virt_indices(virt_indices.to_vec());
     }
@@ -99,11 +129,34 @@ impl ChargeTransferPreparation<'_> {
         s: ArrayView2<f64>,
         atoms_h: &[Atom],
         atoms_l: &[Atom],
+        config: &Configuration,
     ) -> Array2<f64> {
         let homo = self.properties.homo().unwrap();
-        let occs = self.m_h.properties.orbs_slice(0, Some(homo + 1)).unwrap();
+        let mut occs = self
+            .m_h
+            .properties
+            .orbs_slice(0, Some(homo + 1))
+            .unwrap()
+            .to_owned();
         let lumo = self.properties.lumo().unwrap();
-        let virts = self.m_l.properties.orbs_slice(lumo, None).unwrap();
+        let mut virts =
+            self.m_l
+                .properties
+                .orbs_slice(lumo, None)
+                .unwrap()
+                .to_owned();
+
+        if config.tddftb.restrict_active_orbitals {
+            let nocc: usize = occs.dim().1;
+            let nvirt: usize = virts.dim().1;
+
+            let dim_o: usize = (nocc as f64 * config.tddftb.active_orbital_threshold) as usize;
+            let dim_v: usize = (nvirt as f64 * config.tddftb.active_orbital_threshold) as usize;
+            let diff_occ = nocc - dim_o;
+
+            occs = occs.slice(s![.., diff_occ..]).to_owned();
+            virts = virts.slice(s![.., ..dim_v]).to_owned();
+        }
 
         // Matrix product of overlap matrix with the orbitals on L.
         let s_c_l: Array2<f64> = s.dot(&virts);
@@ -162,6 +215,7 @@ impl ChargeTransferPreparation<'_> {
         max_iter: usize,
         tolerance: f64,
         subspace_multiplier: usize,
+        config: &Configuration,
     ) {
         // Set an empty product cache.
         self.properties.set_cache(ProductCache::new());
@@ -184,6 +238,17 @@ impl ChargeTransferPreparation<'_> {
         )
         .unwrap();
 
+        // check if the tda routine yields realistic energies
+        let energy_vector = davidson.eigenvalues.clone().to_vec();
+        for energy in energy_vector.iter() {
+            let energy_ev: f64 = energy * 27.2114;
+
+            // check for unrealistic energy values
+            if energy_ev < 0.001 {
+                panic!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
+            }
+        }
+
         // Reference to the o-v transition charges.
         let q_ov: ArrayView2<f64> = self.properties.q_ov().unwrap();
 
@@ -202,9 +267,48 @@ impl ChargeTransferPreparation<'_> {
         // The oscillator strengths are computed.
         let f: Array1<f64> = oscillator_strength(davidson.eigenvalues.view(), tr_dipoles.view());
 
+        if config.tddftb.restrict_active_orbitals {
+            // indices of the occupied and virtual orbitals of the CT state
+            let occ_indices: &[usize] = self.m_h.properties.occ_indices().unwrap();
+            let virt_indices: &[usize] = self.m_l.properties.virt_indices().unwrap();
+            let nocc_full = occ_indices.len();
+            let nvirt_full = virt_indices.len();
+
+            let n_occ = (nocc_full as f64 * config.tddftb.active_orbital_threshold) as usize;
+            let n_virt = (nvirt_full as f64 * config.tddftb.active_orbital_threshold) as usize;
+
+            let mut tdm: Array3<f64> = davidson
+                .eigenvectors
+                .clone()
+                .into_shape([n_occ, n_virt, f.len()])
+                .unwrap();
+            let mut tdm_new: Array3<f64> = Array3::zeros((nocc_full, nvirt_full, f.len()));
+            tdm_new
+                .slice_mut(s![nocc_full - n_occ.., ..n_virt, ..])
+                .assign(&tdm);
+            tdm = tdm_new;
+
+            // transform tdm back to 2d
+            let eigvecs: Array2<f64> = tdm.into_shape([nocc_full * nvirt_full, f.len()]).unwrap();
+            self.properties.set_ci_coefficients(eigvecs);
+
+            // calculate the transition charges q_ov
+            let mut config = config.clone();
+            config.tddftb.restrict_active_orbitals = false;
+            // get the atoms of the fragments
+            let atoms_h: &[Atom] = &atoms[self.m_h.slice.atom_as_range()];
+            let atoms_l: &[Atom] = &atoms[self.m_l.slice.atom_as_range()];
+            let s = self.properties.take_s().unwrap();
+
+            let q_ov: Array2<f64> = self.calculate_q_ov(s.view(), atoms_h, atoms_l, &config);
+            // store the transition charges
+            self.properties.set_q_ov(q_ov);
+        } else {
+            self.properties.set_ci_coefficients(davidson.eigenvectors);
+        }
+
         // The eigenvalues are the excitation energies and the eigenvectors are the CI coefficients.
         self.properties.set_ci_eigenvalues(davidson.eigenvalues);
-        self.properties.set_ci_coefficients(davidson.eigenvectors);
         self.properties.set_q_trans(q_trans);
         self.properties.set_tr_dipoles(tr_dipoles);
         self.properties.set_oscillator_strengths(f);

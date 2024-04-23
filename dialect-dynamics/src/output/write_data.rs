@@ -141,7 +141,7 @@ pub fn write_full(standard: &StandardOutput) {
 
 /// Print the output from the struct [StandardOutput] to the file "dynamics.out" in
 /// a custom format.
-pub fn write_full_custom(standard: &StandardOutput, masses: ArrayView1<f64>,first_call:bool) {
+pub fn write_full_custom(standard: &StandardOutput, masses: ArrayView1<f64>, first_call: bool) {
     let mut string: String = String::from("######################################\n");
     string.push_str(&String::from("time: "));
     string.push_str(&standard.time.to_string());
@@ -192,8 +192,12 @@ pub fn write_full_custom(standard: &StandardOutput, masses: ArrayView1<f64>,firs
     let file_path: &Path = Path::new("dynamics.out");
     if file_path.exists() {
         let file = if first_call {
-            OpenOptions::new().write(true).truncate(true).open(file_path).unwrap()
-        }else {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap()
+        } else {
             OpenOptions::new().append(true).open(file_path).unwrap()
         };
         let mut stream = BufWriter::new(file);
@@ -222,7 +226,7 @@ pub fn write_xyz(xyz: &XyzOutput) {
 
 /// Print the geometric data of the system from the struct [XyzOuput] to the file
 /// "dynamics.xyz" in a custom file format.
-pub fn write_xyz_custom(xyz: &XyzOutput,first_call:bool) {
+pub fn write_xyz_custom(xyz: &XyzOutput, first_call: bool) {
     let file_path: &Path = Path::new("dynamics.xyz");
     let mut string: String = xyz.n_atoms.to_string();
     string.push('\n');
@@ -241,8 +245,12 @@ pub fn write_xyz_custom(xyz: &XyzOutput,first_call:bool) {
 
     if file_path.exists() {
         let file = if first_call {
-            OpenOptions::new().write(true).truncate(true).open(file_path).unwrap()
-        }else {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap()
+        } else {
             OpenOptions::new().append(true).open(file_path).unwrap()
         };
         let mut stream = BufWriter::new(file);
@@ -289,14 +297,18 @@ pub fn write_restart_custom(restart: &RestartOutput) {
 }
 
 /// Print the parameters of the struct [HoppingOutput] to the file "hopping.dat".
-pub fn write_hopping(hopping_out: &HoppingOutput,first_call:bool) {
+pub fn write_hopping(hopping_out: &HoppingOutput, first_call: bool) {
     let file_path: &Path = Path::new("hopping.dat");
     let mut hopp: String = String::from("#############################\n");
     hopp.push_str(&toml::to_string(hopping_out).unwrap());
     if file_path.exists() {
         let file = if first_call {
-            OpenOptions::new().write(true).truncate(true).open(file_path).unwrap()
-        }else {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap()
+        } else {
             OpenOptions::new().append(true).open(file_path).unwrap()
         };
         let mut stream = BufWriter::new(file);
@@ -308,7 +320,7 @@ pub fn write_hopping(hopping_out: &HoppingOutput,first_call:bool) {
 }
 
 /// Print the energies of the system to the file "energies.dat"
-pub fn write_energies(energies: ArrayView1<f64>,first_call:bool) {
+pub fn write_energies(energies: ArrayView1<f64>, first_call: bool) {
     let file_path: &Path = Path::new("energies.dat");
     let mut string: String = String::from("");
     for (ind, energy) in energies.iter().enumerate() {
@@ -326,8 +338,12 @@ pub fn write_energies(energies: ArrayView1<f64>,first_call:bool) {
 
     if file_path.exists() {
         let file = if first_call {
-            OpenOptions::new().write(true).truncate(true).open(file_path).unwrap()
-        }else {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap()
+        } else {
             OpenOptions::new().append(true).open(file_path).unwrap()
         };
         let mut stream = BufWriter::new(file);
@@ -339,15 +355,19 @@ pub fn write_energies(energies: ArrayView1<f64>,first_call:bool) {
 }
 
 /// Print the electronic state of the molecular system to the file "state.dat"
-pub fn write_state(electronic_state: usize,first_call:bool) {
+pub fn write_state(electronic_state: usize, first_call: bool) {
     let file_path: &Path = Path::new("state.dat");
     let mut string: String = electronic_state.to_string();
     string.push_str(&String::from("\n"));
 
     if file_path.exists() {
         let file = if first_call {
-            OpenOptions::new().write(true).truncate(true).open(file_path).unwrap()
-        }else {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap()
+        } else {
             OpenOptions::new().append(true).open(file_path).unwrap()
         };
         let mut stream = BufWriter::new(file);
@@ -359,15 +379,64 @@ pub fn write_state(electronic_state: usize,first_call:bool) {
 }
 
 /// Print the temperature of the system to the file "temperature.dat"
-pub fn write_temperature(temperature: f64,first_call:bool) {
+pub fn write_temperature(temperature: f64, first_call: bool) {
     let file_path: &Path = Path::new("temperature.dat");
     let mut string: String = temperature.to_string();
     string.push_str(&String::from("\n"));
 
     if file_path.exists() {
         let file = if first_call {
-            OpenOptions::new().write(true).truncate(true).open(file_path).unwrap()
-        }else {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap()
+        } else {
+            OpenOptions::new().append(true).open(file_path).unwrap()
+        };
+        let mut stream = BufWriter::new(file);
+        stream.write_fmt(format_args!("{}", string)).unwrap();
+        stream.flush().unwrap();
+    } else {
+        fs::write(file_path, string).expect("Unable to write to temperature.dat file");
+    }
+}
+
+/// Struct that stores the output of the ehrenfest routines
+#[derive(Serialize, Deserialize, Clone)]
+pub struct EhrenfestOutput {
+    pub coefficients_real: Array1<f64>,
+    pub coefficients_imag: Array1<f64>,
+    pub coefficients_abs: Array1<f64>,
+}
+
+impl EhrenfestOutput {
+    pub fn new(coefficients: ArrayView1<c64>) -> EhrenfestOutput {
+        let coefficients_real: Array1<f64> = coefficients.map(|val| val.re);
+        let coefficients_imag: Array1<f64> = coefficients.map(|val| val.im);
+        let coefficients_abs: Array1<f64> = coefficients.map(|val| val.norm_sqr());
+
+        EhrenfestOutput {
+            coefficients_real,
+            coefficients_imag,
+            coefficients_abs,
+        }
+    }
+}
+
+/// Print the parameters of the struct [EhrenfestOutput] to the file "ehrenfest.dat".
+pub fn write_ehrenfest(ehrenfest_out: &EhrenfestOutput, first_call: bool) {
+    let file_path: &Path = Path::new("ehrenfest.dat");
+    let mut string: String = String::from("#############################\n");
+    string.push_str(&toml::to_string(ehrenfest_out).unwrap());
+    if file_path.exists() {
+        let file = if first_call {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap()
+        } else {
             OpenOptions::new().append(true).open(file_path).unwrap()
         };
         let mut stream = BufWriter::new(file);

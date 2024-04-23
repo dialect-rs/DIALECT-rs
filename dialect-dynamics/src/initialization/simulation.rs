@@ -7,6 +7,8 @@ use crate::initialization::velocities::*;
 use crate::initialization::DynamicConfiguration;
 use ndarray::prelude::*;
 use ndarray_linalg::c64;
+use ndarray_npy::NpzWriter;
+use std::fs::File;
 
 /// Struct that holds the [DynamicConfiguration] and the other necessary
 /// arguments, which are required for the molecular dynamics
@@ -35,6 +37,7 @@ pub struct Simulation {
     pub t_tot_last: Option<Array2<f64>>,
     pub hdiab: Array2<f64>,
     pub thermostat: Box<dyn Thermostat>,
+    pub coeff_writer: NpzWriter<File>,
 }
 
 impl Simulation {
@@ -46,12 +49,15 @@ impl Simulation {
 
         // initialize coefficients
         let mut coefficients: Array1<c64> = Array1::zeros(config.nstates);
-        coefficients[config.initial_state] = c64::from(1.0);
+        for val in config.initial_state.iter() {
+            let initial_states_length: f64 = config.initial_state.len() as f64;
+            coefficients[*val] = c64::from(1.0 / initial_states_length.sqrt());
+        }
         // calculate total mass of the system
         let total_mass: f64 = system.masses.sum();
 
         // force gs dynamics if initial state is 0
-        if config.initial_state == 0 {
+        if config.initial_state[0] == 0 {
             config.gs_dynamic = true;
         }
 
@@ -70,7 +76,11 @@ impl Simulation {
         friction *= config.langevin_config.friction;
 
         // initialize velocities from boltzmann distribution
-        let velocities = initialize_velocities(system, config.thermostat_config.temperature);
+        let velocities = if config.use_boltzmann_velocities {
+            initialize_velocities(system, config.thermostat_config.temperature)
+        } else {
+            Array2::zeros((system.n_atoms, 3))
+        };
 
         let thermostat: Box<dyn Thermostat> = if !config.thermostat_config.use_thermostat {
             Box::new(NullThermostat::new(system.n_atoms))
@@ -82,9 +92,11 @@ impl Simulation {
                 config.thermostat_config.temperature,
             ))
         };
+        // create Npz writer
+        let npz_writer = NpzWriter::new_compressed(File::create("coeff_abs.npz").unwrap());
 
         Simulation {
-            state: config.initial_state,
+            state: config.initial_state[0],
             actual_time: 0.0,
             stepsize: stepsize_au,
             total_mass,
@@ -108,6 +120,7 @@ impl Simulation {
             t_tot_last: None,
             hdiab: hdiab,
             thermostat,
+            coeff_writer: npz_writer,
         }
     }
 }

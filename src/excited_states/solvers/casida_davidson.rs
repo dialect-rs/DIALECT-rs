@@ -49,16 +49,23 @@ impl CasidaSolver {
 
         // The initial guess needs to be mutable.
         let mut guess: Array2<f64> = guess;
+        let original_guess: Array2<f64> = guess.clone();
 
         // Dimension of the subspace.
         let dim_sub_origin: usize = guess.ncols();
         let mut dim_sub: usize = dim_sub_origin;
 
         // The maximal possible subspace, before it will be collapsed.
-        let max_space: usize = subspace_multiplier * n_roots;
+        let mut max_space: usize = subspace_multiplier * n_roots;
+
+        // storage for print strings
+        let mut print_str = String::from("");
+        // set tolerance
+        let original_tol = tolerance;
+        let mut tolerance: f64 = tolerance;
 
         // The initial information of the Davidson routine are printed.
-        utils::print_davidson_init(max_iter, n_roots, tolerance);
+        print_str += &utils::print_davidson_init(max_iter, n_roots, tolerance);
 
         // Initialization of the result.
         let mut result = Err(CasidaError);
@@ -98,52 +105,78 @@ impl CasidaSolver {
             let w: Array1<f64> = u.mapv(f64::sqrt);
             let wsq: Array1<f64> = w.mapv(f64::sqrt);
 
-            // 3.2 approximate right R = (X+Y) and left L = (X-Y) eigenvectors
-            // in the basis bs
-            // (X+Y) = (A-B)^(1/2).T / sqrt(w)
-            let rb: Array2<f64> = sq_a_m_b.dot(&v) / &wsq;
-            // L = (X-Y) = 1/w * (A+B).(X+Y)
-            let lb: Array2<f64> = apb_proj.dot(&rb) / &w;
-
-            // 3.3 transform to the canonical basis Lb -> L, Rb -> R
-            let l_vector: Array2<f64> = guess.dot(&lb);
-            let r_vector: Array2<f64> = guess.dot(&rb);
-
-            // 3.4 Calculate the residual vectors
-            let wl: Array2<f64> = a_p_b.dot(&rb) - &l_vector * &w;
-            let wr: Array2<f64> = a_m_b.dot(&lb) - &r_vector * &w;
-
-            // 3.5 Calculate the norms of the residual vectors
-            let mut norms: Array1<f64> = Array::zeros(n_roots);
-            let mut norms_l: Array1<f64> = Array::zeros(n_roots);
-            let mut norms_r: Array1<f64> = Array::zeros(n_roots);
-            for i in 0..n_roots {
-                norms_l[i] = wl.slice(s![.., i]).dot(&wl.slice(s![.., i]));
-                norms_r[i] = wr.slice(s![.., i]).dot(&wr.slice(s![.., i]));
-                norms[i] = norms_l[i] + norms_r[i];
+            // check if omega contains zero
+            let mut zero_bool: bool = false;
+            for val in w.iter() {
+                if *val < 1.0e-3 || val.is_nan() {
+                    zero_bool = true;
+                }
             }
-            // 4. Check for convergence
-            let roots_cvd: usize = norms
-                .iter()
-                .fold(0, |n, &x| if x < tolerance { n + 1 } else { n });
+            if zero_bool {
+                // The dimension of the subspace is reset to the initial value.
+                dim_sub = dim_sub_origin;
+                guess = original_guess.clone();
+                // increase subspace and tolerance
+                // max_space = (subspace_multiplier + 1) * n_roots;
+                tolerance = tolerance + 2.0 * original_tol;
+            } else {
+                // 3.2 approximate right R = (X+Y) and left L = (X-Y) eigenvectors
+                // in the basis bs
+                // (X+Y) = (A-B)^(1/2).T / sqrt(w)
+                let rb: Array2<f64> = sq_a_m_b.dot(&v) / &wsq;
+                // L = (X-Y) = 1/w * (A+B).(X+Y)
+                let lb: Array2<f64> = apb_proj.dot(&rb) / &w;
 
-            // number of not converged roots
-            let roots_lft: usize = n_roots - roots_cvd;
-            // sum of all errors
-            let error: f64 = norms.sum();
-            // the maximum value of the errors
-            let max_error: f64 = *norms.max().unwrap();
+                // 3.3 transform to the canonical basis Lb -> L, Rb -> R
+                let l_vector: Array2<f64> = guess.dot(&lb);
+                let r_vector: Array2<f64> = guess.dot(&rb);
 
-            // If all eigenvalues are converged, the Davidson routine finished successfully.
-            if roots_lft == 0 && i > 0 {
-                result = Ok(Self::create_results(
-                    u.view(),
-                    ritz.view(),
-                    n_roots,
-                    r_vector.view(),
-                    l_vector.view(),
-                ));
-                utils::print_davidson_iteration(
+                // 3.4 Calculate the residual vectors
+                let wl: Array2<f64> = a_p_b.dot(&rb) - &l_vector * &w;
+                let wr: Array2<f64> = a_m_b.dot(&lb) - &r_vector * &w;
+
+                // 3.5 Calculate the norms of the residual vectors
+                let mut norms: Array1<f64> = Array::zeros(n_roots);
+                let mut norms_l: Array1<f64> = Array::zeros(n_roots);
+                let mut norms_r: Array1<f64> = Array::zeros(n_roots);
+                for i in 0..n_roots {
+                    norms_l[i] = wl.slice(s![.., i]).dot(&wl.slice(s![.., i]));
+                    norms_r[i] = wr.slice(s![.., i]).dot(&wr.slice(s![.., i]));
+                    norms[i] = norms_l[i] + norms_r[i];
+                }
+                // 4. Check for convergence
+                let roots_cvd: usize = norms
+                    .iter()
+                    .fold(0, |n, &x| if x < tolerance { n + 1 } else { n });
+
+                // number of not converged roots
+                let roots_lft: usize = n_roots - roots_cvd;
+                // sum of all errors
+                let error: f64 = norms.sum();
+                // the maximum value of the errors
+                let max_error: f64 = *norms.max().unwrap();
+
+                // If all eigenvalues are converged, the Davidson routine finished successfully.
+                if roots_lft == 0 && i > 0 {
+                    result = Ok(Self::create_results(
+                        u.view(),
+                        ritz.view(),
+                        n_roots,
+                        r_vector.view(),
+                        l_vector.view(),
+                    ));
+                    print_str += &utils::print_davidson_iteration(
+                        i,
+                        roots_cvd,
+                        n_roots - roots_cvd,
+                        dim_sub,
+                        error,
+                        max_error,
+                    );
+                    break;
+                }
+                // The information of the current iteration is printed to the console.
+                print_str += &utils::print_davidson_iteration(
                     i,
                     roots_cvd,
                     n_roots - roots_cvd,
@@ -151,79 +184,69 @@ impl CasidaSolver {
                     error,
                     max_error,
                 );
-                break;
-            }
-            // The information of the current iteration is printed to the console.
-            utils::print_davidson_iteration(
-                i,
-                roots_cvd,
-                n_roots - roots_cvd,
-                dim_sub,
-                error,
-                max_error,
-            );
 
-            // 5.  If the eigenvalues are not yet converged, the subspace basis is updated.
-            // 5.1 Correction vectors are added to the current subspace basis, if the new
-            //     dimension is lower than the maximal subspace size.
-            if dim_sub + roots_lft <= max_space {
-                let dk: usize = roots_lft * 2;
-                let mut q_s: Array2<f64> = Array::zeros((guess.dim().0, dk));
-                let mut nb: usize = 0;
-                // select new expansion vectors among the non-converged left residual vectors
-                for i in 0..n_roots {
-                    if nb == dk {
-                        //got enough new expansion vectors
-                        break;
-                    }
-                    let mut w_precon: Array1<f64> = w[i] - &omega;
-                    w_precon.mapv_inplace(|x| if x.abs() < 0.0001 { 1.0 } else { x });
+                // 5.  If the eigenvalues are not yet converged, the subspace basis is updated.
+                // 5.1 Correction vectors are added to the current subspace basis, if the new
+                //     dimension is lower than the maximal subspace size.
+                if dim_sub + roots_lft <= max_space {
+                    let dk: usize = roots_lft * 2;
+                    let mut q_s: Array2<f64> = Array::zeros((guess.dim().0, dk));
+                    let mut nb: usize = 0;
+                    // select new expansion vectors among the non-converged left residual vectors
+                    for i in 0..n_roots {
+                        if nb == dk {
+                            //got enough new expansion vectors
+                            break;
+                        }
+                        let mut w_precon: Array1<f64> = w[i] - &omega;
+                        w_precon.mapv_inplace(|x| if x.abs() < 0.0001 { 1.0 } else { x });
 
-                    if norms_l[i] > tolerance {
-                        q_s.slice_mut(s![.., nb])
-                            .assign(&((1.0 / &w_precon) * wl.slice(s![.., i])));
-                        nb += 1;
+                        if norms_l[i] > tolerance * 0.1 {
+                            q_s.slice_mut(s![.., nb])
+                                .assign(&((1.0 / &w_precon) * wl.slice(s![.., i])));
+                            nb += 1;
+                        }
+                        if nb == dk {
+                            //got enough new expansion vectors
+                            break;
+                        }
+                        if norms_r[i] > tolerance * 0.1 {
+                            q_s.slice_mut(s![.., nb])
+                                .assign(&((1.0 / &w_precon) * wr.slice(s![.., i])));
+                            nb += 1;
+                        }
                     }
-                    if nb == dk {
-                        //got enough new expansion vectors
-                        break;
+                    let mut new_dim: usize = 0;
+                    // The new subspace vectors are orthonormalized and added to the existing basis.
+                    for vec in q_s.axis_iter(Axis(1)) {
+                        let orth_v: Array1<f64> = &vec - &guess.dot(&guess.t().dot(&vec));
+                        let norm: f64 = orth_v.norm();
+                        if norm > 1.0e-7 {
+                            guess.push_column((&orth_v / norm).view());
+                            new_dim += 1;
+                        }
                     }
-                    if norms_r[i] > tolerance {
-                        q_s.slice_mut(s![.., nb])
-                            .assign(&((1.0 / &w_precon) * wr.slice(s![.., i])));
-                        nb += 1;
+                    // if the norm of all new expansion vectors is below 1.0e-7, reset the subspace
+                    if new_dim == 0 {
+                        // The dimension of the subspace is reset to the initial value.
+                        dim_sub = dim_sub_origin;
+                        guess = ritz.slice(s![.., 0..dim_sub]).to_owned();
                     }
+
+                    dim_sub = dim_sub + new_dim;
                 }
-                let mut new_dim:usize = 0;
-                // The new subspace vectors are orthonormalized and added to the existing basis.
-                for vec in q_s.axis_iter(Axis(1)) {
-                    let orth_v: Array1<f64> = &vec - &guess.dot(&guess.t().dot(&vec));
-                    let norm: f64 = orth_v.norm();
-                    if norm > 1.0e-7 {
-                        guess.push_column((&orth_v / norm).view());
-                        new_dim += 1;
-                    }
-                }
-                // if the norm of all new expansion vectors is below 1.0e-7, reset the subspace
-                if new_dim == 0{
+                // 5.1 If the dimension is larger than the maximal subspace size, the subspace is
+                //     collapsed.
+                else {
                     // The dimension of the subspace is reset to the initial value.
                     dim_sub = dim_sub_origin;
                     guess = ritz.slice(s![.., 0..dim_sub]).to_owned();
                 }
-
-                dim_sub = dim_sub + new_dim;
-            }
-            // 5.1 If the dimension is larger than the maximal subspace size, the subspace is
-            //     collapsed.
-            else {
-                // The dimension of the subspace is reset to the initial value.
-                dim_sub = dim_sub_origin;
-                guess = ritz.slice(s![.., 0..dim_sub]).to_owned();
             }
         }
         // The end of the Davidson routine is noted in the console together with information
         // about the used wall time.
-        utils::print_davidson_end(result.is_ok(), timer);
+        utils::print_davidson_end(result.is_ok(), timer, print_str);
 
         // The returned result contains either an Err if the iteration is not converged or
         // an instance of Davidson that contains the eigenvectors and eigenvalues.

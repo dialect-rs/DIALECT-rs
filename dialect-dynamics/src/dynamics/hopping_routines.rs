@@ -33,9 +33,11 @@ impl Simulation {
             for state in states_to_hopp {
                 let tmp: f64 = old_coefficients[self.state].re.powi(2)
                     + old_coefficients[self.state].im.powi(2);
-                hopping_probabilities[state] =
-                    -1.0 * (derivatives[self.state] / tmp) * derivatives[state] * self.stepsize
-                        / probability;
+                hopping_probabilities[state] = -1.0
+                    * (derivatives[self.state] / tmp)
+                    * derivatives[state]
+                    * self.stepsize
+                    / probability;
             }
             assert!(
                 hopping_probabilities.sum() <= 1.0,

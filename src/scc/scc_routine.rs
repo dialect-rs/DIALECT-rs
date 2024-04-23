@@ -90,12 +90,13 @@ impl<'a> RestrictedSCC for System {
 
         // if the system contains a long-range corrected Gammafunction the gamma matrix will be computed
         if self.gammafunction_lc.is_some() {
-            let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) = gamma_ao_wise(
-                self.gammafunction_lc.as_ref().unwrap(),
-                &self.atoms,
-                self.n_atoms,
-                self.n_orbs,
-            );
+            let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) =
+                gamma_ao_wise(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    &self.atoms,
+                    self.n_atoms,
+                    self.n_orbs,
+                );
             self.properties.set_gamma_lr(gamma_lr);
             self.properties.set_gamma_lr_ao(gamma_lr_ao);
         }
@@ -299,6 +300,8 @@ impl<'a> RestrictedSCC for System {
         self.properties.set_occupation(f);
         self.properties.set_p(p);
         self.properties.set_dq(dq);
+        self.properties
+            .set_last_energy(total_energy.clone().unwrap());
         return total_energy;
     }
 }

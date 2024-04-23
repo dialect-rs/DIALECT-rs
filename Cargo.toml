@@ -1,6 +1,6 @@
 [package]
 name = "dialect"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
     "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
     "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
@@ -53,6 +53,8 @@ rust_decimal = "1.26.1"
 serde_repr = "0.1.9"
 sphrs = { git = "https://github.com/einseler/sphrs"}
 splines = "4.1.1"
+rawpointer = { version = "0.2"}
+faer = {version =  "0.14.1", features = ["std","matrixcompare","rayon","ndarray"]}
 
 [profile.release]
 lto = true

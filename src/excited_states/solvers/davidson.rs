@@ -65,6 +65,11 @@ impl Davidson {
 
         // The initial guess needs to be mutable.
         let mut guess: Array2<f64> = guess;
+        let original_guess: Array2<f64> = guess.clone();
+
+        // set original tolerance
+        let mut tolerance: f64 = tolerance;
+        let original_tol: f64 = tolerance;
 
         // Dimension of the subspace.
         let dim_sub_origin: usize = guess.ncols();
@@ -73,8 +78,11 @@ impl Davidson {
         // The maximal possible subspace, before it will be collapsed.
         let max_space: usize = subspace_multiplier * n_roots;
 
+        // storage for print strings
+        let mut print_str = String::from("");
+
         // The initial information of the Davidson routine are printed.
-        utils::print_davidson_init(max_iter, n_roots, tolerance);
+        print_str += &utils::print_davidson_init(max_iter, n_roots, tolerance);
 
         // Initialization of the result.
         let mut result = Err(DavidsonError);
@@ -96,31 +104,57 @@ impl Davidson {
             u = u.slice_move(s![0..n_roots]);
             v = v.slice_move(s![.., 0..n_roots]);
 
-            // 3. Convergence checks are made.
-            // 3.1 Compute the Ritz vectors.
-            let ritz: Array2<f64> = guess.dot(&v);
+            // check if omega contains zero
+            let mut zero_bool: bool = false;
+            for val in u.iter() {
+                if *val < 1.0e-3 || val.is_nan() {
+                    zero_bool = true;
+                }
+            }
+            if zero_bool {
+                // The dimension of the subspace is reset to the initial value.
+                dim_sub = dim_sub_origin;
+                guess = original_guess.clone();
+                // increase subspace and tolerance
+                // max_space = (subspace_multiplier + 1) * n_roots;
+                tolerance = tolerance + 2.0 * original_tol;
+            } else {
+                // 3. Convergence checks are made.
+                // 3.1 Compute the Ritz vectors.
+                let ritz: Array2<f64> = guess.dot(&v);
 
-            // 3.2 Compute the residue vectors.
-            let rk: Array2<f64> = ax.dot(&v) - ritz.dot(&Array::from_diag(&u));
+                // 3.2 Compute the residue vectors.
+                let rk: Array2<f64> = ax.dot(&v) - ritz.dot(&Array::from_diag(&u));
 
-            // 3.3 Convergence check for each pair of eigenvalue and eigenvector.
-            let errors: Array1<f64> = rk.axis_iter(Axis(1)).map(|col| col.norm()).collect();
+                // 3.3 Convergence check for each pair of eigenvalue and eigenvector.
+                let errors: Array1<f64> = rk.axis_iter(Axis(1)).map(|col| col.norm()).collect();
 
-            // The sum of all errors.
-            let error: f64 = errors.sum();
-            // The maximum value of the errors.
-            let max_error: f64 = *errors.max().unwrap();
+                // The sum of all errors.
+                let error: f64 = errors.sum();
+                // The maximum value of the errors.
+                let max_error: f64 = *errors.max().unwrap();
 
-            // 4.3 Check how many eigenvalues are converged.
-            let roots_cvd: usize = errors
-                .iter()
-                .fold(0, |n, &x| if x < tolerance { n + 1 } else { n });
-            let roots_lft: usize = n_roots - roots_cvd;
+                // 4.3 Check how many eigenvalues are converged.
+                let roots_cvd: usize = errors
+                    .iter()
+                    .fold(0, |n, &x| if x < tolerance { n + 1 } else { n });
+                let roots_lft: usize = n_roots - roots_cvd;
 
-            // If all eigenvalues are converged, the Davidson routine finished successfully.
-            if roots_lft == 0 && i > 0 {
-                result = Ok(Self::create_results(u.view(), ritz.view(), n_roots));
-                utils::print_davidson_iteration(
+                // If all eigenvalues are converged, the Davidson routine finished successfully.
+                if roots_lft == 0 && i > 0 {
+                    result = Ok(Self::create_results(u.view(), ritz.view(), n_roots));
+                    print_str += &utils::print_davidson_iteration(
+                        i,
+                        roots_cvd,
+                        n_roots - roots_cvd,
+                        dim_sub,
+                        error,
+                        max_error,
+                    );
+                    break;
+                }
+                // The information of the current iteration is printed to the console.
+                print_str += &utils::print_davidson_iteration(
                     i,
                     roots_cvd,
                     n_roots - roots_cvd,
@@ -128,61 +162,51 @@ impl Davidson {
                     error,
                     max_error,
                 );
-                break;
-            }
-            // The information of the current iteration is printed to the console.
-            utils::print_davidson_iteration(
-                i,
-                roots_cvd,
-                n_roots - roots_cvd,
-                dim_sub,
-                error,
-                max_error,
-            );
 
-            // 5.  If the eigenvalues are not yet converged, the subspace basis is updated.
-            // 5.1 Correction vectors are added to the current subspace basis, if the new
-            //     dimension is lower than the maximal subspace size.
-            if dim_sub + roots_lft <= max_space {
-                // For each (not converged) eigenvalue a new preconditioned subspace vector is
-                // added.
-                let mut add_space: Array2<f64> = Array::zeros([dim, roots_lft]);
-                for ((idx, _), mut space_k) in errors
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, &x)| x > tolerance)
-                    .zip(add_space.axis_iter_mut(Axis(1)))
-                {
-                    space_k.assign(&engine.precondition(rk.column(idx), u[idx]));
-                }
-                // The dimension of the subspace is updated.
-                dim_sub += roots_lft;
+                // 5.  If the eigenvalues are not yet converged, the subspace basis is updated.
+                // 5.1 Correction vectors are added to the current subspace basis, if the new
+                //     dimension is lower than the maximal subspace size.
+                if dim_sub + roots_lft <= max_space {
+                    // For each (not converged) eigenvalue a new preconditioned subspace vector is
+                    // added.
+                    let mut add_space: Array2<f64> = Array::zeros([dim, roots_lft]);
+                    for ((idx, _), mut space_k) in errors
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, &x)| x > tolerance)
+                        .zip(add_space.axis_iter_mut(Axis(1)))
+                    {
+                        space_k.assign(&engine.precondition(rk.column(idx), u[idx]));
+                    }
+                    // The dimension of the subspace is updated.
+                    dim_sub += roots_lft;
 
-                // The new subspace vectors are orthonormalized and added to the existing basis.
-                for vec in add_space.axis_iter(Axis(1)) {
-                    let orth_v: Array1<f64> = &vec - &guess.dot(&guess.t().dot(&vec));
-                    let norm: f64 = orth_v.norm();
-                    if norm > 1.0e-7 {
-                        guess.push_column((&orth_v / norm).view());
+                    // The new subspace vectors are orthonormalized and added to the existing basis.
+                    for vec in add_space.axis_iter(Axis(1)) {
+                        let orth_v: Array1<f64> = &vec - &guess.dot(&guess.t().dot(&vec));
+                        let norm: f64 = orth_v.norm();
+                        if norm > 1.0e-7 {
+                            guess.push_column((&orth_v / norm).view());
+                        }
+                    }
+
+                    if use_qr {
+                        let tmp = guess.qr().unwrap();
+                        guess = tmp.0;
                     }
                 }
-
-                if use_qr {
-                    let tmp = guess.qr().unwrap();
-                    guess = tmp.0;
+                // 5.1 If the dimension is larger than the maximal subspace size, the subspace is
+                //     collapsed.
+                else {
+                    // The dimension of the subspace is reset to the initial value.
+                    dim_sub = dim_sub_origin;
+                    guess = ritz.slice(s![.., 0..dim_sub]).to_owned();
                 }
-            }
-            // 5.1 If the dimension is larger than the maximal subspace size, the subspace is
-            //     collapsed.
-            else {
-                // The dimension of the subspace is reset to the initial value.
-                dim_sub = dim_sub_origin;
-                guess = ritz.slice(s![.., 0..dim_sub]).to_owned();
             }
         }
         // The end of the Davidson routine is noted in the console together with information
         // about the used wall time.
-        utils::print_davidson_end(result.is_ok(), timer);
+        utils::print_davidson_end(result.is_ok(), timer, print_str);
 
         // The returned result contains either an Err if the iteration is not converged or
         // an instance of Davidson that contains the eigenvectors and eigenvalues.

@@ -1,5 +1,6 @@
-use crate::fmo::*;
-use crate::scc::gamma_approximation::gamma_gradients_atomwise_2d;
+use crate::fmo::{helpers::get_pair_slice, *};
+use crate::initialization::Atom;
+use crate::scc::gamma_approximation::{gamma_gradients_atomwise, gamma_gradients_atomwise_2d};
 use ndarray::prelude::*;
 use rayon::prelude::*;
 use std::ops::{AddAssign, SubAssign};
@@ -213,6 +214,28 @@ fn get_grad_delta_dq(pair: &Pair, m_i: &Monomer, m_j: &Monomer) -> Array1<f64> {
         .unwrap();
 
     diag_of_last_dimensions(grad_delta_dq_3d)
+}
+
+fn get_grad_delta_dq_2(pair: &Pair, m_i: &Monomer, m_j: &Monomer) -> Array2<f64> {
+    // get the derivatives of the charge differences w.r.t to the each degree of freedom
+    let grad_dq: ArrayView2<f64> = pair.properties.grad_dq().unwrap();
+    let grad_dq_i: ArrayView2<f64> = m_i.properties.grad_dq().unwrap();
+    let grad_dq_j: ArrayView2<f64> = m_j.properties.grad_dq().unwrap();
+
+    // compute the difference between dimers and monomers and take the diagonal values
+    let mut grad_delta_dq_2d: Array2<f64> = grad_dq.to_owned();
+
+    //difference for monomer i
+    grad_delta_dq_2d
+        .slice_mut(s![..(3 * m_i.n_atoms), ..m_i.n_atoms])
+        .sub_assign(&grad_dq_i);
+
+    // difference for monomer j
+    grad_delta_dq_2d
+        .slice_mut(s![(3 * m_i.n_atoms).., m_i.n_atoms..])
+        .sub_assign(&grad_dq_j);
+
+    grad_delta_dq_2d
 }
 
 pub fn diag_of_last_dimensions<S>(data: ArrayBase<S, Ix3>) -> Array1<f64>

@@ -9,8 +9,8 @@ impl Simulation {
     pub fn verlet_dynamics(&mut self, interface: &mut dyn QCInterface) {
         self.initialize_verlet(interface);
 
-        for _step in 0..self.config.nstep {
-            self.verlet_step(interface);
+        for step in 0..self.config.nstep {
+            self.verlet_step(interface, step);
         }
     }
 
@@ -18,8 +18,8 @@ impl Simulation {
     pub fn langevin_dynamics(&mut self, interface: &mut dyn QCInterface) {
         self.initialize_langevin(interface);
 
-        for _step in 0..self.config.nstep {
-            self.langevin_step(interface);
+        for step in 0..self.config.nstep {
+            self.langevin_step(interface, step);
         }
     }
 
@@ -32,8 +32,7 @@ impl Simulation {
             // integration of the schroedinger equation
             if !self.config.hopping_config.use_rk_integration {
                 self.coefficients = self.matrix_exponential_integration();
-            }
-            else {
+            } else {
                 // the coefficients are integrated using a 4th order runge kutta scheme
                 self.coefficients = self.rk_integration();
             }
@@ -57,22 +56,26 @@ impl Simulation {
     pub fn initialize_verlet(&mut self, interface: &mut dyn QCInterface) {
         if self.config.restart_flag {
             self.restart_trajectory(interface);
+            // Print output
+            self.print_data(None, false);
         } else {
             self.initiate_trajectory(interface);
+            // Print output
+            self.print_data(None, true);
         }
-
-        // Print output
-        self.print_data(None,true);
 
         // Calculate new coordinates from velocity-verlet
         self.coordinates = self.get_coord_verlet();
         // Shift coordinates to center of mass
         self.coordinates = self.shift_to_center_of_mass();
+
+        // update the actual time
+        self.actual_time += self.stepsize;
     }
 
     /// Calculate a single step of the velocity-verlet dynamics utilizing the [QCInterface]
     /// for the calculation of the required properties
-    pub fn verlet_step(&mut self, interface: &mut dyn QCInterface) {
+    pub fn verlet_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
         let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         let old_kinetic: f64 = self.kinetic_energy;
@@ -82,7 +85,7 @@ impl Simulation {
 
         // calculate energies, forces, nonadiabatic_scalar
         // for the new geometry
-        self.get_quantum_chem_data(interface);
+        self.get_quantum_chem_data(interface, step);
 
         // surface hopping procedure
         if self.config.hopping_config.use_state_coupling {
@@ -108,7 +111,7 @@ impl Simulation {
         }
 
         // Print settings
-        self.print_data(Some(old_energy),false);
+        self.print_data(Some(old_energy), false);
 
         // Calculate new coordinates from velocity-verlet
         self.coordinates = self.get_coord_verlet();
@@ -124,12 +127,13 @@ impl Simulation {
     pub fn initialize_langevin(&mut self, interface: &mut dyn QCInterface) {
         if self.config.restart_flag {
             self.restart_trajectory(interface);
+            // Print settings
+            self.print_data(None, false);
         } else {
             self.initiate_trajectory(interface);
+            // Print settings
+            self.print_data(None, true);
         }
-
-        // Print settings
-        self.print_data(None,true);
 
         // Langevin routine
         let (_vrand, prand): (Array2<f64>, Array2<f64>) = self.get_random_terms();
@@ -141,10 +145,13 @@ impl Simulation {
         self.coordinates = self.get_coordinates_langevin();
         // Shift coordinates to center of mass
         self.coordinates = self.shift_to_center_of_mass();
+
+        // update the actual time
+        self.actual_time += self.stepsize;
     }
 
     /// Calculate a single step of the langevin dynamics
-    pub fn langevin_step(&mut self, interface: &mut dyn QCInterface) {
+    pub fn langevin_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
         let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         let _last_energies: Array1<f64> = self.energies.clone();
@@ -152,7 +159,7 @@ impl Simulation {
 
         // calculate energies, forces, nonadiabatic_scalar
         // for the new geometry
-        self.get_quantum_chem_data(interface);
+        self.get_quantum_chem_data(interface, step);
 
         if self.config.hopping_config.use_state_coupling {
             self.surface_hopping_step(old_state);
@@ -170,7 +177,7 @@ impl Simulation {
         self.kinetic_energy = self.get_kinetic_energy();
 
         // Print settings
-        self.print_data(Some(old_energy),false);
+        self.print_data(Some(old_energy), false);
 
         // calculate new coordinates
         self.coordinates = self.get_coordinates_langevin();
@@ -183,7 +190,7 @@ impl Simulation {
 
     /// Calculate the energies, gradient, nonadiabatic couplings and the dipoles
     /// using the [QCInterface]
-    pub fn get_quantum_chem_data(&mut self, interface: &mut dyn QCInterface) {
+    pub fn get_quantum_chem_data(&mut self, interface: &mut dyn QCInterface, step: usize) {
         // calculate energy, forces, etc for new coords
         let tmp: (
             Array1<f64>,
@@ -192,10 +199,13 @@ impl Simulation {
             Option<Array2<f64>>,
         ) = interface.compute_data(
             self.coordinates.view(),
+            self.velocities.view(),
             self.state,
             self.stepsize,
             self.config.hopping_config.use_state_coupling,
+            self.config.nonadibatic_config.use_nacv_couplings,
             self.config.gs_dynamic,
+            step,
         );
 
         self.energies
@@ -210,7 +220,7 @@ impl Simulation {
 
         if self.config.hopping_config.use_state_coupling && self.config.gs_dynamic == false {
             self.nonadiabatic_scalar = tmp.2.unwrap();
-            self.s_mat = tmp.3.unwrap();
+            // self.s_mat = tmp.3.unwrap();
         }
     }
 
@@ -219,7 +229,7 @@ impl Simulation {
         self.coordinates = self.shift_to_center_of_mass();
         self.velocities = self.eliminate_translation_rotation_from_velocity();
 
-        self.get_quantum_chem_data(interface);
+        self.get_quantum_chem_data(interface, 0);
 
         self.kinetic_energy = self.get_kinetic_energy();
     }
@@ -233,7 +243,7 @@ impl Simulation {
         self.coefficients = temp.3;
 
         // calculate quantum chemical data
-        self.get_quantum_chem_data(interface);
+        self.get_quantum_chem_data(interface, 0);
         self.kinetic_energy = self.get_kinetic_energy();
     }
 }

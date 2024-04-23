@@ -99,6 +99,70 @@ pub fn trans_charges(
     (q_trans_ov, q_trans_oo, q_trans_vv)
 }
 
+pub fn trans_charges_reduced(
+    n_atoms: usize,
+    atoms: &[Atom],
+    orbs: ArrayView2<f64>,
+    s: ArrayView2<f64>,
+    occ_indices: &[usize],
+    virt_indices: &[usize],
+) -> (Array2<f64>, Array2<f64>, Array2<f64>) {
+    // Number of occupied orbitals.
+    let mut dim_o: usize = occ_indices.len();
+    // Number of virtual orbitals.
+    let mut dim_v: usize = virt_indices.len();
+
+    let active_occupied_orbs = occ_indices.clone();
+    let active_virtual_orbs = virt_indices.clone();
+
+    // transition charges between occupied and virutal orbitals
+    let mut q_trans_ov: Array3<f64> = Array3::zeros([n_atoms, dim_o, dim_v]);
+    // transition charges between occupied and occupied orbitals
+    let mut q_trans_oo: Array3<f64> = Array3::zeros([n_atoms, dim_o, dim_o]);
+    // transition charges between virtual and virtual orbitals
+    let mut q_trans_vv: Array3<f64> = Array3::zeros([n_atoms, dim_v, dim_v]);
+
+    let s_c: Array2<f64> = s.dot(&orbs);
+
+    let mut mu: usize = 0;
+    for (atom_a, z_a) in atoms.iter().enumerate() {
+        for _ in 0..z_a.n_orbs {
+            // occupied - virtuals
+            for (i, occi) in active_occupied_orbs.iter().enumerate() {
+                for (a, virta) in active_virtual_orbs.iter().enumerate() {
+                    q_trans_ov.slice_mut(s![atom_a, i, a]).add_assign(
+                        0.5 * (orbs[[mu, *occi]] * s_c[[mu, *virta]]
+                            + orbs[[mu, *virta]] * s_c[[mu, *occi]]),
+                    );
+                }
+            }
+            // occupied - occupied
+            for (i, occi) in active_occupied_orbs.iter().enumerate() {
+                for (j, occj) in active_occupied_orbs.iter().enumerate() {
+                    q_trans_oo.slice_mut(s![atom_a, i, j]).add_assign(
+                        0.5 * (orbs[[mu, *occi]] * s_c[[mu, *occj]]
+                            + orbs[[mu, *occj]] * s_c[[mu, *occi]]),
+                    );
+                }
+            }
+            // virtual - virtual
+            for (a, virta) in active_virtual_orbs.iter().enumerate() {
+                for (b, virtb) in active_virtual_orbs.iter().enumerate() {
+                    q_trans_vv.slice_mut(s![atom_a, a, b]).add_assign(
+                        0.5 * (orbs[[mu, *virta]] * s_c[[mu, *virtb]]
+                            + orbs[[mu, *virtb]] * s_c[[mu, *virta]]),
+                    );
+                }
+            }
+            mu += 1;
+        }
+    }
+    let q_ov = q_trans_ov.into_shape([n_atoms, dim_o * dim_v]).unwrap();
+    let q_oo = q_trans_oo.into_shape([n_atoms, dim_o * dim_o]).unwrap();
+    let q_vv = q_trans_vv.into_shape([n_atoms, dim_v * dim_v]).unwrap();
+    return (q_ov, q_oo, q_vv);
+}
+
 pub fn trans_charges_restricted(
     n_atoms: usize,
     atoms: &[Atom],
@@ -168,6 +232,84 @@ pub fn trans_charges_restricted(
     let q_oo = q_trans_oo.into_shape([n_atoms, dim_o * dim_o]).unwrap();
     let q_vv = q_trans_vv.into_shape([n_atoms, dim_v * dim_v]).unwrap();
     return (q_ov, q_oo, q_vv);
+}
+
+pub fn trans_oo_restricted(
+    n_atoms: usize,
+    atoms: &[Atom],
+    orbs: ArrayView2<f64>,
+    s: ArrayView2<f64>,
+    occ_indices: &[usize],
+    virt_indices: &[usize],
+    threshold: f64,
+) -> Array2<f64> {
+    // Number of occupied orbitals.
+    let mut dim_o: usize = occ_indices.len();
+    let mut active_occupied_orbs = occ_indices.clone();
+    dim_o = (dim_o as f64 * threshold) as usize;
+
+    active_occupied_orbs = &active_occupied_orbs[occ_indices.len() - dim_o..occ_indices.len()];
+
+    // transition charges between occupied and occupied orbitals
+    let mut q_trans_oo: Array3<f64> = Array3::zeros([n_atoms, dim_o, dim_o]);
+    let s_c: Array2<f64> = s.dot(&orbs);
+
+    let mut mu: usize = 0;
+    for (atom_a, z_a) in atoms.iter().enumerate() {
+        for _ in 0..z_a.n_orbs {
+            // occupied - occupied
+            for (i, occi) in active_occupied_orbs.iter().enumerate() {
+                for (j, occj) in active_occupied_orbs.iter().enumerate() {
+                    q_trans_oo.slice_mut(s![atom_a, i, j]).add_assign(
+                        0.5 * (orbs[[mu, *occi]] * s_c[[mu, *occj]]
+                            + orbs[[mu, *occj]] * s_c[[mu, *occi]]),
+                    );
+                }
+            }
+            mu += 1;
+        }
+    }
+    let q_oo = q_trans_oo.into_shape([n_atoms, dim_o * dim_o]).unwrap();
+    return q_oo;
+}
+
+pub fn trans_vv_restricted(
+    n_atoms: usize,
+    atoms: &[Atom],
+    orbs: ArrayView2<f64>,
+    s: ArrayView2<f64>,
+    occ_indices: &[usize],
+    virt_indices: &[usize],
+    threshold: f64,
+) -> Array2<f64> {
+    // Number of virtual orbitals.
+    let mut dim_v: usize = virt_indices.len();
+    let mut active_virtual_orbs = virt_indices.clone();
+    dim_v = (dim_v as f64 * threshold) as usize;
+    active_virtual_orbs = &active_virtual_orbs[0..dim_v];
+
+    // transition charges between virtual and virtual orbitals
+    let mut q_trans_vv: Array3<f64> = Array3::zeros([n_atoms, dim_v, dim_v]);
+
+    let s_c: Array2<f64> = s.dot(&orbs);
+
+    let mut mu: usize = 0;
+    for (atom_a, z_a) in atoms.iter().enumerate() {
+        for _ in 0..z_a.n_orbs {
+            // virtual - virtual
+            for (a, virta) in active_virtual_orbs.iter().enumerate() {
+                for (b, virtb) in active_virtual_orbs.iter().enumerate() {
+                    q_trans_vv.slice_mut(s![atom_a, a, b]).add_assign(
+                        0.5 * (orbs[[mu, *virta]] * s_c[[mu, *virtb]]
+                            + orbs[[mu, *virtb]] * s_c[[mu, *virta]]),
+                    );
+                }
+            }
+            mu += 1;
+        }
+    }
+    let q_vv = q_trans_vv.into_shape([n_atoms, dim_v * dim_v]).unwrap();
+    return q_vv;
 }
 
 impl System {

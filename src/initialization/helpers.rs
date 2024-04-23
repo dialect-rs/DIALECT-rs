@@ -56,13 +56,14 @@ pub fn get_unique_atoms_skf(
     }
 
     // create the unique Atoms
-    let unique_atoms: Vec<Atom> = homonuc_skf
-        .iter()
-        .map(|handler| {
-            let element: Element = handler.element_a.clone();
-            Atom::from((element, handler))
-        })
-        .collect();
+    let unique_atoms: Vec<Atom> =
+        homonuc_skf
+            .iter()
+            .map(|handler| {
+                let element: Element = handler.element_a.clone();
+                Atom::from((element, handler))
+            })
+            .collect();
     let mut num_to_atom: HashMap<u8, Atom> = HashMap::with_capacity(unique_numbers.len());
     // insert the atomic numbers and the reference to atoms in the HashMap
     for (num, atom) in unique_numbers

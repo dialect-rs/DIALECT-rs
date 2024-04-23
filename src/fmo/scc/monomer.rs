@@ -2,6 +2,7 @@ use crate::fmo::Monomer;
 use crate::initialization::Atom;
 use crate::io::settings::MixConfig;
 use crate::io::SccConfig;
+use crate::scc::construct_h1;
 use crate::scc::gamma_approximation::*;
 use crate::scc::h0_and_s::*;
 use crate::scc::mixer::{AndersonAccel, BroydenMixer, Mixer};
@@ -12,6 +13,8 @@ use crate::scc::{
 use ndarray::prelude::*;
 use ndarray_linalg::*;
 use ndarray_stats::DeviationExt;
+
+use super::helpers::atomvec_to_aomat;
 
 impl Monomer<'_> {
     pub fn prepare_scc(&mut self, atoms: &[Atom]) {
@@ -109,7 +112,15 @@ impl Monomer<'_> {
         // H_mu_nu = H0_mu_nu + HCoul_mu_nu + HESP_mu_nu
         // H_mu_nu = H0_mu_nu + 1/2 S_mu_nu sum_k sum_c_on_k (gamma_ac + gamma_bc) dq_c
         let h_coul: Array2<f64> = v_esp * &s * 0.5;
-        let mut h: Array2<f64> = h_coul + h0;
+        let mut h: Array2<f64> = &h_coul + &h0;
+        // safe the second hamiltonian
+        let mut h_coul_2: Array2<f64> = atomvec_to_aomat(
+            self.properties.gamma().unwrap().dot(&dq).view(),
+            self.n_orbs,
+            &atoms,
+        ) * &s
+            * 0.5;
+
         if self.gammafunction_lc.is_some() && self.properties.delta_p().is_some() {
             let h_x: Array2<f64> = lc_exact_exchange(
                 s,
@@ -118,7 +129,7 @@ impl Monomer<'_> {
             );
             h = h + h_x;
         }
-        let h_save: Array2<f64> = h.clone();
+        let h_save: Array2<f64> = h.clone() - (h_coul - h_coul_2);
 
         // H' = X^t.H.X
         h = x.t().dot(&h).dot(&x);

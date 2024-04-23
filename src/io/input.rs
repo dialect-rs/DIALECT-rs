@@ -49,7 +49,7 @@ pub fn read_dynamic_input(dialect_config: &Configuration) -> DynamicConfiguratio
         fs::write(config_file_path, config_string).expect("Unable to write config file");
     }
 
-    if config.initial_state != 0 {
+    if config.initial_state[0] != 0 {
         // Number of excited states
         let n_states: usize = dialect_config.excited.nstates;
         // change nstates of config
@@ -72,4 +72,35 @@ pub fn create_dynamics_data(atoms: &[Atom], dynamics_config: DynamicConfiguratio
 
     let data_system: SystemData = SystemData::from((atomic_numbers, coordinates, dynamics_config));
     return data_system;
+}
+
+pub fn read_dynamic_input_ehrenfest(
+    dialect_config: &Configuration,
+    n_mol: usize,
+) -> DynamicConfiguration {
+    let config_file_path: &Path = Path::new(DYNAMIC_CONFIG_FILE_NAME);
+    let mut config_string: String = if config_file_path.exists() {
+        fs::read_to_string(config_file_path).expect("Unable to read config file")
+    } else {
+        String::from("")
+    };
+    // load the configuration
+    let mut config: DynamicConfiguration = toml::from_str(&config_string).unwrap();
+    // save the configuration file if it does not exist already so that the user can see
+    // all the used options
+    if config_file_path.exists() == false {
+        config_string = toml::to_string(&config).unwrap();
+        fs::write(config_file_path, config_string).expect("Unable to write config file");
+    }
+
+    // Number of LE states per monomer.
+    let n_le: usize = dialect_config.fmo_lc_tddftb.n_le;
+    // Number of CT states.
+    let n_ct: usize = dialect_config.fmo_lc_tddftb.n_ct;
+    // The total number of states is given by: Sum_I n_LE_I + Sum_I Sum_J nocc_I * nvirt_J
+    let n_states: usize = n_le * n_mol + n_ct * n_mol * (n_mol - 1);
+    // change nstates of config
+    config.nstates = n_states + 1;
+
+    return config;
 }

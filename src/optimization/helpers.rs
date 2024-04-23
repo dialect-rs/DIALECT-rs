@@ -158,11 +158,12 @@ pub fn write_last_geom(xyz: &XYZ_Output) {
     }
 
     if file_path.exists() {
-        let file = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(file_path)
-            .unwrap();
+        let file =
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap();
         let mut stream = BufWriter::new(file);
         stream.write_fmt(format_args!("{}", string)).unwrap();
         stream.flush().unwrap();

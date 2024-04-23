@@ -87,10 +87,7 @@ impl<'a>
 
         // Initialize the screened gamma function only if LRC is requested
         let gf_lc: Option<GammaFunction> = if input.1.lc.long_range_correction {
-            Some(initialize_gamma_function(
-                &unique_atoms,
-                input.1.lc.long_range_radius,
-            ))
+            Some(initialize_gamma_function(&unique_atoms, input.1.lc.long_range_radius))
         } else {
             None
         };
@@ -204,7 +201,7 @@ impl<'a>
                 match get_pair_type(
                     &atoms[m_i.slice.atom_as_range()],
                     &atoms[m_j.slice.atom_as_range()],
-                    2.0,
+                    input.1.vdw_scaling,
                 ) {
                     PairType::Pair => {
                         pairs.push(Pair::new(i, i + j + 1, m_i, m_j, input.2, input.3));
@@ -295,10 +292,11 @@ impl SuperSystem<'_> {
     pub fn gamma_ab_cd(&self, a: usize, b: usize, c: usize, d: usize, lrc: LRC) -> Array2<f64> {
         let n_atoms_a: usize = self.monomers[a].n_atoms;
         let n_atoms_c: usize = self.monomers[c].n_atoms;
-        let mut gamma: Array2<f64> = Array2::zeros([
-            n_atoms_a + self.monomers[b].n_atoms,
-            n_atoms_c + self.monomers[d].n_atoms,
-        ]);
+        let mut gamma: Array2<f64> =
+            Array2::zeros([
+                n_atoms_a + self.monomers[b].n_atoms,
+                n_atoms_c + self.monomers[d].n_atoms,
+            ]);
         gamma
             .slice_mut(s![0..n_atoms_a, ..n_atoms_c])
             .assign(&self.gamma_a_b(a, c, lrc));

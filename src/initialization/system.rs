@@ -86,13 +86,9 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
             .iter()
             .for_each(|num| atoms.push((*num_to_atom.get(num).unwrap()).clone()));
         // set the positions for each atom
-        molecule
-            .1
-            .outer_iter()
-            .enumerate()
-            .for_each(|(idx, position)| {
-                atoms[idx].position_from_slice(position.as_slice().unwrap())
-            });
+        molecule.1.outer_iter().enumerate().for_each(
+            |(idx, position)| atoms[idx].position_from_slice(position.as_slice().unwrap())
+        );
         // get the number of unpaired electrons from the input option
         let unpaired: usize = match molecule.2.mol.multiplicity {
             1u8 => 0,
@@ -166,10 +162,7 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
         let gf: GammaFunction = initialize_gamma_function(&unique_atoms, 0.0);
         // initialize the gamma function for long-range correction if it is requested
         let gf_lc: Option<GammaFunction> = if molecule.2.lc.long_range_correction {
-            Some(initialize_gamma_function(
-                &unique_atoms,
-                molecule.2.lc.long_range_radius,
-            ))
+            Some(initialize_gamma_function(&unique_atoms, molecule.2.lc.long_range_radius))
         } else {
             None
         };

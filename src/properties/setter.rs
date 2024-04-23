@@ -77,6 +77,11 @@ impl Properties {
         self.set("ci_eigenvalues", Property::Array1(eigenvalues))
     }
 
+    /// Set the excitation energies.
+    pub fn set_ci_eigenvalues_b(&mut self, eigenvalues: Array1<f64>) {
+        self.set("ci_eigenvalues_b", Property::Array1(eigenvalues))
+    }
+
     /// Set the tddft excitation energies.
     pub fn set_tddft_eigenvalues(&mut self, eigenvalues: Array1<f64>) {
         self.set("tddft_eigenvalues", Property::Array1(eigenvalues))
@@ -105,6 +110,11 @@ impl Properties {
     /// Set the CI coefficients of all excited states, that were computed.
     pub fn set_ci_coefficients(&mut self, coeffs: Array2<f64>) {
         self.set("ci_coefficients", Property::from(coeffs))
+    }
+
+    /// Set the CI coefficients of all excited states, that were computed.
+    pub fn set_ci_coefficients_b(&mut self, coeffs: Array2<f64>) {
+        self.set("ci_coefficients_b", Property::from(coeffs))
     }
 
     /// Set the the difference of the density matrix between the pair and the corresponding monomers
@@ -188,6 +198,11 @@ impl Properties {
         self.set("q_trans", Property::from(q_trans));
     }
 
+    /// Set the transition charges between of alle excited states.
+    pub fn set_q_trans_b(&mut self, q_trans: Array2<f64>) {
+        self.set("q_trans_b", Property::from(q_trans));
+    }
+
     /// Set the transition dipole moments for all excited states.
     pub fn set_tr_dipoles(&mut self, tr_dipoles: Array2<f64>) {
         self.set("tr_dipoles", Property::from(tr_dipoles));
@@ -217,9 +232,19 @@ impl Properties {
         self.set("q_oo", Property::from(q_oo));
     }
 
+    /// Set the transition charges between occupied orbitals
+    pub fn set_q_oo_restricted(&mut self, q_oo: Array2<f64>) {
+        self.set("q_oo_restricted", Property::from(q_oo));
+    }
+
     /// Set the transition charges between virtual orbitals
     pub fn set_q_vv(&mut self, q_vv: Array2<f64>) {
         self.set("q_vv", Property::from(q_vv));
+    }
+
+    /// Set the transition charges between virtual orbitals
+    pub fn set_q_vv_restricted(&mut self, q_vv: Array2<f64>) {
+        self.set("q_vv_restricted", Property::from(q_vv));
     }
 
     /// Set the orbital energy differences between virtual and occupied orbitals.
@@ -378,7 +403,15 @@ impl Properties {
         self.set("old_supersystem", Property::from(supersystem))
     }
 
+    pub fn set_ref_supersystem(&mut self, supersystem: OldSupersystem) {
+        self.set("ref_supersystem", Property::from(supersystem))
+    }
+
     pub fn set_old_system(&mut self, system: OldSystem) {
         self.set("old_system", Property::from(system))
+    }
+
+    pub fn set_state_order(&mut self, state_order: Vec<usize>) {
+        self.set("state_order", Property::from(state_order));
     }
 }

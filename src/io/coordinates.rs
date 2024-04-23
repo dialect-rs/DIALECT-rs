@@ -6,16 +6,17 @@ use ndarray::Array2;
 
 /// Extract the atomic numbers and positions (in bohr) from a [Frame](chemfiles::frame)
 pub fn frame_to_coordinates(frame: Frame) -> (Vec<u8>, Array2<f64>) {
-    let mut positions: Array2<f64> = Array2::from_shape_vec(
-        (frame.size() as usize, 3),
-        frame
-            .positions()
-            .iter()
-            .flat_map(|array| array.iter())
-            .cloned()
-            .collect(),
-    )
-    .unwrap();
+    let mut positions: Array2<f64> =
+        Array2::from_shape_vec(
+            (frame.size() as usize, 3),
+            frame
+                .positions()
+                .iter()
+                .flat_map(|array| array.iter())
+                .cloned()
+                .collect(),
+        )
+        .unwrap();
     // transform the coordinates from angstrom to bohr
     positions = positions / BOHR_TO_ANGS;
     // read the atomic number of each coordinate

@@ -1,6 +1,6 @@
 [package]
 name = "dialect-dynamics"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Richard Einsele <richard.einsele@uni-wuerzburg.de>"]
 edition = "2021"
 
@@ -30,6 +30,9 @@ rand_distr = "0.4.0"
 rand ="0.8.5"
 anyhow="=1.0.59"
 ndarray-npy = "0.8.1"
+petgraph = "0.6.3"
+rawpointer = { version = "0.2"}
+faer = {version =  "0.14.1", features = ["std","matrixcompare","rayon","ndarray"]}
 
 [profile.release]
 debug = true

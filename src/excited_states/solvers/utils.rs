@@ -79,26 +79,48 @@ fn argsort(v: ArrayView1<f64>) -> Vec<usize> {
     idx
 }
 
-pub fn print_davidson_init(max_iter: usize, nroots: usize, tolerance: f64) {
-    info!("{:^80}", "");
-    info!("{: ^80}", "Iterative Davidson Routine");
-    info!("{:-^80}", "");
-    info!(
-        "{: <25} {:4.2e}",
+pub fn print_davidson_init(max_iter: usize, nroots: usize, tolerance: f64) -> String {
+    let mut string = String::from("");
+
+    string += &format!("{:^80}\n", "");
+    string += &format!("{: ^80}\n", "Iterative Davidson Routine");
+    string += &format!("{:-^80}\n", "");
+    string += &format!(
+        "{: <25} {:4.2e}\n",
         "Energy is converged when residual is below:", tolerance
     );
-    info!("{: <25} {}", "Maximum number of iterations:", max_iter);
+    string += &format!("{: <25} {}\n", "Maximum number of iterations:", max_iter);
     if nroots == 1 {
-        info!("{: >4} {: <25}", nroots, " Root will be computed.");
+        string += &format!("{: >4} {: <25}\n", nroots, " Root will be computed.");
     } else {
-        info!("{: >4} {: <25}", nroots, " Roots will be computed.");
+        string += &format!("{: >4} {: <25}\n", nroots, " Roots will be computed.");
     }
-    info!("{:-^75} ", "");
-    info!(
-        "{: <5}{: >14}{: >14}{: >14}{: >14}{: >14}",
+    string += &format!("{:-^75} \n", "");
+    string += &format!(
+        "{: <5}{: >14}{: >14}{: >14}{: >14}{: >14}\n",
         "Iter.", "Roots conv.", "Roots left", "#subsp. Vec.", "Total dev.", "Max dev."
     );
-    info!("{:-^75} ", "");
+    string += &format!("{:-^75}\n", "");
+    // info!("{:^80}", "");
+    // info!("{: ^80}", "Iterative Davidson Routine");
+    // info!("{:-^80}", "");
+    // info!(
+    //     "{: <25} {:4.2e}",
+    //     "Energy is converged when residual is below:", tolerance
+    // );
+    // info!("{: <25} {}", "Maximum number of iterations:", max_iter);
+    // if nroots == 1 {
+    //     info!("{: >4} {: <25}", nroots, " Root will be computed.");
+    // } else {
+    //     info!("{: >4} {: <25}", nroots, " Roots will be computed.");
+    // }
+    // info!("{:-^75} ", "");
+    // info!(
+    //     "{: <5}{: >14}{: >14}{: >14}{: >14}{: >14}",
+    //     "Iter.", "Roots conv.", "Roots left", "#subsp. Vec.", "Total dev.", "Max dev."
+    // );
+    // info!("{:-^75} ", "");
+    string
 }
 
 pub fn print_davidson_iteration(
@@ -108,54 +130,58 @@ pub fn print_davidson_iteration(
     nvec: usize,
     t_dev: f64,
     max_dev: f64,
-) {
-    info!(
-        "{: >5}{:>14}{:>14}{:>14}{:>14.8}{:>14.8}",
-        iter + 1,
-        roots_cvd,
-        roots_lft,
-        nvec,
-        t_dev,
-        max_dev
-    );
+) -> String {
+    let mut string = String::from("");
+    string +=
+        &format!(
+            "{: >5}{:>14}{:>14}{:>14}{:>14.8}{:>14.8}\n",
+            iter + 1,
+            roots_cvd,
+            roots_lft,
+            nvec,
+            t_dev,
+            max_dev
+        );
+    // info!(
+    //     "{: >5}{:>14}{:>14}{:>14}{:>14.8}{:>14.8}",
+    //     iter + 1,
+    //     roots_cvd,
+    //     roots_lft,
+    //     nvec,
+    //     t_dev,
+    //     max_dev
+    // );
+    string
 }
 
-pub fn print_davidson_end(result_is_ok: bool, time: Instant) {
-    info!("{:-^75} ", "");
+pub fn print_davidson_end(result_is_ok: bool, time: Instant, mut string: String) {
+    string += &format!("{:-^75}\n ", "");
     if result_is_ok {
-        info!("Davidson routine converged")
+        string += &format!("Davidson routine converged\n")
     } else {
-        info!("Davidson routine did not converge!")
+        string += &format!("Davidson routine did not converge!\n")
     }
-    info!(
-        "{:>68} {:>8.2} s",
+    string += &format!(
+        "{:>68} {:>8.2} s\n",
         "elapsed time:",
         time.elapsed().as_secs_f32()
     );
-    info!("{:-^80}", "");
-    info!("{:^80}", "");
-}
-
-pub fn print_davidson32_init(max_iter: usize, nroots: usize, tolerance: f32) {
-    info!("{:^80}", "");
-    info!("{: ^80}", "Iterative Davidson Routine");
-    info!("{:-^80}", "");
-    info!(
-        "{: <25} {:4.2e}",
-        "Energy is converged when residual is below:", tolerance
-    );
-    info!("{: <25} {}", "Maximum number of iterations:", max_iter);
-    if nroots == 1 {
-        info!("{: >4} {: <25}", nroots, " Root will be computed.");
-    } else {
-        info!("{: >4} {: <25}", nroots, " Roots will be computed.");
-    }
-    info!("{:-^75} ", "");
-    info!(
-        "{: <5}{: >14}{: >14}{: >14}{: >14}{: >14}",
-        "Iter.", "Roots conv.", "Roots left", "#subsp. Vec.", "Total dev.", "Max dev."
-    );
-    info!("{:-^75} ", "");
+    string += &format!("{:-^80}\n", "");
+    string += &format!("{:^80}\n", "");
+    // info!("{:-^75} ", "");
+    // if result_is_ok {
+    //     info!("Davidson routine converged")
+    // } else {
+    //     info!("Davidson routine did not converge!")
+    // }
+    // info!(
+    //     "{:>68} {:>8.2} s",
+    //     "elapsed time:",
+    //     time.elapsed().as_secs_f32()
+    // );
+    // info!("{:-^80}", "");
+    // info!("{:^80}", "");
+    info!("{}", string);
 }
 
 #[cfg(test)]

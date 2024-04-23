@@ -1,5 +1,7 @@
+use crate::fmo::helpers::get_pair_slice;
 use crate::fmo::*;
-use crate::scc::gamma_approximation::gamma_gradients_atomwise_2d;
+use crate::initialization::Atom;
+use crate::scc::gamma_approximation::{gamma_gradients_atomwise, gamma_gradients_atomwise_2d};
 use ndarray::prelude::*;
 
 impl SuperSystem<'_> {

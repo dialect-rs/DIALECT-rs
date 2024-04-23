@@ -97,6 +97,8 @@ impl GroundStateGradient for Monomer<'_> {
         // last part: dV_rep / dR
         gradient = gradient + gradient_v_rep(&atoms, &self.vrep);
 
+        let calc_response = true;
+
         // long-range contribution to the gradient
         if self.gammafunction_lc.is_some() {
             // reshape gradS
@@ -104,12 +106,13 @@ impl GroundStateGradient for Monomer<'_> {
                 .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
                 .unwrap();
             // calculate the gamma gradient matrix in AO basis
-            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
-                self.gammafunction_lc.as_ref().unwrap(),
-                atoms,
-                self.n_atoms,
-                self.n_orbs,
-            );
+            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) =
+                gamma_gradients_ao_wise(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    atoms,
+                    self.n_atoms,
+                    self.n_orbs,
+                );
             // calculate the difference density matrix
             let diff_p: Array2<f64> = &p - &self.properties.p_ref().unwrap();
             // calculate the matrix F_lr[diff_p]
@@ -130,9 +133,41 @@ impl GroundStateGradient for Monomer<'_> {
                         .into_shape((3 * self.n_atoms, self.n_orbs * self.n_orbs))
                         .unwrap()
                         .dot(&diff_p.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        }
 
+            if calc_response {
+                self.properties.set_grad_s(grad_s);
+            }
+        } else {
+            if calc_response {
+                self.properties.set_grad_s(
+                    grad_s
+                        .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
+                        .unwrap(),
+                );
+            }
+        }
         self.properties.set_grad_dq(grad_dq);
+
+        if calc_response {
+            let (g1, g1_ao): (Array3<f64>, Array3<f64>) =
+                gamma_gradients_ao_wise(&self.gammafunction, atoms, self.n_atoms, self.n_orbs);
+            self.properties.set_grad_gamma_ao(g1_ao);
+            self.properties.set_grad_h0(
+                grad_h0
+                    .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
+                    .unwrap(),
+            );
+
+            if self.gammafunction_lc.is_some() {
+                let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    atoms,
+                    self.n_atoms,
+                    self.n_orbs,
+                );
+                self.properties.set_grad_gamma_lr_ao(g1_lr_ao);
+            }
+        }
 
         return gradient;
     }

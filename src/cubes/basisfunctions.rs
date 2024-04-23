@@ -138,14 +138,14 @@ pub fn load_pseudo_atoms(
                 qnumber.push((n - 1, l, m));
                 radial_wavefunction.push(pseudo_atom.radial_wavefunctions[orb as usize].clone());
             }
-            let txt_r = format!("r_wavef_arr_{}_{}.npy", atom.number, orb);
-            write_npy(
-                txt_r,
-                &Array::from(pseudo_atom.radial_wavefunctions[orb as usize].clone()),
-            );
+            // let txt_r = format!("r_wavef_arr_{}_{}.npy", atom.number, orb);
+            // write_npy(
+            //     txt_r,
+            //     &Array::from(pseudo_atom.radial_wavefunctions[orb as usize].clone()),
+            // );
         }
-        let txt_r = format!("r_arr_{}.npy", atom.number);
-        write_npy(txt_r, &Array::from(pseudo_atom.r.clone()));
+        // let txt_r = format!("r_arr_{}.npy", atom.number);
+        // write_npy(txt_r, &Array::from(pseudo_atom.r.clone()));
 
         qnumbers.insert(atom.number, qnumber);
         radial_wavefunctions.insert(atom.number, radial_wavefunction);

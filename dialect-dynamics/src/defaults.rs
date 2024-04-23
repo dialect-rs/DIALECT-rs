@@ -35,8 +35,8 @@ pub const ARTIFICIAL_ENERGY_CONSERVATION: bool = false;
 // If set to 1, the decoherence correction according to
 // eqn. (17) in JCP 126, 134114 (2007) is turned on.
 pub const DECOHERENCE_CORRECTION: bool = false;
-pub const RK_INTEGRATION:bool = false;
-pub const INTEGRATION_STEPS:usize = 1000;
+pub const RK_INTEGRATION: bool = false;
+pub const INTEGRATION_STEPS: usize = 1000;
 
 // constant in hartree
 // use the recommended value for C in eqn. (17) of JCP 126, 134114 (2007)
@@ -62,3 +62,5 @@ pub const USE_EHRENFEST: bool = false;
 pub const STATE_THRESHOLD: f64 = 0.01;
 pub const USE_RESTRAINT: bool = false;
 pub const FORCE_CONSTANT: f64 = 1.0;
+pub const USE_RK_INTEGRATION: bool = false;
+pub const PRINT_COEFFICIENTS: bool = false;

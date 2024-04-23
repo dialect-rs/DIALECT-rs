@@ -6,9 +6,10 @@ pub mod system;
 
 use crate::excited_states::solvers::davidson::Davidson;
 use crate::excited_states::tda::new_mod::ExcitedStates;
-use crate::excited_states::{initial_subspace, ProductCache};
+use crate::excited_states::{initial_subspace, trans_charges, ProductCache};
 use crate::fmo::Monomer;
 use crate::initialization::{Atom, System};
+use crate::io::Configuration;
 use moments::{mulliken_dipoles, oscillator_strength};
 use ndarray::prelude::*;
 use ndarray_linalg::{Eigh, UPLO};
@@ -22,6 +23,8 @@ impl Monomer<'_> {
         max_iter: usize,
         tolerance: f64,
         subspace_multiplier: usize,
+        print_states: bool,
+        config: &Configuration,
     ) {
         // Set an empty product cache.
         self.properties.set_cache(ProductCache::new());
@@ -44,6 +47,17 @@ impl Monomer<'_> {
         )
         .unwrap();
 
+        // check if the tda routine yields realistic energies
+        let energy_vector = davidson.eigenvalues.clone().to_vec();
+        for energy in energy_vector.iter() {
+            let energy_ev: f64 = energy * 27.2114;
+
+            // check for unrealistic energy values
+            if energy_ev < 0.001 {
+                panic!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
+            }
+        }
+
         // Reference to the o-v transition charges.
         let q_ov: ArrayView2<f64> = self.properties.q_ov().unwrap();
 
@@ -56,18 +70,52 @@ impl Monomer<'_> {
         // The oscillator strengths are computed.
         let f: Array1<f64> = oscillator_strength(davidson.eigenvalues.view(), tr_dipoles.view());
 
-        let n_occ: usize = self.properties.occ_indices().unwrap().len();
-        let n_virt: usize = self.properties.virt_indices().unwrap().len();
-        let tdm: Array3<f64> = davidson
+        let mut n_occ: usize = self.properties.occ_indices().unwrap().len();
+        let mut n_virt: usize = self.properties.virt_indices().unwrap().len();
+
+        if config.tddftb.restrict_active_orbitals {
+            n_occ = (n_occ as f64 * config.tddftb.active_orbital_threshold) as usize;
+            n_virt = (n_virt as f64 * config.tddftb.active_orbital_threshold) as usize;
+        }
+
+        let mut tdm: Array3<f64> = davidson
             .eigenvectors
             .clone()
             .into_shape([n_occ, n_virt, f.len()])
             .unwrap();
 
+        if config.tddftb.restrict_active_orbitals {
+            let n_occ_full: usize = self.properties.occ_indices().unwrap().len();
+            let n_virt_full: usize = self.properties.virt_indices().unwrap().len();
+
+            let mut tdm_new: Array3<f64> = Array3::zeros((n_occ_full, n_virt_full, f.len()));
+            tdm_new
+                .slice_mut(s![n_occ_full - n_occ.., ..n_virt, ..])
+                .assign(&tdm);
+            tdm = tdm_new;
+
+            let occ_indices: &[usize] = self.properties.occ_indices().unwrap();
+            let virt_indices: &[usize] = self.properties.virt_indices().unwrap();
+
+            let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) =
+                trans_charges(
+                    self.n_atoms,
+                    atoms,
+                    self.properties.orbs().unwrap(),
+                    self.properties.s().unwrap(),
+                    &occ_indices,
+                    &virt_indices,
+                );
+            // And stored in the properties HashMap.
+            self.properties.set_q_oo(qoo);
+            self.properties.set_q_ov(qov);
+            self.properties.set_q_vv(qvv);
+        }
+
         let states: ExcitedStates = ExcitedStates {
             total_energy: self.properties.last_energy().unwrap(),
             energies: davidson.eigenvalues.clone(),
-            tdm: tdm,
+            tdm: tdm.clone(),
             f: f.clone(),
             tr_dip: tr_dipoles.clone(),
             orbs: self.properties.orbs().unwrap().to_owned(),
@@ -75,13 +123,22 @@ impl Monomer<'_> {
 
         // The eigenvalues are the excitation energies and the eigenvectors are the CI coefficients.
         self.properties.set_ci_eigenvalues(davidson.eigenvalues);
-        self.properties.set_ci_coefficients(davidson.eigenvectors);
+        if config.tddftb.restrict_active_orbitals {
+            let n_occ: usize = self.properties.occ_indices().unwrap().len();
+            let n_virt: usize = self.properties.virt_indices().unwrap().len();
+            // transform tdm back to 2d
+            let eigvecs: Array2<f64> = tdm.into_shape([n_occ * n_virt, f.len()]).unwrap();
+            self.properties.set_ci_coefficients(eigvecs);
+        } else {
+            self.properties.set_ci_coefficients(davidson.eigenvectors);
+        }
         self.properties.set_q_trans(q_trans);
         self.properties.set_tr_dipoles(tr_dipoles);
         self.properties.set_oscillator_strengths(f);
 
-        println!("{}", states);
-        // states.ntos_to_molden(&atoms, 0, "/path");
+        if print_states {
+            println!("{}", states);
+        }
     }
 }
 
@@ -114,6 +171,17 @@ impl System {
             subspace_multiplier,
         )
         .unwrap();
+
+        // check if the tda routine yields realistic energies
+        let energy_vector = davidson.eigenvalues.clone().to_vec();
+        for energy in energy_vector.iter() {
+            let energy_ev: f64 = energy * 27.2114;
+
+            // check for unrealistic energy values
+            if energy_ev < 0.001 {
+                panic!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
+            }
+        }
 
         // Reference to the o-v transition charges.
         let q_ov: ArrayView2<f64> = self.properties.q_ov().unwrap();
@@ -190,6 +258,17 @@ impl System {
             subspace_multiplier,
         )
         .unwrap();
+
+        // check if the tda routine yields realistic energies
+        let energy_vector = davidson.eigenvalues.clone().to_vec();
+        for energy in energy_vector.iter() {
+            let energy_ev: f64 = energy * 27.2114;
+
+            // check for unrealistic energy values
+            if energy_ev < 0.001 {
+                panic!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
+            }
+        }
 
         // Reference to the o-v transition charges.
         let q_ov: ArrayView2<f64> = self.properties.q_ov().unwrap();
@@ -302,16 +381,16 @@ impl System {
         // Reference to the screened Gamma matrix.
         let gamma_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
         // The exchange part to the CIS Hamiltonian is computed.
-        let result = qoo
-            .t()
-            .dot(&gamma_lr.dot(&qvv))
-            .into_shape((n_occ, n_occ, n_virt, n_virt))
-            .unwrap()
-            .permuted_axes([0, 2, 1, 3])
-            .as_standard_layout()
-            .into_shape([n_occ * n_virt, n_occ * n_virt])
-            .unwrap()
-            .to_owned();
+        let result =
+            qoo.t()
+                .dot(&gamma_lr.dot(&qvv))
+                .into_shape((n_occ, n_occ, n_virt, n_virt))
+                .unwrap()
+                .permuted_axes([0, 2, 1, 3])
+                .as_standard_layout()
+                .into_shape([n_occ * n_virt, n_occ * n_virt])
+                .unwrap()
+                .to_owned();
         result
     }
 

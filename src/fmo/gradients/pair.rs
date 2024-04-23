@@ -1,7 +1,7 @@
 use crate::fmo::gradients::*;
 use crate::fmo::scc::helpers::*;
 use crate::fmo::Pair;
-use crate::gradients::helpers::f_lr;
+use crate::gradients::helpers::{f_lr, f_lr_par};
 use crate::initialization::Atom;
 use crate::scc::gamma_approximation::{gamma_gradients_ao_wise, gamma_gradients_atomwise};
 use crate::scc::h0_and_s::h0_and_s_gradients;
@@ -16,7 +16,7 @@ impl GroundStateGradient for Pair<'_> {
         //     - Repulsive Potential
         // the first three properties are calculated here at the beginning and the gradient that
         // originates from the repulsive potential is added at the end to total gradient
-
+        // let timer = Instant::now();
         // derivative of H0 and S
         let (grad_s, grad_h0) = h0_and_s_gradients(&atoms, self.n_orbs, &self.slako);
 
@@ -45,6 +45,7 @@ impl GroundStateGradient for Pair<'_> {
                 .into_shape([3 * self.n_atoms, self.n_atoms * self.n_atoms])
                 .unwrap();
 
+        // println!("grad gamma: {:4}",timer.elapsed().as_secs_f32());
         // take references/views to the necessary properties from the scc calculation
         let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
         let p: ArrayView2<f64> = self.properties.p().unwrap();
@@ -78,6 +79,8 @@ impl GroundStateGradient for Pair<'_> {
                 .into_shape([self.n_orbs * self.n_orbs])
                 .unwrap();
 
+        // println!("before build gradient: {:4}",timer.elapsed().as_secs_f32());
+
         // calculation of the gradient
         // 1st part:  dH0 / dR . P
         let mut gradient: Array1<f64> = grad_h0.dot(&p_flat);
@@ -93,6 +96,7 @@ impl GroundStateGradient for Pair<'_> {
 
         // last part: dV_rep / dR
         gradient = gradient + gradient_v_rep(&atoms, &self.vrep);
+        // println!("build gradient: {:4}",timer.elapsed().as_secs_f32());
 
         // long-range contribution to the gradient
         if self.gammafunction_lc.is_some() {
@@ -101,12 +105,14 @@ impl GroundStateGradient for Pair<'_> {
                 .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
                 .unwrap();
             // calculate the gamma gradient matrix in AO basis
-            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
-                self.gammafunction_lc.as_ref().unwrap(),
-                atoms,
-                self.n_atoms,
-                self.n_orbs,
-            );
+            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) =
+                gamma_gradients_ao_wise(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    atoms,
+                    self.n_atoms,
+                    self.n_orbs,
+                );
+            // println!("grad gamma lr: {:4}",timer.elapsed().as_secs_f32());
             // calculate the difference density matrix
             let diff_p: Array2<f64> = &p - &self.properties.p_ref().unwrap();
             // calculate the matrix F_lr[diff_p]
@@ -119,6 +125,7 @@ impl GroundStateGradient for Pair<'_> {
                 self.n_atoms,
                 self.n_orbs,
             );
+            // println!("f_lr: {:4}",timer.elapsed().as_secs_f32());
             // -0.25 * F_lr[diff_p] * diff_p
             gradient = gradient
                 - 0.25
@@ -128,6 +135,7 @@ impl GroundStateGradient for Pair<'_> {
                         .unwrap()
                         .dot(&diff_p.into_shape(self.n_orbs * self.n_orbs).unwrap());
         }
+        // println!("build gradient with lc: {:4}",timer.elapsed().as_secs_f32());
 
         return gradient;
     }
