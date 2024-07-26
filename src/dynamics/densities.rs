@@ -81,7 +81,7 @@ impl SuperSystem<'_> {
                     system_clone.density_from_tdm(h_mat.view(), idx, "_h");
                     system_clone.density_from_tdm(p_mat.view(), idx, "_p");
                 }
-                if system_clone.config.tdm_config.calc_tdm_cube{
+                if system_clone.config.tdm_config.calc_tdm_cube {
                     system_clone.density_from_tdm(tdm.view(), idx, "_tdm");
                 }
             });
@@ -126,7 +126,7 @@ impl SuperSystem<'_> {
                     self.density_from_tdm(h_mat.view(), idx, "_h");
                     self.density_from_tdm(p_mat.view(), idx, "_p");
                 }
-                if self.config.tdm_config.calc_tdm_cube{
+                if self.config.tdm_config.calc_tdm_cube {
                     self.density_from_tdm(tdm.view(), idx, "_tdm");
                 }
                 // reset old data

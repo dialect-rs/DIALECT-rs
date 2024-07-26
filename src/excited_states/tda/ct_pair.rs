@@ -139,12 +139,12 @@ impl ChargeTransferPreparation<'_> {
             .unwrap()
             .to_owned();
         let lumo = self.properties.lumo().unwrap();
-        let mut virts =
-            self.m_l
-                .properties
-                .orbs_slice(lumo, None)
-                .unwrap()
-                .to_owned();
+        let mut virts = self
+            .m_l
+            .properties
+            .orbs_slice(lumo, None)
+            .unwrap()
+            .to_owned();
 
         if config.tddftb.restrict_active_orbitals {
             let nocc: usize = occs.dim().1;

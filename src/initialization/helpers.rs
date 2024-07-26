@@ -2,7 +2,7 @@ use crate::initialization::parameters::SkfHandler;
 use crate::initialization::Atom;
 use crate::io::Configuration;
 use crate::param::Element;
-use crate::scc::gamma_approximation::{gaussian_decay, GammaFunction};
+use crate::scc::gamma_approximation::{gaussian_decay, slater_decay, GammaFunction};
 use hashbrown::HashMap;
 use itertools::Itertools;
 
@@ -56,14 +56,13 @@ pub fn get_unique_atoms_skf(
     }
 
     // create the unique Atoms
-    let unique_atoms: Vec<Atom> =
-        homonuc_skf
-            .iter()
-            .map(|handler| {
-                let element: Element = handler.element_a.clone();
-                Atom::from((element, handler))
-            })
-            .collect();
+    let unique_atoms: Vec<Atom> = homonuc_skf
+        .iter()
+        .map(|handler| {
+            let element: Element = handler.element_a.clone();
+            Atom::from((element, handler))
+        })
+        .collect();
     let mut num_to_atom: HashMap<u8, Atom> = HashMap::with_capacity(unique_numbers.len());
     // insert the atomic numbers and the reference to atoms in the HashMap
     for (num, atom) in unique_numbers
@@ -80,15 +79,27 @@ pub fn get_unique_atoms_skf(
     return (unique_atoms, num_to_atom, skf_handlers);
 }
 
-pub fn initialize_gamma_function(unique_atoms: &[Atom], r_lr: f64) -> GammaFunction {
-    // initialize the gamma function
-    let sigma: HashMap<u8, f64> = gaussian_decay(&unique_atoms);
-    let c: HashMap<(u8, u8), f64> = HashMap::new();
-    let mut gf = GammaFunction::Gaussian {
-        sigma,
-        c,
-        r_lr: r_lr,
+pub fn initialize_gamma_function(
+    unique_atoms: &[Atom],
+    r_lr: f64,
+    use_gaussian: bool,
+) -> GammaFunction {
+    let gammafunc: GammaFunction = if use_gaussian {
+        // initialize the gamma function
+        let sigma: HashMap<u8, f64> = gaussian_decay(&unique_atoms);
+        let c: HashMap<(u8, u8), f64> = HashMap::new();
+        let mut gf = GammaFunction::Gaussian {
+            sigma,
+            c,
+            r_lr: r_lr,
+        };
+        gf.initialize();
+        gf
+    } else {
+        // initialize the slater function
+        let tau: HashMap<u8, f64> = slater_decay(&unique_atoms);
+        let gf: GammaFunction = GammaFunction::Slater { tau, r_lr };
+        gf
     };
-    gf.initialize();
-    gf
+    gammafunc
 }

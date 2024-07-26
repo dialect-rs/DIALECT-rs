@@ -1,5 +1,4 @@
 use crate::initialization::Simulation;
-use faer::{Faer, IntoFaer, IntoNdarray};
 use ndarray::prelude::*;
 use ndarray_linalg::{c64, Eig, Eigh, Inverse, UPLO};
 
@@ -25,28 +24,6 @@ impl Simulation {
         // let (eig, eig_vec): (Array1<c64>, Array2<c64>) = mat.block(0.0001);
         let diag: Array1<c64> = eig.mapv(|val| (-c64::new(0.0, 1.0) * self.stepsize * val).exp());
         let mat: Array2<c64> = eig_vec_c.dot(&Array::from_diag(&diag).dot(&eig_vec_c.t()));
-
-        mat.dot(&self.coefficients)
-    }
-
-    pub fn ehrenfest_matrix_exponential_faer(
-        &self,
-        exciton_couplings: ArrayView2<f64>,
-    ) -> Array1<c64> {
-        let new_mat = exciton_couplings.view().into_faer();
-
-        let eigendecomp = new_mat.selfadjoint_eigendecomposition(faer::Side::Lower);
-        let faer_vec = eigendecomp.u();
-        let faer_val = eigendecomp.s_diagonal();
-
-        let eigs = faer_val.into_ndarray();
-        let eigvecs = faer_vec.into_ndarray();
-        let eigvecs_c: Array2<c64> = eigvecs.map(|val| val * c64::new(1.0, 0.0));
-
-        let eig: Array1<f64> = eigs.slice(s![.., 0]).to_owned();
-        let diag: Array2<c64> =
-            Array::from_diag(&eig.mapv(|val| (-c64::new(0.0, 1.0) * self.stepsize * val).exp()));
-        let mat: Array2<c64> = eigvecs_c.dot(&diag.dot(&eigvecs_c.t()));
 
         mat.dot(&self.coefficients)
     }

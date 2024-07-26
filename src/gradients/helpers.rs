@@ -1403,15 +1403,14 @@ pub fn zvector_no_lc(
     pkm1 = rkm1.clone();
 
     for _it in 0..maxiter {
-        let apbv: Array2<f64> =
-            mult_apb_v_no_lc(
-                g0,
-                qtrans_ov,
-                a_diag,
-                pkm1.view().into_shape((n_occ, n_virt)).unwrap(),
-                n_occ,
-                n_virt,
-            );
+        let apbv: Array2<f64> = mult_apb_v_no_lc(
+            g0,
+            qtrans_ov,
+            a_diag,
+            pkm1.view().into_shape((n_occ, n_virt)).unwrap(),
+            n_occ,
+            n_virt,
+        );
         let apk: Array1<f64> = apbv.into_shape(kmax).unwrap();
 
         let tmp1: f64 = rkm1.dot(&rkm1);
@@ -1463,15 +1462,14 @@ pub fn tda_zvector_no_lc(
     pkm1 = rkm1.clone();
 
     for _it in 0..maxiter {
-        let apbv: Array2<f64> =
-            mult_av_nolc(
-                g0,
-                qtrans_ov,
-                a_diag,
-                pkm1.view().into_shape((n_occ, n_virt)).unwrap(),
-                n_occ,
-                n_virt,
-            );
+        let apbv: Array2<f64> = mult_av_nolc(
+            g0,
+            qtrans_ov,
+            a_diag,
+            pkm1.view().into_shape((n_occ, n_virt)).unwrap(),
+            n_occ,
+            n_virt,
+        );
         let apk: Array1<f64> = apbv.into_shape(kmax).unwrap();
 
         let tmp1: f64 = rkm1.dot(&rkm1);
@@ -1523,18 +1521,17 @@ pub fn tda_zvector_lc(
     let tmp_q_vv: ArrayView2<f64> = qtrans_vv.into_shape((n_virt * n_at, n_virt)).unwrap();
     let tmp_q_oo: ArrayView2<f64> = qtrans_oo.into_shape((n_at * n_occ, n_occ)).unwrap();
 
-    let apbv: Array2<f64> =
-        mult_av_lc(
-            g0,
-            g0_lr,
-            qtrans_ov,
-            tmp_q_oo,
-            tmp_q_vv,
-            a_diag,
-            bs.view(),
-            n_occ,
-            n_virt,
-        );
+    let apbv: Array2<f64> = mult_av_lc(
+        g0,
+        g0_lr,
+        qtrans_ov,
+        tmp_q_oo,
+        tmp_q_vv,
+        a_diag,
+        bs.view(),
+        n_occ,
+        n_virt,
+    );
 
     rkm1 = apbv.into_shape(kmax).unwrap();
     rhs_2 = bs.into_shape(kmax).unwrap();
@@ -1542,18 +1539,17 @@ pub fn tda_zvector_lc(
     pkm1 = rkm1.clone();
 
     for _it in 0..maxiter {
-        let apbv: Array2<f64> =
-            mult_av_lc(
-                g0,
-                g0_lr,
-                qtrans_ov,
-                tmp_q_oo,
-                tmp_q_vv,
-                a_diag,
-                pkm1.view().into_shape((n_occ, n_virt)).unwrap(),
-                n_occ,
-                n_virt,
-            );
+        let apbv: Array2<f64> = mult_av_lc(
+            g0,
+            g0_lr,
+            qtrans_ov,
+            tmp_q_oo,
+            tmp_q_vv,
+            a_diag,
+            pkm1.view().into_shape((n_occ, n_virt)).unwrap(),
+            n_occ,
+            n_virt,
+        );
         let apk: Array1<f64> = apbv.into_shape(kmax).unwrap();
 
         let tmp1: f64 = rkm1.dot(&rkm1);

@@ -1,7 +1,6 @@
 use crate::constants;
 use crate::initialization::Simulation;
 use ndarray::prelude::*;
-use ndarray::{array, Array, Array1, Array2, ArrayView1, ArrayView2, Axis};
 use ndarray_linalg::{into_col, into_row, Inverse};
 use rand_distr::{Distribution, Normal};
 
@@ -205,12 +204,11 @@ pub fn eliminate_translation_rotation_from_velocity(
     let angular_velocities: Array1<f64> =
         get_angular_velocity(angular_momentum.view(), inertia.view());
 
-    new_velocities =
-        eliminate_rotation(
-            coordinates,
-            new_velocities.view(),
-            angular_velocities.view(),
-        );
+    new_velocities = eliminate_rotation(
+        coordinates,
+        new_velocities.view(),
+        angular_velocities.view(),
+    );
 
     new_velocities
 }
@@ -225,12 +223,11 @@ pub fn eliminate_translation(
 }
 
 pub fn cross_product(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Array1<f64> {
-    let arr: Array1<f64> =
-        array![
-            a[1] * b[2] - a[2] * b[1],
-            a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0]
-        ];
+    let arr: Array1<f64> = array![
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+    ];
     arr
 }
 

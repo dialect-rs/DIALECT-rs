@@ -128,7 +128,6 @@ impl SuperSystem<'_> {
                     );
 
                     let nroots: usize = n_ct + 2;
-                    // do the TDA calculation using the davidson routine
                     state_1.run_ct_tda(
                         atoms,
                         nroots,
@@ -246,6 +245,7 @@ impl SuperSystem<'_> {
         let n_roots: usize = n_le + 3;
 
         let fock_matrix: ArrayView2<f64> = self.properties.lcmo_fock().unwrap();
+        write_npy("h_prime_hamiltonian.npy", &fock_matrix);
         // Calculate the excited states of the monomers
         // Swap the orbital energies of the monomers with the elements of the H' matrix
         self.monomers.par_iter_mut().for_each(|mol| {
@@ -267,39 +267,8 @@ impl SuperSystem<'_> {
             );
         });
 
-        // prepare trans charges for the pairs
-        self.pairs.par_iter_mut().for_each(|pair| {
-            // get the pair atoms
-            let pair_atoms: Vec<Atom> = get_pair_slice(
-                &self.atoms,
-                self.monomers[pair.i].slice.atom_as_range(),
-                self.monomers[pair.j].slice.atom_as_range(),
-            );
-            // get the orbitals of the pair
-            let orbs_pair: ArrayView2<f64> = pair.properties.orbs().unwrap();
-            // get the overlap matrix of the pair
-            let s_pair: ArrayView2<f64> = pair.properties.s().unwrap();
-            // get the occupied and virtual orbitals of the pair
-            let occ_indices_ij = pair.properties.occ_indices().unwrap();
-            let virt_indices_ij = pair.properties.virt_indices().unwrap();
-
-            // get the transition charges of the pair
-            let (qov, qoo, qvv) = trans_charges(
-                pair.n_atoms,
-                &pair_atoms,
-                orbs_pair,
-                s_pair,
-                occ_indices_ij,
-                virt_indices_ij,
-            );
-            pair.properties.set_q_oo(qoo);
-            pair.properties.set_q_ov(qov);
-            pair.properties.set_q_vv(qvv);
-        });
-
         // Construct the basis states.
-        let states: Vec<BasisState> =
-            self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
+        let states: Vec<BasisState> = self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
 
         let dim: usize = states.len();
         // Initialize the Exciton-Hamiltonian.
@@ -408,14 +377,10 @@ impl SuperSystem<'_> {
         }
     }
 
-    pub fn get_excitonic_matrix(&mut self) ->Array2<f64> {
+    pub fn get_excitonic_matrix(&mut self) -> (Array2<f64>, bool) {
         // Calculate the H' matrix
-        let timer: Instant = Instant::now();
         let hamiltonian = self.build_lcmo_fock_matrix();
         self.properties.set_lcmo_fock(hamiltonian);
-        println!("Time h_lcmo matrix {:.5}", timer.elapsed().as_secs_f32());
-        drop(timer);
-        let timer: Instant = Instant::now();
 
         // Reference to the atoms of the total system.
         let atoms: &[Atom] = &self.atoms[..];
@@ -444,22 +409,11 @@ impl SuperSystem<'_> {
                 &self.config,
             );
         });
-        println!(
-            "Time monomer tda routine {:.5}",
-            timer.elapsed().as_secs_f32()
-        );
-        drop(timer);
-        let timer: Instant = Instant::now();
 
         // Construct the basis states.
         let mut states: Vec<BasisState> =
             self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
-        println!(
-            "Time charge transfer tda routine and basis states {:.5}",
-            timer.elapsed().as_secs_f32()
-        );
-        drop(timer);
-        let timer: Instant = Instant::now();
+        let state_swap: bool = false;
 
         let dim: usize = states.len();
         // Initialize the Exciton-Hamiltonian.
@@ -481,14 +435,8 @@ impl SuperSystem<'_> {
                         }
                     });
             });
-        println!(
-            "Calculate excitonic couplings {:.5}",
-            timer.elapsed().as_secs_f32()
-        );
 
         let mut h: Array2<f64> = Array::from(h).into_shape((dim, dim)).unwrap();
-
-        // Use the davidson algorithm to obtain a limited number of eigenvalues
         let diag = h.diag();
         h = &h + &h.t() - Array::from_diag(&diag);
 
@@ -517,7 +465,7 @@ impl SuperSystem<'_> {
         // save the basis in the properties
         self.properties.set_basis_states(reduced_states);
 
-        return h;
+        return (h, state_swap);
     }
 
     pub fn get_tdm_for_ehrenfest(
@@ -598,13 +546,13 @@ impl SuperSystem<'_> {
         let h_mat: Array2<f64> = tdm_ao.dot(&s.dot(&tdm_ao.t()));
         let p_mat: Array2<f64> = tdm_ao.t().dot(&s.dot(&tdm_ao));
 
-        if self.config.tdm_config.store_tdm{
+        if self.config.tdm_config.store_tdm {
             let mut tmp_string: String = String::from("transition_density_");
             tmp_string.push_str(&step.to_string());
             tmp_string.push_str(".npy");
             write_npy(tmp_string, &tdm_ao).unwrap();
         }
-        if self.config.tdm_config.store_hole_particle{
+        if self.config.tdm_config.store_hole_particle {
             let mut tmp_string: String = String::from("hole_density_");
             tmp_string.push_str(&step.to_string());
             tmp_string.push_str(".npy");

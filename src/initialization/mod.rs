@@ -7,8 +7,8 @@ pub use system::*;
 pub use crate::properties::property::*;
 pub use crate::properties::*;
 
-mod atom;
-mod geometry;
+pub mod atom;
+pub mod geometry;
 mod helpers;
 mod molecular_orbital;
 pub mod old_system;

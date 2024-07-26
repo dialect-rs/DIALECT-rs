@@ -37,9 +37,9 @@ pub fn generate_parameters(
             .iter()
             .for_each(|num| atoms.push((*num_to_atom.get(num).unwrap()).clone()));
         // set the positions for each atom
-        coords.outer_iter().enumerate().for_each(
-            |(idx, position)| atoms[idx].position_from_slice(position.as_slice().unwrap())
-        );
+        coords.outer_iter().enumerate().for_each(|(idx, position)| {
+            atoms[idx].position_from_slice(position.as_slice().unwrap())
+        });
     } else {
         // get the unique [Atom]s and the HashMap with the mapping from the numbers to the [Atom]s
         let tmp: (Vec<Atom>, Vec<Atom>) = frame_to_atoms(frame);

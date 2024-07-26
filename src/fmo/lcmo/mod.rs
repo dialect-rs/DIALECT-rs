@@ -179,12 +179,11 @@ impl<'a> ExcitonStates<'a> {
             n + 1,
             rel_energy_ev
         );
-        txt +=
-            &format!(
-                "Total energy for state {: >5}: {:22.12} Hartree\n",
-                n + 1,
-                abs_energy
-            );
+        txt += &format!(
+            "Total energy for state {: >5}: {:22.12} Hartree\n",
+            n + 1,
+            abs_energy
+        );
         txt += &format!("  Multiplicity: Singlet\n");
         txt += &format!(
             "  Trans. Mom. (a.u.): {:10.6} X  {:10.6} Y  {:10.6} Z\n",

@@ -578,6 +578,14 @@ impl Properties {
         }
     }
 
+    /// Returns a reference to the gamma matrix in atomic basis for the third order interactions.
+    pub fn gamma_third_order(&self) -> Option<ArrayView2<f64>> {
+        match self.get("gamma_third_order") {
+            Some(value) => Some(value.as_array2().unwrap().view()),
+            _ => None,
+        }
+    }
+
     /// Returns a slice of the gamma matrix in atomic basis.
     pub fn gamma_slice(&self, rows: Slice, cols: Slice) -> Option<ArrayView2<f64>> {
         match self.get("gamma_atom_wise") {

@@ -106,13 +106,12 @@ impl GroundStateGradient for Monomer<'_> {
                 .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
                 .unwrap();
             // calculate the gamma gradient matrix in AO basis
-            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) =
-                gamma_gradients_ao_wise(
-                    self.gammafunction_lc.as_ref().unwrap(),
-                    atoms,
-                    self.n_atoms,
-                    self.n_orbs,
-                );
+            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+                self.gammafunction_lc.as_ref().unwrap(),
+                atoms,
+                self.n_atoms,
+                self.n_orbs,
+            );
             // calculate the difference density matrix
             let diff_p: Array2<f64> = &p - &self.properties.p_ref().unwrap();
             // calculate the matrix F_lr[diff_p]

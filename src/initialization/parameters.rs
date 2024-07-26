@@ -409,12 +409,11 @@ impl From<&SkfHandler> for PseudoAtomSkf {
         // fd fp fs: occupation numbers of the orbitals
         let second_line: Vec<f64> = process_slako_line(lines[1]);
         let energies: Array1<f64> = array![second_line[2], second_line[1], second_line[0]];
-        let occupations_numbers: Array1<i8> =
-            array![
-                second_line[9] as i8,
-                second_line[8] as i8,
-                second_line[7] as i8
-            ];
+        let occupations_numbers: Array1<i8> = array![
+            second_line[9] as i8,
+            second_line[8] as i8,
+            second_line[7] as i8
+        ];
         let hubbard_u: Array1<f64> = array![second_line[6], second_line[5], second_line[4]];
 
         let electron_count: u8 = skf_handler.element_a.number();

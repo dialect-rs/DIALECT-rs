@@ -97,15 +97,14 @@ impl Monomer<'_> {
             let occ_indices: &[usize] = self.properties.occ_indices().unwrap();
             let virt_indices: &[usize] = self.properties.virt_indices().unwrap();
 
-            let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) =
-                trans_charges(
-                    self.n_atoms,
-                    atoms,
-                    self.properties.orbs().unwrap(),
-                    self.properties.s().unwrap(),
-                    &occ_indices,
-                    &virt_indices,
-                );
+            let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
+                self.n_atoms,
+                atoms,
+                self.properties.orbs().unwrap(),
+                self.properties.s().unwrap(),
+                &occ_indices,
+                &virt_indices,
+            );
             // And stored in the properties HashMap.
             self.properties.set_q_oo(qoo);
             self.properties.set_q_ov(qov);
@@ -323,7 +322,9 @@ impl System {
     }
 
     pub fn tda_full_matrix(&mut self) {
+        // create the A matrix from the orbital energy differences, the Coulomb and the exchange contributions
         let h: Array2<f64> = self.fock_and_coulomb() - self.exchange();
+        // solve the eigenvalue problem A x = w A using the eigenvalue decomposition
         let (eigenvalues, eigenvectors) = h.eigh(UPLO::Upper).unwrap();
 
         // Reference to the o-v transition charges.
@@ -381,16 +382,16 @@ impl System {
         // Reference to the screened Gamma matrix.
         let gamma_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
         // The exchange part to the CIS Hamiltonian is computed.
-        let result =
-            qoo.t()
-                .dot(&gamma_lr.dot(&qvv))
-                .into_shape((n_occ, n_occ, n_virt, n_virt))
-                .unwrap()
-                .permuted_axes([0, 2, 1, 3])
-                .as_standard_layout()
-                .into_shape([n_occ * n_virt, n_occ * n_virt])
-                .unwrap()
-                .to_owned();
+        let result = qoo
+            .t()
+            .dot(&gamma_lr.dot(&qvv))
+            .into_shape((n_occ, n_occ, n_virt, n_virt))
+            .unwrap()
+            .permuted_axes([0, 2, 1, 3])
+            .as_standard_layout()
+            .into_shape([n_occ * n_virt, n_occ * n_virt])
+            .unwrap()
+            .to_owned();
         result
     }
 

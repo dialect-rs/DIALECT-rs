@@ -16,7 +16,7 @@ pub enum Calculation {
 }
 /// A simple timer based on std::time::Instant, to implement the std::fmt::Display trait on
 pub struct Timer {
-    time: Instant,
+    pub time: Instant,
 }
 
 impl Timer {

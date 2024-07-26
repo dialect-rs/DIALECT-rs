@@ -8,18 +8,13 @@ use std::ops::AddAssign;
 impl Simulation {
     ///Ehrenfest dynamics routine of the struct Simulation
     pub fn ehrenfest_dynamics(&mut self, interface: &mut dyn QCInterface) {
-
         self.initialize_ehrenfest(interface, 0);
         for step in 1..self.config.nstep {
             self.ehrenfest_step(interface, step);
         }
     }
 
-    pub fn ehrenfest_step(
-        &mut self,
-        interface: &mut dyn QCInterface,
-        step: usize,
-    ) {
+    pub fn ehrenfest_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
         let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         // calculate the gradient and the excitonic couplings
@@ -57,11 +52,7 @@ impl Simulation {
         self.coordinates = self.shift_to_center_of_mass();
     }
 
-    pub fn initialize_ehrenfest(
-        &mut self,
-        interface: &mut dyn QCInterface,
-        step: usize,
-    ) {
+    pub fn initialize_ehrenfest(&mut self, interface: &mut dyn QCInterface, step: usize) {
         if self.config.restart_flag {
             self.restart_trajectory_ehrenfest(interface, step);
             // Print settings
@@ -79,18 +70,13 @@ impl Simulation {
     }
 
     /// Initiate the trajectory
-    pub fn initiate_ehrenfest_trajectory(
-        &mut self,
-        interface: &mut dyn QCInterface,
-        step: usize,
-    ) {
+    pub fn initiate_ehrenfest_trajectory(&mut self, interface: &mut dyn QCInterface, step: usize) {
         // remove COM from coordinates
         self.coordinates = self.shift_to_center_of_mass();
         self.initial_coordinates = self.coordinates.clone();
         // remove tranlation and rotation
         self.velocities = self.eliminate_translation_rotation_from_velocity();
         // do the first calculation using the QuantumChemistryInterface
-        // self.get_ehrenfest_data(interface, npz, npz_c, npz_sign, npz_sc, step);
         self.get_ehrenfest_data(interface, step);
 
         // calculate the kinetic energy
@@ -98,11 +84,7 @@ impl Simulation {
     }
 
     /// Restart the trajectory
-    pub fn restart_trajectory_ehrenfest(
-        &mut self,
-        interface: &mut dyn QCInterface,
-        step: usize,
-    ) {
+    pub fn restart_trajectory_ehrenfest(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let temp: (Array2<f64>, Array2<f64>, Array2<f64>, Array1<c64>) = read_restart_parameters();
         self.coordinates = temp.0;
         self.initial_coordinates = self.coordinates.clone();

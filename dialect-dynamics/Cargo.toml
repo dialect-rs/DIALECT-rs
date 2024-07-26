@@ -27,12 +27,11 @@ rayon = "1.5.3"
 hashbrown = "0.13.2"
 soa_derive = "0.12.0"
 rand_distr = "0.4.0"
-rand ="0.8.5"
-anyhow="=1.0.59"
+rand = "0.8.5"
+anyhow = "=1.0.59"
 ndarray-npy = "0.8.1"
 petgraph = "0.6.3"
-rawpointer = { version = "0.2"}
-faer = {version =  "0.14.1", features = ["std","matrixcompare","rayon","ndarray"]}
+rawpointer = { version = "0.2" }
 
 [profile.release]
 debug = true

@@ -90,16 +90,8 @@ impl SuperSystem<'_> {
         state_coefficients: ArrayView1<f64>,
         thresh: f64,
     ) -> (Array1<f64>) {
-        let timer: Instant = Instant::now();
         // ground state energy and gradient
         let gs_gradient = self.ground_state_gradient();
-
-        println!(
-            "Time ground state gradient {:.5}",
-            timer.elapsed().as_secs_f32()
-        );
-        drop(timer);
-        let timer: Instant = Instant::now();
 
         // mutable gradient
         let mut gradient: Array1<f64> = gs_gradient;
@@ -140,13 +132,6 @@ impl SuperSystem<'_> {
             })
             .collect();
 
-        println!(
-            "Time excited state gradient {:.5}",
-            timer.elapsed().as_secs_f32()
-        );
-        drop(timer);
-        let timer: Instant = Instant::now();
-
         // iterate over states
         for ((idx, state), array) in states.iter().enumerate().zip(vec_array.iter()) {
             let coefficient = state_coefficients[idx + 1];
@@ -181,10 +166,6 @@ impl SuperSystem<'_> {
                 }
             }
         }
-        println!(
-            "Time slicing the gradient {:.5}",
-            timer.elapsed().as_secs_f32()
-        );
 
         gradient
     }

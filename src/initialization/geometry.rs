@@ -15,6 +15,7 @@ pub fn get_xyz_2d(atoms: &[Atom]) -> Array2<f64> {
 /// Type that holds the atomic numbers and positions of a molecule.
 /// The distance, directions and proximity matrices are optional informations that are stored
 /// in this type.
+#[derive(Debug, Clone)]
 pub struct Geometry {
     pub coordinates: Array2<f64>,
     pub distances: Option<Array2<f64>>,

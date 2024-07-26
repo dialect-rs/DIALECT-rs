@@ -323,6 +323,80 @@ impl System {
         }
     }
 
+    pub fn casida_full_matrix(&mut self) {
+        // get the number of occupied and virtual orbitals
+        let occ_indices = self.properties.occ_indices().unwrap();
+        let virt_indices = self.properties.virt_indices().unwrap();
+        let n_occ: usize = occ_indices.len();
+        let n_virt: usize = virt_indices.len();
+
+        // build a and b matrix
+        let a_mat: Array2<f64> = a_mat_fock_and_coulomb(&self) - a_mat_exchange(&self);
+        let b_mat: Array2<f64> = b_mat_coulomb(&self) - b_mat_exchange(&self);
+
+        //check whether A - B is diagonal
+        let a_m_b: Array2<f64> = &a_mat - &b_mat;
+        let a_p_b: Array2<f64> = &a_mat + &b_mat;
+
+        let mut sq_a_m_b: Array2<f64> = Array2::zeros((n_occ * n_virt, n_occ * n_virt));
+        let offdiag: f64 = (Array2::from_diag(&a_m_b.diag()) - &a_m_b).norm();
+        if offdiag < 1.0e-10 {
+            // calculate the sqareroot of the diagonal and transform to 2d matrix
+            sq_a_m_b = Array2::from_diag(&a_m_b.diag().mapv(f64::sqrt));
+        } else {
+            // calculate matrix squareroot
+            sq_a_m_b = a_m_b.ssqrt(UPLO::Upper).unwrap();
+        }
+
+        // construct hermitian eigenvalue problem
+        // (A-B)^(1/2) (A+B) (A-B)^(1/2) F = Omega^2 F
+        let r_mat: Array2<f64> = sq_a_m_b.dot(&a_p_b.dot(&sq_a_m_b));
+        let (omega2, eigenvectors): (Array1<f64>, Array2<f64>) = r_mat.eigh(UPLO::Lower).unwrap();
+        let eigenvalues: Array1<f64> = omega2.mapv(f64::sqrt);
+
+        // Reference to the o-v transition charges.
+        let q_ov: ArrayView2<f64> = self.properties.q_ov().unwrap();
+
+        // The transition charges for all excited states are computed.
+        let q_trans: Array2<f64> = q_ov.dot(&eigenvectors);
+
+        // The Mulliken transition dipole moments are computed.
+        let tr_dipoles: Array2<f64> = mulliken_dipoles(q_trans.view(), &self.atoms);
+
+        // The oscillator strengths are computed.
+        let f: Array1<f64> = oscillator_strength(eigenvalues.view(), tr_dipoles.view());
+
+        let n_occ: usize = self.properties.occ_indices().unwrap().len();
+        let n_virt: usize = self.properties.virt_indices().unwrap().len();
+        let tdm: Array3<f64> = eigenvectors
+            .clone()
+            .as_standard_layout()
+            .to_owned()
+            .into_shape([n_occ, n_virt, f.len()])
+            .unwrap();
+
+        let states: ExcitedStates = ExcitedStates {
+            total_energy: self.properties.last_energy().unwrap(),
+            energies: eigenvalues.clone(),
+            tdm: tdm,
+            f: f.clone(),
+            tr_dip: tr_dipoles.clone(),
+            orbs: self.properties.orbs().unwrap().to_owned(),
+        };
+
+        write_npy("full_energies.npy", &eigenvalues.view());
+        write_npy("oscillator_strengths.npy", &f);
+
+        // The eigenvalues are the excitation energies and the eigenvectors are the CI coefficients.
+        self.properties.set_ci_eigenvalues(eigenvalues);
+        self.properties.set_ci_coefficients(eigenvectors);
+        self.properties.set_q_trans(q_trans);
+        self.properties.set_tr_dipoles(tr_dipoles);
+        self.properties.set_oscillator_strengths(f);
+
+        println!("{}", states);
+    }
+
     pub fn solve_casida(&self) -> (Array1<f64>, Array3<f64>, Array3<f64>, Array3<f64>) {
         // get the number of occupied and virtual orbitals
         let occ_indices = self.properties.occ_indices().unwrap();

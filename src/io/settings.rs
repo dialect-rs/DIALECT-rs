@@ -24,6 +24,9 @@ use std::{env, fs};
 fn default_charge() -> i8 {
     CHARGE
 }
+fn default_use_gaussian_gamma() -> bool {
+    true
+}
 fn default_multiplicity() -> u8 {
     MULTIPLICITY
 }
@@ -189,6 +192,12 @@ fn default_a2() -> f64 {
 fn default_atom_coordinates() -> Vec<Vec<f64>> {
     vec![vec![0.0, 0.0, 0.0]]
 }
+fn default_get_all_states() -> bool {
+    false
+}
+fn default_calc_exact_s_sqrt_inv() -> bool {
+    false
+}
 fn default_mol_config() -> MoleculeConfig {
     let mol_config: MoleculeConfig = toml::from_str("").unwrap();
     return mol_config;
@@ -241,11 +250,55 @@ fn default_identification_config() -> IdentificationConfig {
     let ident_config: IdentificationConfig = toml::from_str("").unwrap();
     return ident_config;
 }
+fn default_polariton_config() -> PolaritonConfig {
+    let polariton_config: PolaritonConfig = toml::from_str("").unwrap();
+    return polariton_config;
+}
+fn default_e() -> Vec<Vec<f64>> {
+    vec![vec![1.0, 1.0, 1.0]]
+}
+fn default_p() -> Vec<Vec<f64>> {
+    vec![vec![0.0, 0.0, 0.0]]
+}
+fn default_photon_energy() -> Vec<f64> {
+    vec![0.0]
+}
+fn default_quantized_volume() -> Vec<f64> {
+    vec![1.0]
+}
+fn default_temperature() -> f64 {
+    50.0
+}
+fn default_n_samples() -> usize {
+    50
+}
+fn default_use_dftb3() -> bool {
+    false
+}
+fn default_hubbard_derivatives() -> Vec<f64> {
+    vec![1.0, 1.0]
+}
+fn default_save_in_other_path() -> bool {
+    USE_EXTERNAL
+}
+fn default_wigner_path() -> String {
+    String::from(EXTERNAL_DIR)
+}
+fn default_wigner_config() -> WignerConfig {
+    let wigner_config: WignerConfig = toml::from_str("").unwrap();
+    return wigner_config;
+}
+fn default_dftb3_config() -> Dftb3Config {
+    let dftb_config: Dftb3Config = toml::from_str("").unwrap();
+    dftb_config
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Configuration {
     #[serde(default = "default_jobtype")]
     pub jobtype: String,
+    #[serde(default = "default_use_gaussian_gamma")]
+    pub use_gaussian_gamma: bool,
     #[serde(default = "default_use_fmo")]
     pub fmo: bool,
     #[serde(default = "default_vdw_scaling")]
@@ -258,6 +311,8 @@ pub struct Configuration {
     pub scf: SccConfig,
     #[serde(default = "default_lc_config")]
     pub lc: LCConfig,
+    #[serde(default = "default_dftb3_config")]
+    pub dftb3: Dftb3Config,
     #[serde(default = "default_opt_config")]
     pub opt: OptConfig,
     #[serde(default = "default_excited_state_config")]
@@ -278,6 +333,10 @@ pub struct Configuration {
     pub tdm_config: TdmCalculation,
     #[serde(default = "default_identification_config")]
     pub identification_config: IdentificationConfig,
+    #[serde(default = "default_wigner_config")]
+    pub wigner_config: WignerConfig,
+    #[serde(default = "default_polariton_config")]
+    pub polariton: PolaritonConfig,
 }
 
 impl Configuration {
@@ -328,6 +387,14 @@ pub struct LCConfig {
     pub long_range_radius: f64,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Dftb3Config {
+    #[serde(default = "default_use_dftb3")]
+    pub use_dftb3: bool,
+    #[serde(default = "default_hubbard_derivatives")]
+    pub hubbard_derivatives: Vec<f64>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct ExcitedStatesConfig {
     #[serde(default = "default_calculate_excited_states")]
@@ -342,6 +409,8 @@ pub struct ExcitedStatesConfig {
     pub davidson_convergence: f64,
     #[serde(default = "default_use_casida")]
     pub use_casida: bool,
+    #[serde(default = "default_get_all_states")]
+    pub get_all_states: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -386,6 +455,8 @@ pub struct LcmoConfig {
     pub calculate_particle_hole_densities: bool,
     #[serde(default = "default_states_to_analyse")]
     pub states_to_analyse: Vec<usize>,
+    #[serde(default = "default_calc_exact_s_sqrt_inv")]
+    pub calc_exact_s_sqrt_inv: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -505,4 +576,28 @@ impl Default for MixConfig {
 pub struct IdentificationConfig {
     #[serde(default = "default_atom_coordinates")]
     pub atom_coordinates: Vec<Vec<f64>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PolaritonConfig {
+    #[serde(default = "default_e")]
+    pub e: Vec<Vec<f64>>,
+    #[serde(default = "default_p")]
+    pub p: Vec<Vec<f64>>,
+    #[serde(default = "default_photon_energy")]
+    pub photon_energy: Vec<f64>,
+    #[serde(default = "default_quantized_volume")]
+    pub quantized_volume: Vec<f64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WignerConfig {
+    #[serde(default = "default_n_samples")]
+    pub n_samples: usize,
+    #[serde(default = "default_temperature")]
+    pub temperature: f64,
+    #[serde(default = "default_save_in_other_path")]
+    pub save_in_other_path: bool,
+    #[serde(default = "default_wigner_path")]
+    pub wigner_path: String,
 }

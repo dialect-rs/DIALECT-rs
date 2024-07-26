@@ -9,7 +9,6 @@ use crate::param::slako_transformations::{directional_cosines, slako_transformat
 use ndarray::prelude::*;
 use ndarray_linalg::Determinant;
 use rayon::prelude::*;
-use std::time::Instant;
 
 impl System {
     pub fn get_scalar_coupling(&mut self, dt: f64, step: usize) -> (Array2<f64>, Array2<f64>) {
@@ -23,14 +22,13 @@ impl System {
         };
 
         // scalar coupling matrix
-        let s_ci: Array2<f64> =
-            self.ci_overlap_system(
-                &old_system.atoms,
-                old_system.orbs.view(),
-                old_system.ci_coefficients.view(),
-                n_states,
-                step,
-            );
+        let s_ci: Array2<f64> = self.ci_overlap_system(
+            &old_system.atoms,
+            old_system.orbs.view(),
+            old_system.ci_coefficients.view(),
+            n_states,
+            step,
+        );
         // align phases
         // The eigenvalue solver produces vectors with arbitrary global phases
         // (+1 or -1). The orbitals of the ground state can also change their signs.
@@ -165,7 +163,6 @@ impl SuperSystem<'_> {
         &mut self,
         excitonic_coupling: ArrayView2<f64>,
     ) -> (Array2<f64>) {
-        let timer: Instant = Instant::now();
         // get old supersystem from properties
         let old_supersystem = self.properties.old_supersystem();
         // get the old supersystem
@@ -177,7 +174,6 @@ impl SuperSystem<'_> {
         else {
             OldSupersystem::new(&self)
         };
-
         // calculate the overlap of the wavefunctions
         let sci_overlap_diag: Array1<f64> = self.scalar_coupling_ci_overlaps_diagonal(&old_system);
 
@@ -190,10 +186,29 @@ impl SuperSystem<'_> {
         // create 2D matrix from the sign array
         let p: Array2<f64> = Array::from_diag(&sign);
         // align the excitonic coupling matrix using the p matrix
-        let excitonic_coupling: Array2<f64> = p.dot(&excitonic_coupling).dot(&p);
+        // let excitonic_coupling: Array2<f64> = p.dot(&excitonic_coupling).dot(&p);
+        // alternative way of aligning
+        let mut excitonic_vec: Vec<f64> = Vec::new();
+        for ((idx_i, val_i), exc_val_i) in
+            sign.iter().enumerate().zip(excitonic_coupling.outer_iter())
+        {
+            let mut tmp_vec: Vec<f64> = Vec::new();
+            for ((idx_j, val_j), exc_val_ij) in sign.iter().enumerate().zip(exc_val_i.iter()) {
+                if *exc_val_ij > 1.0e-8 {
+                    let new_coupling: f64 = val_i * val_j * exc_val_ij;
+                    tmp_vec.push(new_coupling);
+                } else {
+                    tmp_vec.push(*exc_val_ij);
+                }
+            }
+            excitonic_vec.append(&mut tmp_vec);
+        }
+        // get the dimenions
+        let dim: usize = sign.len();
+        let excitonic_coupling: Array2<f64> =
+            Array::from(excitonic_vec).into_shape((dim, dim)).unwrap();
 
         let mut signs: Array1<f64> = Array1::zeros(sign.len() + 1);
-        signs.slice_mut(s![1..]).assign(&sign);
 
         // align the CI coefficients
         self.scalar_coupling_align_coefficients(signs.view());
@@ -279,14 +294,13 @@ impl SuperSystem<'_> {
         // calculate the overlap matrix between the timesteps
         let s: Array2<f64> = self.supersystem_overlap_between_timesteps(other, slako);
 
-        let coupling_vec: Vec<f64> =
-            basis_states
-                .par_iter()
-                .zip(old_basis.par_iter())
-                .map(|(state_i, state_j)| {
-                    self.scalar_coupling_diabatic_states(other, state_i, state_j, s.view())
-                })
-                .collect();
+        let coupling_vec: Vec<f64> = basis_states
+            .par_iter()
+            .zip(old_basis.par_iter())
+            .map(|(state_i, state_j)| {
+                self.scalar_coupling_diabatic_states(other, state_i, state_j, s.view())
+            })
+            .collect();
 
         Array::from(coupling_vec)
     }

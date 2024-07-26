@@ -100,13 +100,12 @@ impl System {
 
         // long-range corrected part of the gradient
         if self.config.lc.long_range_correction {
-            let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) =
-                gamma_gradients_ao_wise(
-                    self.gammafunction_lc.as_ref().unwrap(),
-                    &self.atoms,
-                    self.n_atoms,
-                    self.n_orbs,
-                );
+            let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+                self.gammafunction_lc.as_ref().unwrap(),
+                &self.atoms,
+                self.n_atoms,
+                self.n_orbs,
+            );
 
             let diff_p: Array2<f64> = &p - &self.properties.p_ref().unwrap();
             let flr_dmd0: Array3<f64> = f_lr_par(

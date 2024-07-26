@@ -8,7 +8,7 @@ pub use utils::*;
 pub mod b_solver;
 pub mod casida_davidson;
 pub(crate) mod davidson;
-mod utils;
+pub mod utils;
 
 /// Abstract Trait defining the API required by solver engines.
 ///

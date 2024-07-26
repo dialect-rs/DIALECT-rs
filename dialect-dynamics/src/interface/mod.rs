@@ -20,6 +20,7 @@ pub trait QCInterface {
         Array2<f64>,
         Option<Array2<f64>>,
         Option<Array2<f64>>,
+        Option<Vec<Array1<f64>>>,
     );
 
     /// Returns the excitonic-coupling matrix and the gradient

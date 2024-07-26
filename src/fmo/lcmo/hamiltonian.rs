@@ -3,6 +3,7 @@ use crate::fmo::{Monomer, SuperSystem};
 use crate::initialization::Atom;
 use crate::utils::array_helper::parallel_matrix_multiply;
 use ndarray::prelude::*;
+use ndarray_linalg::{Inverse, SymmetricSqrt, UPLO};
 use rayon::prelude::*;
 use std::ops::AddAssign;
 
@@ -106,8 +107,11 @@ impl SuperSystem<'_> {
         // the matrix inverse of the total overlap is computationally demanding. Since the
         // total overlap matrix is almost diagonal, it can be approximated in first order by:
         // S^-1/2 = 1.5 * I - 1/2 Delta
-        let x: Array2<f64> = 1.5 * Array::eye(dim) - 0.5 * &s_total;
-        // let x: Array2<f64> = s_total.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
+        let x: Array2<f64> = if !self.config.fmo_lc_tddftb.calc_exact_s_sqrt_inv {
+            1.5 * Array::eye(dim) - 0.5 * &s_total
+        } else {
+            s_total.ssqrt(UPLO::Upper).unwrap().inv().unwrap()
+        };
 
         if self.config.parallelization.number_of_cores == 1 {
             (x.t().dot(&fock)).dot(&x)

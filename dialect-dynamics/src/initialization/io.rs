@@ -51,6 +51,9 @@ fn default_artificial_energy_conservation() -> bool {
 fn default_use_boltzmann_velocities() -> bool {
     USE_BOLTZMANN_VELOCITIES
 }
+fn default_load_velocities_from_file() -> bool {
+    false
+}
 fn default_gs_dynamic() -> bool {
     GS_DYNAMIC
 }
@@ -161,6 +164,8 @@ pub struct DynamicConfiguration {
     pub nstates: usize,
     #[serde(default = "default_gs_dynamic")]
     pub gs_dynamic: bool,
+    #[serde(default = "default_load_velocities_from_file")]
+    pub load_velocities_from_file: bool,
     #[serde(default = "default_use_boltzmann_velocities")]
     pub use_boltzmann_velocities: bool,
     #[serde(default = "default_artificial_energy_conservation")]
@@ -242,6 +247,8 @@ pub struct HoppingConfiguration {
     pub decoherence_correction: bool,
     #[serde(default = "default_rk_integration")]
     pub use_rk_integration: bool,
+    #[serde(default = "default_rk_integration")]
+    pub use_expm_integration: bool,
     #[serde(default = "default_integration_steps")]
     pub integration_steps: usize,
 }
@@ -297,17 +304,16 @@ pub fn read_file_to_frame(filename: &str) -> Frame {
 
 /// Extract the atomic numbers and positions (in bohr) from a [Frame](chemfiles::frame)
 pub fn frame_to_coordinates(frame: Frame) -> (Vec<u8>, Array2<f64>) {
-    let mut positions: Array2<f64> =
-        Array2::from_shape_vec(
-            (frame.size() as usize, 3),
-            frame
-                .positions()
-                .iter()
-                .flat_map(|array| array.iter())
-                .cloned()
-                .collect(),
-        )
-        .unwrap();
+    let mut positions: Array2<f64> = Array2::from_shape_vec(
+        (frame.size() as usize, 3),
+        frame
+            .positions()
+            .iter()
+            .flat_map(|array| array.iter())
+            .cloned()
+            .collect(),
+    )
+    .unwrap();
     // transform the coordinates from angstrom to bohr
     positions = positions / constants::BOHR_TO_ANGS;
     // read the atomic number of each coordinate

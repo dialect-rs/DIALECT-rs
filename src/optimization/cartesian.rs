@@ -18,6 +18,12 @@ macro_rules! impl_optimize_cartesian {
             // References
             // ----------
             // [1] J. Nocedal, S. Wright, 'Numerical Optimization', Springer, 2006
+            if log_enabled!(Level::Warn) {
+                warn!("{:^80}", "");
+                warn!("{: ^80}", "Geometry optimization");
+                warn!("{:-^80}", "");
+                warn!("");
+            }
 
             let n_atoms: usize = self.atoms.len();
             // start the optimization
@@ -133,32 +139,33 @@ macro_rules! impl_cartesian_loop {
                     }
                 };
 
-                info!("Optimization Cycle: {:5>}", k + 1);
-                info!(" ");
+                warn!("Optimization Cycle: {:5>}", k + 1);
+                warn!(" ");
 
                 // print convergence criteria
-                info!("{:>37}     {}     {}", "Maximum", "Tolerance", "Cnvgd?");
-                info!(
+                warn!("{:>37}     {}     {}", "Maximum", "Tolerance", "Cnvgd?");
+                warn!(
                     "          {:<19} {:2.6}     {:2.6}     {}",
                     "Gradient",
                     grad_fk.max().unwrap(),
                     gtol,
                     cnvg(grad_fk.max().unwrap() < &gtol),
                 );
-                info!(
+                warn!(
                     "          {:<19} {:2.6}     {:2.6}     {}",
                     "Displacement",
                     sk.max().unwrap(),
                     stol,
                     cnvg(sk.max().unwrap() < &stol),
                 );
-                info!(
+                warn!(
                     "          {:<19} {:2.6}     {:2.6}     {}",
                     "Energy change",
                     f_change,
                     ftol,
                     cnvg(f_change < ftol),
                 );
+                warn!(" ");
 
                 if f_change < ftol && grad_fk.max().unwrap() < &gtol && sk.max().unwrap() < &stol {
                     // set the last coordinates and gradient

@@ -97,12 +97,11 @@ impl Display for ExcitedStates {
 
             // All orbital transition which coefficients is higher than a threshold are printed.
             for (h, row) in tdm.axis_iter(Axis(0)).rev().enumerate() {
-                let occ_label: String =
-                    if h == 0 {
-                        format!("H")
-                    } else {
-                        format!("H-{}", h)
-                    };
+                let occ_label: String = if h == 0 {
+                    format!("H")
+                } else {
+                    format!("H-{}", h)
+                };
                 for (l, value) in row.iter().enumerate() {
                     let virt_label: String = if l == 0 {
                         format!("L")

@@ -41,10 +41,8 @@ impl System {
         // calculate the dipole matrix
         let dipole_matrix: Array3<f64> = dipole_matrix(self.n_orbs, &self.atoms, &self.slako);
         // calculate the dipole moment
-        let electronic_dipole_moment: Array1<f64> = p
-            .into_shape(self.n_orbs * self.n_orbs)
-            .unwrap()
-            .dot(
+        let electronic_dipole_moment: Array1<f64> =
+            p.into_shape(self.n_orbs * self.n_orbs).unwrap().dot(
                 &dipole_matrix
                     .into_shape([self.n_orbs * self.n_orbs, 3])
                     .unwrap(),

@@ -6,50 +6,61 @@ use ndarray::prelude::*;
 impl System {
     pub fn calculate_excited_states(&mut self, print_states: bool) {
         // restrict active orbitals in TDA-TD-DFTB calculation
-        if self.config.tddftb.restrict_active_orbitals {
-            self.prepare_tda_restricted();
-
+        if self.config.excited.get_all_states {
+            self.prepare_tda();
             if self.config.excited.use_casida {
-                self.run_casida_restricted(
-                    self.config.excited.nstates,
-                    self.config.excited.davidson_iterations,
-                    self.config.excited.davidson_convergence,
-                    self.config.excited.davidson_subspace_multiplier,
-                    print_states,
-                );
+                // calculate all excited states with the casida equation
+                self.casida_full_matrix();
             } else {
-                self.run_tda_restricted(
-                    self.config.excited.nstates,
-                    self.config.excited.davidson_iterations,
-                    self.config.excited.davidson_convergence,
-                    self.config.excited.davidson_subspace_multiplier,
-                );
+                // get all states for TDA
+                self.tda_full_matrix();
             }
         } else {
-            // use the full active space
-            self.prepare_tda();
+            if self.config.tddftb.restrict_active_orbitals {
+                self.prepare_tda_restricted();
 
-            if self.config.excited.use_casida {
-                self.run_casida(
-                    self.config.excited.nstates,
-                    self.config.excited.davidson_iterations,
-                    self.config.excited.davidson_convergence,
-                    self.config.excited.davidson_subspace_multiplier,
-                    print_states,
-                );
+                if self.config.excited.use_casida {
+                    self.run_casida_restricted(
+                        self.config.excited.nstates,
+                        self.config.excited.davidson_iterations,
+                        self.config.excited.davidson_convergence,
+                        self.config.excited.davidson_subspace_multiplier,
+                        print_states,
+                    );
+                } else {
+                    self.run_tda_restricted(
+                        self.config.excited.nstates,
+                        self.config.excited.davidson_iterations,
+                        self.config.excited.davidson_convergence,
+                        self.config.excited.davidson_subspace_multiplier,
+                    );
+                }
             } else {
-                self.run_tda(
-                    self.config.excited.nstates,
-                    self.config.excited.davidson_iterations,
-                    self.config.excited.davidson_convergence,
-                    self.config.excited.davidson_subspace_multiplier,
-                    print_states,
-                );
+                // use the full active space
+                self.prepare_tda();
+
+                if self.config.excited.use_casida {
+                    self.run_casida(
+                        self.config.excited.nstates,
+                        self.config.excited.davidson_iterations,
+                        self.config.excited.davidson_convergence,
+                        self.config.excited.davidson_subspace_multiplier,
+                        print_states,
+                    );
+                } else {
+                    self.run_tda(
+                        self.config.excited.nstates,
+                        self.config.excited.davidson_iterations,
+                        self.config.excited.davidson_convergence,
+                        self.config.excited.davidson_subspace_multiplier,
+                        print_states,
+                    );
+                }
             }
-        }
-        if self.config.tddftb.save_transition_densities {
-            for state in self.config.tddftb.states_to_analyse.iter() {
-                self.save_transition_density(*state);
+            if self.config.tddftb.save_transition_densities {
+                for state in self.config.tddftb.states_to_analyse.iter() {
+                    self.save_transition_density(*state);
+                }
             }
         }
     }

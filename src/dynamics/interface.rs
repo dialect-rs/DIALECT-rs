@@ -26,7 +26,12 @@ impl QCInterface for System {
         Array2<f64>,
         Option<Array2<f64>>,
         Option<Array2<f64>>,
+        Option<Vec<Array1<f64>>>,
     ) {
+        // reset old properties
+        self.properties.reset();
+        self.properties.reset_gradient();
+
         // update the coordinates of the system
         self.update_xyz(coordinates.into_shape(3 * self.n_atoms).unwrap());
         // calculate the energy and the gradient of the state
@@ -36,15 +41,16 @@ impl QCInterface for System {
         let use_nacv: bool = use_nacv_couplings;
 
         // calculate the scalar couplings
-        let (couplings, olap): (Option<Array2<f64>>, Option<Array2<f64>>) = if state_coupling
-            && gs_dynamic == false
-            && use_nacv
-        {
-            let (nacv, vectors): (Array2<f64>, Array3<f64>) =
+        let (couplings, olap, nacv): (
+            Option<Array2<f64>>,
+            Option<Array2<f64>>,
+            Option<Vec<Array1<f64>>>,
+        ) = if state_coupling && gs_dynamic == false && use_nacv {
+            let (nacv, vectors): (Array2<f64>, Vec<Array1<f64>>) =
                 self.get_nonadiabatic_vector_coupling(velocities);
 
             // set the old system
-            let old_system: OldSystem = OldSystem::new(&self, None, Some(vectors));
+            let old_system: OldSystem = OldSystem::new(&self, None, Some(vectors.clone()));
             self.properties.set_old_system(old_system);
 
             // get the number of excited states
@@ -56,7 +62,7 @@ impl QCInterface for System {
             // get the overlap coupling matrix
             let s_coupl: Array2<f64> = Array::eye(nstates) + &nacv_mat * dt;
 
-            (Some(nacv_mat), Some(s_coupl))
+            (Some(nacv_mat), Some(s_coupl), Some(vectors))
         } else if state_coupling && gs_dynamic == false && use_nacv == false {
             let (couplings, olap): (Array2<f64>, Array2<f64>) = self.get_scalar_coupling(dt, step);
             let mut couplings_mat: Array2<f64> = Array2::zeros(couplings.raw_dim());
@@ -64,12 +70,12 @@ impl QCInterface for System {
                 .slice_mut(s![1.., 1..])
                 .assign(&couplings.slice(s![1.., 1..]));
 
-            (Some(couplings_mat), Some(olap))
+            (Some(couplings_mat), Some(olap), None)
         } else {
-            (None, None)
+            (None, None, None)
         };
 
-        return (energies, gradient, couplings, olap);
+        return (energies, gradient, couplings, olap, nacv);
     }
 
     fn compute_ehrenfest(
@@ -97,7 +103,7 @@ impl QCInterface for System {
         let (couplings, olap): (Option<Array2<f64>>, Option<Array2<f64>>) = if use_state_couplings
             && use_nacv_couplings
         {
-            let (nacv, vectors): (Array2<f64>, Array3<f64>) =
+            let (nacv, vectors): (Array2<f64>, Vec<Array1<f64>>) =
                 self.get_nonadiabatic_vector_coupling(velocities);
 
             // set the old system
@@ -154,6 +160,7 @@ impl QCInterface for SuperSystem<'_> {
         Array2<f64>,
         Option<Array2<f64>>,
         Option<Array2<f64>>,
+        Option<Vec<Array1<f64>>>,
     ) {
         // reset old data
         for monomer in self.monomers.iter_mut() {
@@ -180,7 +187,7 @@ impl QCInterface for SuperSystem<'_> {
         let gs_gradient = self.ground_state_gradient();
         let gradient: Array2<f64> = gs_gradient.into_shape([n_atoms, 3]).unwrap();
 
-        (array![gs_energy], gradient, None, None)
+        (array![gs_energy], gradient, None, None, None)
     }
 
     fn compute_ehrenfest(
@@ -194,7 +201,6 @@ impl QCInterface for SuperSystem<'_> {
         use_state_couplings: bool,
         use_nacv_couplings: bool,
     ) -> (f64, Array2<f64>, Array2<f64>, Array2<f64>) {
-        let timer: Instant = Instant::now();
         // reset old data
         for monomer in self.monomers.iter_mut() {
             monomer.properties.reset();
@@ -215,25 +221,13 @@ impl QCInterface for SuperSystem<'_> {
         // calculate the ground state energy
         self.prepare_scc();
         let gs_energy = self.run_scc().unwrap();
-        println!("Time fmo scc routine {:.5}", timer.elapsed().as_secs_f32());
-        drop(timer);
-        let timer: Instant = Instant::now();
 
         // calculate diabatic hamiltonian
-        let mut diabatic_hamiltonian: Array2<f64> = self.get_excitonic_matrix();
-        println!(
-            "Time FMO excitonic matrix {:.5}",
-            timer.elapsed().as_secs_f32()
-        );
-        drop(timer);
-        let timer: Instant = Instant::now();
+        let (mut diabatic_hamiltonian, mut state_swap): (Array2<f64>, bool) =
+            self.get_excitonic_matrix();
 
         // get the gradient
         let gradient = self.calculate_ehrenfest_gradient(state_coefficients, thresh);
-
-        println!("Time Gradient {:.5}", timer.elapsed().as_secs_f32());
-        drop(timer);
-        let timer: Instant = Instant::now();
 
         let mut couplings: Array2<f64>;
         // calculate the nonadiabatic coupling
@@ -289,7 +283,6 @@ impl QCInterface for SuperSystem<'_> {
             let old_system = OldSupersystem::new(&self);
             self.properties.set_ref_supersystem(old_system);
         }
-        println!("Time Couplings {:.5}", timer.elapsed().as_secs_f32());
 
         // create diabatic hamiltonian with dimension +1
         let dim: usize = diabatic_hamiltonian.dim().0 + 1;

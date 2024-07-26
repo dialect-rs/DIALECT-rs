@@ -14,11 +14,11 @@ use crate::constants::HARTREE_TO_EV;
 use crate::excited_states::ntos::natural_transition_orbitals;
 use crate::initialization::Atom;
 use crate::io::MoldenExporter;
-use crate::MoldenExporterBuilder;
+use crate::io::MoldenExporterBuilder;
 
 pub mod casida;
 pub mod ntos;
-mod solvers;
+pub mod solvers;
 pub(crate) mod tda;
 mod transition_charges;
 mod utils;

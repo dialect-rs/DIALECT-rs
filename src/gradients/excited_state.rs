@@ -212,16 +212,15 @@ impl System {
         let s: ArrayView2<f64> = self.properties.s().unwrap();
 
         // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> =
-            f_v(
-                diff_p.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f_dmd0: Array3<f64> = f_v(
+            diff_p.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
         let grad_h: Array3<f64> = &grad_h + &f_dmd0;
 
         // set the occupied and virtuals orbital coefficients
@@ -246,16 +245,15 @@ impl System {
         let x_ao: Array2<f64> = orbs_occ.dot(&x_state.dot(&orbs_virt.t()));
 
         // calculate contributions to the excited gradient
-        let f: Array3<f64> =
-            f_v(
-                x_ao.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f: Array3<f64> = f_v(
+            x_ao.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
 
         // assemble the excited gradient
         let mut grad_exc: Array1<f64> = Array::zeros(3 * self.n_atoms);
@@ -440,16 +438,15 @@ impl System {
         let s: ArrayView2<f64> = self.properties.s().unwrap();
 
         // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> =
-            f_v(
-                diff_p.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f_dmd0: Array3<f64> = f_v(
+            diff_p.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
         let grad_h: Array3<f64> = &grad_h + &f_dmd0 - 0.5 * &flr_dmd0;
 
         // set the occupied and virtuals orbital coefficients
@@ -478,26 +475,24 @@ impl System {
         let g1lr_ao: ArrayView3<f64> = self.properties.grad_gamma_lr_ao().unwrap();
 
         // calculate contributions to the excited gradient
-        let f: Array3<f64> =
-            f_v(
-                x_ao.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
-        let flr_p =
-            f_lr(
-                x_ao.t(),
-                s,
-                grad_s,
-                g0lr_ao,
-                g1lr_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f: Array3<f64> = f_v(
+            x_ao.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_p = f_lr(
+            x_ao.t(),
+            s,
+            grad_s,
+            g0lr_ao,
+            g1lr_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
 
         // assemble the excited gradient
         let mut grad_exc: Array1<f64> = Array::zeros(3 * self.n_atoms);
@@ -633,9 +628,9 @@ impl System {
                 .t()
                 .dot(&hplus.compute(g0, g0_lr, xpy_state, HplusType::Qai));
         q_ai = q_ai
-            + xmy_state
-                .t()
-                .dot(&h_minus(g0_lr, qtrans_ov, qtrans_oo, qtrans_oo, qtrans_ov, xmy_state));
+            + xmy_state.t().dot(&h_minus(
+                g0_lr, qtrans_ov, qtrans_oo, qtrans_oo, qtrans_ov, xmy_state,
+            ));
 
         // calculate right hand side of the z-vector equation
         let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
@@ -648,16 +643,15 @@ impl System {
         let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
 
         // calculate the z-vector
-        let z_ia: Array2<f64> =
-            zvector_lc(
-                omega_input.view(),
-                r_matrix.view(),
-                g0,
-                g0_lr,
-                qtrans_oo,
-                qtrans_vv,
-                qtrans_ov,
-            );
+        let z_ia: Array2<f64> = zvector_lc(
+            omega_input.view(),
+            r_matrix.view(),
+            g0,
+            g0_lr,
+            qtrans_oo,
+            qtrans_vv,
+            qtrans_ov,
+        );
 
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
@@ -706,16 +700,15 @@ impl System {
         let s: ArrayView2<f64> = self.properties.s().unwrap();
 
         // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> =
-            f_v(
-                diff_p.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f_dmd0: Array3<f64> = f_v(
+            diff_p.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
         let grad_h: Array3<f64> = &grad_h + &f_dmd0 - 0.5 * &flr_dmd0;
 
         // set the occupied and virtuals orbital coefficients
@@ -745,16 +738,15 @@ impl System {
         let g1lr_ao: ArrayView3<f64> = self.properties.grad_gamma_lr_ao().unwrap();
 
         // calculate contributions to the excited gradient
-        let f: Array3<f64> =
-            f_v(
-                xpy_ao.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f: Array3<f64> = f_v(
+            xpy_ao.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
         let flr_p = f_lr(
             (&xpy_ao + &xpy_ao.t()).view(),
             s,
@@ -955,16 +947,15 @@ impl System {
         let s: ArrayView2<f64> = self.properties.s().unwrap();
 
         // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> =
-            f_v(
-                diff_p.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f_dmd0: Array3<f64> = f_v(
+            diff_p.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
         let grad_h: Array3<f64> = &grad_h + &f_dmd0;
 
         // set the occupied and virtuals orbital coefficients
@@ -989,16 +980,15 @@ impl System {
         let xpy_ao: Array2<f64> = orbs_occ.dot(&xpy_state.dot(&orbs_virt.t()));
 
         // calculate contributions to the excited gradient
-        let f: Array3<f64> =
-            f_v(
-                xpy_ao.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f: Array3<f64> = f_v(
+            xpy_ao.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
 
         // assemble the excited gradient
         let mut grad_exc: Array1<f64> = Array::zeros(3 * self.n_atoms);

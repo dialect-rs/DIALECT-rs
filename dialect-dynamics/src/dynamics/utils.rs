@@ -28,12 +28,11 @@ impl Simulation {
 
         if self.config.print_config.print_standard {
             let total_energy: f64 = self.kinetic_energy + self.energies[self.state];
-            let old_energy: f64 =
-                if let Some(old_energy) = old_energy {
-                    old_energy
-                } else {
-                    0.0
-                };
+            let old_energy: f64 = if let Some(old_energy) = old_energy {
+                old_energy
+            } else {
+                0.0
+            };
             let energy_diff: f64 = total_energy - old_energy;
 
             let full: StandardOutput = StandardOutput::new(
@@ -94,12 +93,11 @@ impl Simulation {
 
         if self.config.print_config.print_standard {
             let total_energy: f64 = self.kinetic_energy + self.energies[self.state];
-            let old_energy: f64 =
-                if let Some(old_energy) = old_energy {
-                    old_energy
-                } else {
-                    0.0
-                };
+            let old_energy: f64 = if let Some(old_energy) = old_energy {
+                old_energy
+            } else {
+                0.0
+            };
             let energy_diff: f64 = total_energy - old_energy;
 
             let full: StandardOutput = StandardOutput::new(

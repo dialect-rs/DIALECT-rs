@@ -3,7 +3,7 @@ use crate::cubes::helpers::create_box_around_molecule;
 use crate::initialization::Atom;
 use crate::{SuperSystem, System};
 use ndarray::prelude::*;
-use ndarray_npy::read_npy;
+use ndarray_npy::{read_npy, write_npy};
 use ndarray_stats::QuantileExt;
 use std::fs::File;
 use std::io::Write;
@@ -183,13 +183,12 @@ impl<'a> DensityToCube<'a> {
 
         if !self.use_block_impl {
             // evaluate the basis on the grid
-            let bfs_on_grid: Array4<f32> =
-                evaluate_basis_on_grid(
-                    self.basis.basisfunctions.view(),
-                    x_grid.view(),
-                    y_grid.view(),
-                    z_grid.view(),
-                );
+            let bfs_on_grid: Array4<f32> = evaluate_basis_on_grid(
+                self.basis.basisfunctions.view(),
+                x_grid.view(),
+                y_grid.view(),
+                z_grid.view(),
+            );
             let rho: Array3<f32> = self.evaluate_density_on_grid_loop(density, bfs_on_grid.view());
             return rho;
         } else {
@@ -240,13 +239,12 @@ impl<'a> DensityToCube<'a> {
             }
             let start_i: usize = i * c_len;
 
-            let bf_grid_i: Array4<f32> =
-                evaluate_basis_on_grid(
-                    self.basis.basisfunctions.slice(s![start_i..chunck]),
-                    x_grid,
-                    y_grid,
-                    z_grid,
-                );
+            let bf_grid_i: Array4<f32> = evaluate_basis_on_grid(
+                self.basis.basisfunctions.slice(s![start_i..chunck]),
+                x_grid,
+                y_grid,
+                z_grid,
+            );
 
             for j in 0..n_block {
                 if j == i {

@@ -7,14 +7,14 @@ pub struct OldSystem {
     pub orbs: Array2<f64>,
     pub ci_coefficients: Array2<f64>,
     pub old_scalar_couplings: Option<Array2<f64>>,
-    pub old_nacv: Option<Array3<f64>>,
+    pub old_nacv: Option<Vec<Array1<f64>>>,
 }
 
 impl OldSystem {
     pub fn new(
         system: &System,
         old_scalar_couplings: Option<Array2<f64>>,
-        old_nacv: Option<Array3<f64>>,
+        old_nacv: Option<Vec<Array1<f64>>>,
     ) -> Self {
         OldSystem {
             atoms: system.atoms.clone(),

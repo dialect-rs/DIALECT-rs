@@ -132,16 +132,15 @@ pub fn print_davidson_iteration(
     max_dev: f64,
 ) -> String {
     let mut string = String::from("");
-    string +=
-        &format!(
-            "{: >5}{:>14}{:>14}{:>14}{:>14.8}{:>14.8}\n",
-            iter + 1,
-            roots_cvd,
-            roots_lft,
-            nvec,
-            t_dev,
-            max_dev
-        );
+    string += &format!(
+        "{: >5}{:>14}{:>14}{:>14}{:>14.8}{:>14.8}\n",
+        iter + 1,
+        roots_cvd,
+        roots_lft,
+        nvec,
+        t_dev,
+        max_dev
+    );
     // info!(
     //     "{: >5}{:>14}{:>14}{:>14}{:>14.8}{:>14.8}",
     //     iter + 1,

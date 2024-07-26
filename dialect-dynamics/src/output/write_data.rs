@@ -1,14 +1,11 @@
 use crate::constants;
 use ndarray::prelude::*;
-use ndarray::{Array2, ArrayView2};
 use ndarray_linalg::c64;
 use serde::{Deserialize, Serialize};
-use serde_yaml;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use toml;
 
 /// Struct that stores the standardized output of the dynamics simulation.
 #[derive(Serialize, Deserialize, Clone)]

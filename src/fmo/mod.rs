@@ -6,6 +6,7 @@ pub mod lcmo;
 mod monomer;
 pub mod old_supersystem;
 mod pair;
+pub mod polariton;
 pub mod scc;
 pub mod supersystem;
 use crate::initialization::parameters::RepulsivePotential;

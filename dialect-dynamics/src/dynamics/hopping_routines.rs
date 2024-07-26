@@ -3,6 +3,7 @@ use ndarray::prelude::*;
 use ndarray_linalg::c64;
 use rand::distributions::Standard;
 use rand::prelude::*;
+use std::ops::DivAssign;
 
 impl Simulation {
     /// Calculate the new electronic state of the molecular system.
@@ -33,11 +34,9 @@ impl Simulation {
             for state in states_to_hopp {
                 let tmp: f64 = old_coefficients[self.state].re.powi(2)
                     + old_coefficients[self.state].im.powi(2);
-                hopping_probabilities[state] = -1.0
-                    * (derivatives[self.state] / tmp)
-                    * derivatives[state]
-                    * self.stepsize
-                    / probability;
+                hopping_probabilities[state] =
+                    -1.0 * (derivatives[self.state] / tmp) * derivatives[state] * self.stepsize
+                        / probability;
             }
             assert!(
                 hopping_probabilities.sum() <= 1.0,
@@ -120,6 +119,84 @@ impl Simulation {
                 .sqrt();
             new_velocities *= vel_scale;
         }
+        (new_velocities, state)
+    }
+
+    pub fn rescaled_velocities(&self, old_state: usize) -> (Array2<f64>, usize) {
+        let mut factor: f64 = 1.0;
+        // get the nac vector for the state pair
+        let new_state: usize = self.state;
+        let mut index_1: usize = new_state;
+        let mut index_2: usize = old_state;
+
+        if new_state > old_state {
+            factor = -1.0;
+            index_1 = old_state;
+            index_2 = new_state;
+        }
+        // get the correct nac vector from the array
+        let mut count: usize = 0;
+        let mut nac_idx: usize = 0;
+        for idx_1 in 1..self.config.nstates {
+            for idx_2 in 1..self.config.nstates {
+                if idx_1 < idx_2 {
+                    if index_1 == idx_1 && index_2 == idx_2 {
+                        nac_idx = count;
+                    }
+                }
+                count += 1;
+            }
+        }
+        // get the nac vector
+        let nac_vector: Array1<f64> = self.nonadiabatic_vectors[nac_idx].clone();
+        // reshape the nac vector
+        let nac_vector: Array2<f64> = nac_vector.into_shape([self.n_atoms, 3]).unwrap();
+
+        let mut state: usize = new_state;
+
+        // get the energy difference
+        let delta_e: f64 = self.energies[old_state] - self.energies[new_state];
+
+        // get the mass weighted nac vector
+        let mut mass_weigh_nad: Array2<f64> = factor * &nac_vector;
+        for i in 0..self.n_atoms {
+            mass_weigh_nad
+                .slice_mut(s![i, ..])
+                .div_assign(self.masses[i]);
+        }
+
+        // calculate the rescaling factors
+        let mut a: f64 = 0.0;
+        for i in 0..self.n_atoms {
+            a += nac_vector
+                .slice(s![i, ..])
+                .dot(&nac_vector.slice(s![i, ..]))
+                / self.masses[i];
+        }
+        a = 0.5 * a;
+        let mut b: f64 = 0.0;
+        for i in 0..self.n_atoms {
+            b += self
+                .velocities
+                .slice(s![i, ..])
+                .dot(&nac_vector.slice(s![i, ..]));
+        }
+        let val: f64 = b.powi(2) + 4.0 * a * delta_e;
+
+        let gamma: f64;
+        if val < 0.0 {
+            state = old_state;
+            gamma = b / a;
+        } else {
+            if b < 0.0 {
+                gamma = (b + val.sqrt()) / (2.0 * a);
+            } else {
+                gamma = (b - val.sqrt()) / (2.0 * a);
+            }
+        }
+        // get the new velocities
+        let new_velocities = &self.velocities - &(gamma * mass_weigh_nad);
+
         (new_velocities, state)
     }
 

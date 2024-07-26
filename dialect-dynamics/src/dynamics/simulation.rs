@@ -24,14 +24,18 @@ impl Simulation {
     }
 
     /// Hopping and field coupling procedure. Includes the rescaling of the velocities.
-    pub fn surface_hopping_step(&mut self, old_state: usize) {
+    pub fn surface_hopping_step(&mut self, old_state: usize, energy_last: ArrayView1<f64>) {
         if self.config.gs_dynamic {
             // skip hopping procedure if the ground state is forced
         } else {
             let old_coeff: Array1<c64> = self.coefficients.clone();
             // integration of the schroedinger equation
             if !self.config.hopping_config.use_rk_integration {
-                self.coefficients = self.matrix_exponential_integration();
+                if self.config.hopping_config.use_expm_integration == false {
+                    self.coefficients = self.get_local_diabatization(energy_last)
+                } else {
+                    self.coefficients = self.matrix_exponential_integration();
+                }
             } else {
                 // the coefficients are integrated using a 4th order runge kutta scheme
                 self.coefficients = self.rk_integration();
@@ -46,9 +50,15 @@ impl Simulation {
         }
         // Rescale the velocities after a population transfer
         if self.state != old_state {
-            let tmp: (Array2<f64>, usize) = self.uniformly_rescaled_velocities(self.state);
-            self.state = tmp.1;
-            self.velocities = tmp.0;
+            if self.config.nonadibatic_config.use_nacv_couplings {
+                let tmp: (Array2<f64>, usize) = self.rescaled_velocities(old_state);
+                self.state = tmp.1;
+                self.velocities = tmp.0;
+            } else {
+                let tmp: (Array2<f64>, usize) = self.uniformly_rescaled_velocities(self.state);
+                self.state = tmp.1;
+                self.velocities = tmp.0;
+            }
         }
     }
 
@@ -80,7 +90,7 @@ impl Simulation {
         let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         let old_kinetic: f64 = self.kinetic_energy;
         let old_potential_energy: f64 = self.energies[self.state];
-        let _last_energies: Array1<f64> = self.energies.clone();
+        let last_energies: Array1<f64> = self.energies.clone();
         let old_state: usize = self.state;
 
         // calculate energies, forces, nonadiabatic_scalar
@@ -89,7 +99,7 @@ impl Simulation {
 
         // surface hopping procedure
         if self.config.hopping_config.use_state_coupling {
-            self.surface_hopping_step(old_state);
+            self.surface_hopping_step(old_state, last_energies.view());
         }
 
         // Calculate new coordinates from velocity-verlet
@@ -154,7 +164,7 @@ impl Simulation {
     pub fn langevin_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
         let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
-        let _last_energies: Array1<f64> = self.energies.clone();
+        let last_energies: Array1<f64> = self.energies.clone();
         let old_state: usize = self.state;
 
         // calculate energies, forces, nonadiabatic_scalar
@@ -162,7 +172,7 @@ impl Simulation {
         self.get_quantum_chem_data(interface, step);
 
         if self.config.hopping_config.use_state_coupling {
-            self.surface_hopping_step(old_state);
+            self.surface_hopping_step(old_state, last_energies.view());
         }
 
         let (vrand, prand): (Array2<f64>, Array2<f64>) = self.get_random_terms();
@@ -197,6 +207,7 @@ impl Simulation {
             Array2<f64>,
             Option<Array2<f64>>,
             Option<Array2<f64>>,
+            Option<Vec<Array1<f64>>>,
         ) = interface.compute_data(
             self.coordinates.view(),
             self.velocities.view(),
@@ -220,7 +231,8 @@ impl Simulation {
 
         if self.config.hopping_config.use_state_coupling && self.config.gs_dynamic == false {
             self.nonadiabatic_scalar = tmp.2.unwrap();
-            // self.s_mat = tmp.3.unwrap();
+            self.s_mat = tmp.3.unwrap();
+            self.nonadiabatic_vectors = tmp.4.unwrap();
         }
     }
 

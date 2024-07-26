@@ -103,6 +103,38 @@ impl XYZ_Output {
     }
 }
 
+pub fn write_xyz_wigner(xyz: &XYZ_Output, filename: String) {
+    let file_path: &Path = Path::new(&filename);
+    let n_atoms: usize = xyz.atoms.len();
+    let mut string: String = n_atoms.to_string();
+    string.push_str("\n");
+    string.push_str("\n");
+    for atom in (0..n_atoms) {
+        let str: String = xyz.atoms[atom].to_string();
+        string.push_str(&str);
+        string.push_str("\t");
+        for item in (0..3) {
+            let str: String = xyz.coordinates.slice(s![atom, item]).to_string();
+            string.push_str(&str);
+            string.push_str("\t");
+        }
+        string.push_str("\n");
+    }
+
+    if file_path.exists() {
+        let file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(file_path)
+            .unwrap();
+        let mut stream = BufWriter::new(file);
+        stream.write_fmt(format_args!("{}", string)).unwrap();
+        stream.flush().unwrap();
+    } else {
+        fs::write(file_path, string).expect("Unable to write to geom.xyz for wigner sampling file");
+    }
+}
+
 pub fn write_xyz_custom(xyz: &XYZ_Output, first_call: bool) {
     let file_path: &Path = Path::new("optimization.xyz");
     let n_atoms: usize = xyz.atoms.len();
@@ -158,12 +190,11 @@ pub fn write_last_geom(xyz: &XYZ_Output) {
     }
 
     if file_path.exists() {
-        let file =
-            OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(file_path)
-                .unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(file_path)
+            .unwrap();
         let mut stream = BufWriter::new(file);
         stream.write_fmt(format_args!("{}", string)).unwrap();
         stream.flush().unwrap();

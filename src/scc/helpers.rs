@@ -184,6 +184,11 @@ pub fn get_electronic_energy_new(
     return e_elec;
 }
 
+pub fn calc_coulomb_third_order(gamma_third_order: ArrayView2<f64>, dq: ArrayView1<f64>) -> f64 {
+    let dq2: Array1<f64> = dq.mapv(|val| val.powi(2));
+    1.0 / 3.0 * &dq2.dot(&gamma_third_order.dot(&dq))
+}
+
 pub fn calc_exchange(s: ArrayView2<f64>, g0_lr_ao: ArrayView2<f64>, dp: ArrayView2<f64>) -> f64 {
     let ex =
         ((s.dot(&dp.dot(&s))) * dp * g0_lr_ao).sum() + (s.dot(&dp) * dp.dot(&s) * g0_lr_ao).sum();
@@ -247,6 +252,40 @@ pub fn construct_h1(
         }
     }
     return h1;
+}
+
+pub fn construct_h_third_order(
+    n_orbs: usize,
+    atoms: &[Atom],
+    gamma_third_order: ArrayView2<f64>,
+    dq: ArrayView1<f64>,
+) -> Array2<f64> {
+    let e_stat_pot: Array1<f64> = gamma_third_order.dot(&dq);
+    let mut h: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
+    let mut mu: usize = 0;
+    let mut nu: usize;
+    for (i, atomi) in atoms.iter().enumerate() {
+        for _ in 0..(atomi.n_orbs) {
+            nu = 0;
+            for (j, atomj) in atoms.iter().enumerate() {
+                for _ in 0..(atomj.n_orbs) {
+                    let contrib_1: f64 =
+                        1.0 / 2.0 * (e_stat_pot[i] * dq[i] + e_stat_pot[j] * dq[j]);
+                    let mut contrib_2: f64 = 0.0;
+                    for (k, atomk) in atoms.iter().enumerate() {
+                        contrib_2 +=
+                            (gamma_third_order[[k, i]] + gamma_third_order[[k, j]]) * dq[k].powi(2);
+                    }
+                    contrib_2 += 1.0 / 6.0;
+                    // add to h
+                    h[[mu, nu]] = contrib_1 + contrib_2;
+                    nu = nu + 1;
+                }
+            }
+            mu = mu + 1;
+        }
+    }
+    return h;
 }
 
 pub fn construct_h_magnetization(

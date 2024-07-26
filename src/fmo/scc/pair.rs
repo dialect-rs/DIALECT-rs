@@ -52,14 +52,13 @@ impl Pair<'_> {
         // by Loewdin orthogonalization, H' = X^T.H.X, where X = S^(-1/2)
         let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
         // get the gamma matrix
-        let gamma_ab: Array2<f64> =
-            gamma_atomwise_ab(
-                &self.gammafunction,
-                &atoms[0..m1.n_atoms],
-                &atoms[m1.n_atoms..],
-                m1.n_atoms,
-                m2.n_atoms,
-            );
+        let gamma_ab: Array2<f64> = gamma_atomwise_ab(
+            &self.gammafunction,
+            &atoms[0..m1.n_atoms],
+            &atoms[m1.n_atoms..],
+            m1.n_atoms,
+            m2.n_atoms,
+        );
         let mut gamma: Array2<f64> = Array2::zeros([self.n_atoms, self.n_atoms]);
 
         gamma
@@ -322,14 +321,13 @@ impl ESDPair<'_> {
         // by Loewdin orthogonalization, H' = X^T.H.X, where X = S^(-1/2)
         let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
         // get the gamma matrix
-        let gamma_ab: Array2<f64> =
-            gamma_atomwise_ab(
-                &self.gammafunction,
-                &atoms[0..m1.n_atoms],
-                &atoms[m1.n_atoms..],
-                m1.n_atoms,
-                m2.n_atoms,
-            );
+        let gamma_ab: Array2<f64> = gamma_atomwise_ab(
+            &self.gammafunction,
+            &atoms[0..m1.n_atoms],
+            &atoms[m1.n_atoms..],
+            m1.n_atoms,
+            m2.n_atoms,
+        );
         let mut gamma: Array2<f64> = Array2::zeros([self.n_atoms, self.n_atoms]);
 
         gamma

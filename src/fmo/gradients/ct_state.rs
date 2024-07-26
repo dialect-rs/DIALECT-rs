@@ -193,15 +193,14 @@ impl Pair<'_> {
 
         if self.properties.q_ov().is_none() {
             // calculate transition charges
-            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) =
-                trans_charges(
-                    self.n_atoms,
-                    pair_atoms,
-                    self.properties.orbs().unwrap(),
-                    self.properties.s().unwrap(),
-                    &occ_indices,
-                    &virt_indices,
-                );
+            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
+                self.n_atoms,
+                pair_atoms,
+                self.properties.orbs().unwrap(),
+                self.properties.s().unwrap(),
+                &occ_indices,
+                &virt_indices,
+            );
             self.properties.set_q_ov(tmp.0);
             self.properties.set_q_oo(tmp.1);
             self.properties.set_q_vv(tmp.2);
@@ -328,15 +327,14 @@ impl Pair<'_> {
 
         if self.properties.q_ov().is_none() {
             // calculate transition charges
-            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) =
-                trans_charges(
-                    self.n_atoms,
-                    pair_atoms,
-                    self.properties.orbs().unwrap(),
-                    self.properties.s().unwrap(),
-                    &occ_indices,
-                    &virt_indices,
-                );
+            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
+                self.n_atoms,
+                pair_atoms,
+                self.properties.orbs().unwrap(),
+                self.properties.s().unwrap(),
+                &occ_indices,
+                &virt_indices,
+            );
             self.properties.set_q_ov(tmp.0);
             self.properties.set_q_oo(tmp.1);
             self.properties.set_q_vv(tmp.2);
@@ -538,16 +536,15 @@ impl Pair<'_> {
         let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
 
         // calculate the z-vector
-        let z_ia: Array2<f64> =
-            zvector_lc(
-                omega_input.view(),
-                r_matrix.view(),
-                g0,
-                g0_lr,
-                qtrans_oo,
-                qtrans_vv,
-                qtrans_ov,
-            );
+        let z_ia: Array2<f64> = zvector_lc(
+            omega_input.view(),
+            r_matrix.view(),
+            g0,
+            g0_lr,
+            qtrans_oo,
+            qtrans_vv,
+            qtrans_ov,
+        );
 
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
@@ -597,26 +594,24 @@ impl Pair<'_> {
         let s: ArrayView2<f64> = self.properties.s().unwrap();
 
         // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> =
-            f_v(
-                diff_p.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
-        let flr_dmd0: Array3<f64> =
-            f_lr(
-                diff_p.view(),
-                s,
-                grad_s,
-                g0lr_ao,
-                g1lr_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f_dmd0: Array3<f64> = f_v(
+            diff_p.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dmd0: Array3<f64> = f_lr(
+            diff_p.view(),
+            s,
+            grad_s,
+            g0lr_ao,
+            g1lr_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
 
         let grad_h: Array3<f64> = &grad_h + &f_dmd0 - 0.5 * &flr_dmd0;
 
@@ -642,26 +637,24 @@ impl Pair<'_> {
         let x_ao: Array2<f64> = orbs_occ.dot(&x_state.dot(&orbs_virt.t()));
 
         // calculate contributions to the excited gradient
-        let f: Array3<f64> =
-            f_v(
-                x_ao.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
-        let flr_p =
-            f_lr(
-                x_ao.t(),
-                s,
-                grad_s,
-                g0lr_ao,
-                g1lr_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f: Array3<f64> = f_v(
+            x_ao.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_p = f_lr(
+            x_ao.t(),
+            s,
+            grad_s,
+            g0lr_ao,
+            g1lr_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
 
         // assemble the excited gradient
         let mut grad_exc: Array1<f64> = Array::zeros(3 * self.n_atoms);
@@ -748,15 +741,14 @@ impl ESDPair<'_> {
 
         if self.properties.q_ov().is_none() {
             // calculate transition charges
-            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) =
-                trans_charges(
-                    self.n_atoms,
-                    pair_atoms,
-                    self.properties.orbs().unwrap(),
-                    self.properties.s().unwrap(),
-                    &occ_indices,
-                    &virt_indices,
-                );
+            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
+                self.n_atoms,
+                pair_atoms,
+                self.properties.orbs().unwrap(),
+                self.properties.s().unwrap(),
+                &occ_indices,
+                &virt_indices,
+            );
             self.properties.set_q_ov(tmp.0);
             self.properties.set_q_oo(tmp.1);
             self.properties.set_q_vv(tmp.2);
@@ -932,15 +924,14 @@ impl ESDPair<'_> {
 
         if self.properties.q_ov().is_none() {
             // calculate transition charges
-            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) =
-                trans_charges(
-                    self.n_atoms,
-                    pair_atoms,
-                    self.properties.orbs().unwrap(),
-                    self.properties.s().unwrap(),
-                    &occ_indices,
-                    &virt_indices,
-                );
+            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
+                self.n_atoms,
+                pair_atoms,
+                self.properties.orbs().unwrap(),
+                self.properties.s().unwrap(),
+                &occ_indices,
+                &virt_indices,
+            );
             self.properties.set_q_ov(tmp.0);
             self.properties.set_q_oo(tmp.1);
             self.properties.set_q_vv(tmp.2);
@@ -1052,16 +1043,15 @@ impl ESDPair<'_> {
         let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
 
         // calculate the z-vector
-        let z_ia: Array2<f64> =
-            zvector_lc(
-                omega_input.view(),
-                r_matrix.view(),
-                g0,
-                g0_lr,
-                qtrans_oo,
-                qtrans_vv,
-                qtrans_ov,
-            );
+        let z_ia: Array2<f64> = zvector_lc(
+            omega_input.view(),
+            r_matrix.view(),
+            g0,
+            g0_lr,
+            qtrans_oo,
+            qtrans_vv,
+            qtrans_ov,
+        );
 
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
@@ -1111,26 +1101,24 @@ impl ESDPair<'_> {
         let s: ArrayView2<f64> = self.properties.s().unwrap();
 
         // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> =
-            f_v(
-                diff_p.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
-        let flr_dmd0: Array3<f64> =
-            f_lr(
-                diff_p.view(),
-                s,
-                grad_s,
-                g0lr_ao,
-                g1lr_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f_dmd0: Array3<f64> = f_v(
+            diff_p.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dmd0: Array3<f64> = f_lr(
+            diff_p.view(),
+            s,
+            grad_s,
+            g0lr_ao,
+            g1lr_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
 
         let grad_h: Array3<f64> = &grad_h + &f_dmd0 - 0.5 * &flr_dmd0;
 
@@ -1156,26 +1144,24 @@ impl ESDPair<'_> {
         let x_ao: Array2<f64> = orbs_occ.dot(&x_state.dot(&orbs_virt.t()));
 
         // calculate contributions to the excited gradient
-        let f: Array3<f64> =
-            f_v(
-                x_ao.view(),
-                s,
-                grad_s,
-                g0_ao,
-                g1_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
-        let flr_p =
-            f_lr(
-                x_ao.t(),
-                s,
-                grad_s,
-                g0lr_ao,
-                g1lr_ao,
-                self.n_atoms,
-                self.n_orbs,
-            );
+        let f: Array3<f64> = f_v(
+            x_ao.view(),
+            s,
+            grad_s,
+            g0_ao,
+            g1_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_p = f_lr(
+            x_ao.t(),
+            s,
+            grad_s,
+            g0lr_ao,
+            g1lr_ao,
+            self.n_atoms,
+            self.n_orbs,
+        );
 
         // assemble the excited gradient
         let mut grad_exc: Array1<f64> = Array::zeros(3 * self.n_atoms);

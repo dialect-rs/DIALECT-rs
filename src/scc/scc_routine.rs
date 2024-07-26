@@ -20,6 +20,8 @@ use ndarray::prelude::*;
 use ndarray_linalg::*;
 use ndarray_stats::DeviationExt;
 use std::fmt;
+use super::gamma_approximation::gamma_third_order;
+use super::{calc_coulomb_third_order, construct_h_third_order};
 
 #[derive(Debug, Clone)]
 pub struct SCCError {
@@ -90,13 +92,12 @@ impl<'a> RestrictedSCC for System {
 
         // if the system contains a long-range corrected Gammafunction the gamma matrix will be computed
         if self.gammafunction_lc.is_some() {
-            let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) =
-                gamma_ao_wise(
-                    self.gammafunction_lc.as_ref().unwrap(),
-                    &self.atoms,
-                    self.n_atoms,
-                    self.n_orbs,
-                );
+            let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) = gamma_ao_wise(
+                self.gammafunction_lc.as_ref().unwrap(),
+                &self.atoms,
+                self.n_atoms,
+                self.n_orbs,
+            );
             self.properties.set_gamma_lr(gamma_lr);
             self.properties.set_gamma_lr_ao(gamma_lr_ao);
         }
@@ -117,6 +118,20 @@ impl<'a> RestrictedSCC for System {
             self.properties
                 .set_p(self.properties.p_ref().unwrap().to_owned());
         }
+
+        // // calculate the Gamma matrix for third order interactions if dftb3 is enabled
+        // if self.config.dftb3.use_dftb3 {
+        //     if !self.properties.contains_key("gamma_third_order") {
+        //         let gamma: Array2<f64> = gamma_third_order(
+        //             &self.gammafunction,
+        //             &self.atoms,
+        //             self.n_atoms,
+        //             &self.config.dftb3.hubbard_derivatives,
+        //         );
+        //
+        //         self.properties.set_gamma_third_order(gamma)
+        //     }
+        // }
     }
 
     // SCC Routine for a single molecule and for spin-unpolarized systems
@@ -184,14 +199,25 @@ impl<'a> RestrictedSCC for System {
                 construct_h1(self.n_orbs, &self.atoms, gamma.view(), dq.view()) * s.view();
             let mut h: Array2<f64> = h_coul + h0.view();
 
-            if self.gammafunction_lc.is_some() && i > 0 {
-                let h_x: Array2<f64> = lc_exact_exchange(
-                    s.view(),
-                    self.properties.gamma_lr_ao().unwrap(),
-                    delta_p.view(),
-                );
-                h = h + h_x;
+            if self.config.lc.long_range_correction {
+                if i > 0 {
+                    let h_x: Array2<f64> = lc_exact_exchange(
+                        s.view(),
+                        self.properties.gamma_lr_ao().unwrap(),
+                        delta_p.view(),
+                    );
+                    h = h + h_x;
+                }
             }
+            // else if self.config.dftb3.use_dftb3 {
+            //     let h_third_order = construct_h_third_order(
+            //         self.n_orbs,
+            //         &self.atoms,
+            //         self.properties.gamma_third_order().unwrap(),
+            //         dq.view(),
+            //     ) * s.view();
+            //     h = h + h_third_order;
+            // }
 
             let h_save: Array2<f64> = h.clone();
 
@@ -249,13 +275,19 @@ impl<'a> RestrictedSCC for System {
                 dq_new.view(),
                 self.properties.gamma().unwrap(),
             );
-            if self.gammafunction_lc.is_some() {
+            if self.config.lc.long_range_correction {
                 scf_energy += calc_exchange(
                     s.view(),
                     self.properties.gamma_lr_ao().unwrap(),
                     delta_p.view(),
                 );
             }
+            // else if self.config.dftb3.use_dftb3 {
+            //     scf_energy += calc_coulomb_third_order(
+            //         self.properties.gamma_third_order().unwrap(),
+            //         dq_new.view(),
+            //     );
+            // }
 
             let diff_dq_max: f64 = dq_new.root_mean_sq_err(&dq).unwrap();
 

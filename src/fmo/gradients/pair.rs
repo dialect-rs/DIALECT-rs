@@ -19,7 +19,6 @@ impl GroundStateGradient for Pair<'_> {
         // let timer = Instant::now();
         // derivative of H0 and S
         let (grad_s, grad_h0) = h0_and_s_gradients(&atoms, self.n_orbs, &self.slako);
-
         // Reference to the difference of the density matrix of the pair and the corresponding monomers.
         let _dp: ArrayView2<f64> = self.properties.delta_p().unwrap();
         let p: ArrayView2<f64> = self.properties.p().unwrap();
@@ -27,7 +26,6 @@ impl GroundStateGradient for Pair<'_> {
         // on the derivative of S and this is available here at no additional cost.
         let s: ArrayView2<f64> = self.properties.s().unwrap();
         let grad_dq: Array2<f64> = self.get_grad_dq(&atoms, s.view(), grad_s.view(), p.view());
-
         self.properties.set_grad_dq(grad_dq);
 
         // and reshape them into a 2D array. the last two dimension (number of orbitals) are compressed
@@ -105,14 +103,12 @@ impl GroundStateGradient for Pair<'_> {
                 .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
                 .unwrap();
             // calculate the gamma gradient matrix in AO basis
-            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) =
-                gamma_gradients_ao_wise(
-                    self.gammafunction_lc.as_ref().unwrap(),
-                    atoms,
-                    self.n_atoms,
-                    self.n_orbs,
-                );
-            // println!("grad gamma lr: {:4}",timer.elapsed().as_secs_f32());
+            let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+                self.gammafunction_lc.as_ref().unwrap(),
+                atoms,
+                self.n_atoms,
+                self.n_orbs,
+            );
             // calculate the difference density matrix
             let diff_p: Array2<f64> = &p - &self.properties.p_ref().unwrap();
             // calculate the matrix F_lr[diff_p]

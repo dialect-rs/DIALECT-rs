@@ -302,6 +302,11 @@ impl Properties {
         self.set("gamma_atom_wise", Property::from(gamma));
     }
 
+    /// Set the gamma matrix in atomic basis for the third order interactions.
+    pub fn set_gamma_third_order(&mut self, gamma: Array2<f64>) {
+        self.set("gamma_third_order", Property::from(gamma));
+    }
+
     /// Set the gamma matrix in AO basis.
     pub fn set_gamma_ao(&mut self, gamma_ao: Array2<f64>) {
         self.set("gamma_ao_wise", Property::from(gamma_ao));

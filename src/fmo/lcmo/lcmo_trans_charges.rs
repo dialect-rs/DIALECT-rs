@@ -554,25 +554,24 @@ impl SuperSystem<'_> {
                 let restrict_space: bool = self.config.fmo_lc_tddftb.restrict_active_space;
                 // let active_space:usize = self.config.lcmo.active_space_ct;
 
-                let occs_ct_a =
-                    if restrict_space {
-                        // self.monomers[a.m_h].properties.orbs_slice((homo_a-active_space+1), Some(homo_a + 1)).unwrap()
-                        let monomer_orbs: ArrayView2<f64> =
-                            self.monomers[a.m_h].properties.orbs().unwrap();
-                        let mut arr: Array2<f64> =
-                            Array2::zeros((monomer_orbs.dim().0, a.occ_indices.len()));
-                        for (en_idx, idx) in a.occ_indices.iter().enumerate() {
-                            arr.slice_mut(s![.., en_idx])
-                                .assign(&monomer_orbs.slice(s![.., *idx]));
-                        }
-                        arr
-                    } else {
-                        self.monomers[a.m_h]
-                            .properties
-                            .orbs_slice(0, Some(homo_a + 1))
-                            .unwrap()
-                            .to_owned()
-                    };
+                let occs_ct_a = if restrict_space {
+                    // self.monomers[a.m_h].properties.orbs_slice((homo_a-active_space+1), Some(homo_a + 1)).unwrap()
+                    let monomer_orbs: ArrayView2<f64> =
+                        self.monomers[a.m_h].properties.orbs().unwrap();
+                    let mut arr: Array2<f64> =
+                        Array2::zeros((monomer_orbs.dim().0, a.occ_indices.len()));
+                    for (en_idx, idx) in a.occ_indices.iter().enumerate() {
+                        arr.slice_mut(s![.., en_idx])
+                            .assign(&monomer_orbs.slice(s![.., *idx]));
+                    }
+                    arr
+                } else {
+                    self.monomers[a.m_h]
+                        .properties
+                        .orbs_slice(0, Some(homo_a + 1))
+                        .unwrap()
+                        .to_owned()
+                };
                 let occs_ct_b = if restrict_space {
                     let monomer_orbs: ArrayView2<f64> =
                         self.monomers[b.m_h].properties.orbs().unwrap();
@@ -799,25 +798,24 @@ impl SuperSystem<'_> {
                 let restrict_space: bool = self.config.fmo_lc_tddftb.restrict_active_space;
                 // let active_space:usize = self.config.lcmo.active_space_ct;
 
-                let occs_ct_a =
-                    if restrict_space {
-                        // self.monomers[a.m_h].properties.orbs_slice((homo_a-active_space+1), Some(homo_a + 1)).unwrap()
-                        let monomer_orbs: ArrayView2<f64> =
-                            self.monomers[a.m_h].properties.orbs().unwrap();
-                        let mut arr: Array2<f64> =
-                            Array2::zeros((monomer_orbs.dim().0, a.occ_indices.len()));
-                        for (en_idx, idx) in a.occ_indices.iter().enumerate() {
-                            arr.slice_mut(s![.., en_idx])
-                                .assign(&monomer_orbs.slice(s![.., *idx]));
-                        }
-                        arr
-                    } else {
-                        self.monomers[a.m_h]
-                            .properties
-                            .orbs_slice(0, Some(homo_a + 1))
-                            .unwrap()
-                            .to_owned()
-                    };
+                let occs_ct_a = if restrict_space {
+                    // self.monomers[a.m_h].properties.orbs_slice((homo_a-active_space+1), Some(homo_a + 1)).unwrap()
+                    let monomer_orbs: ArrayView2<f64> =
+                        self.monomers[a.m_h].properties.orbs().unwrap();
+                    let mut arr: Array2<f64> =
+                        Array2::zeros((monomer_orbs.dim().0, a.occ_indices.len()));
+                    for (en_idx, idx) in a.occ_indices.iter().enumerate() {
+                        arr.slice_mut(s![.., en_idx])
+                            .assign(&monomer_orbs.slice(s![.., *idx]));
+                    }
+                    arr
+                } else {
+                    self.monomers[a.m_h]
+                        .properties
+                        .orbs_slice(0, Some(homo_a + 1))
+                        .unwrap()
+                        .to_owned()
+                };
                 let virts_ct_b = if restrict_space {
                     let monomer_orbs: ArrayView2<f64> =
                         self.monomers[b.m_l].properties.orbs().unwrap();

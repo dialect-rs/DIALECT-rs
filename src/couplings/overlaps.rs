@@ -1,6 +1,5 @@
 use crate::initialization::{Atom, System};
 use crate::param::slako_transformations::{directional_cosines, slako_transformation};
-use nalgebra::ComplexField;
 use ndarray::prelude::*;
 use ndarray_linalg::{Determinant, Scalar};
 use ndarray_stats::QuantileExt;
@@ -243,11 +242,19 @@ impl System {
         return s_ci;
     }
 
+    pub fn check_sign_ci_overlap_same_state(&self, state: usize, n_roots: usize) -> f64 {
+        // check the signs of the states
+        let sci_1: f64 = self.ci_overlap_system_states_2(state, state, n_roots);
+        let prefac_i: f64 = if sci_1 > 0.0 { 1.0 } else { -1.0 };
+
+        prefac_i
+    }
+
     pub fn ci_overlap_system_states(&self, state_i: usize, state_j: usize, n_roots: usize) -> f64 {
         /// Compute CI overlap between TD-DFT 'wavefunctions'
         /// Excitations i->a with coefficients |C_ia| < threshold will be neglected
         /// n_states: Includes the ground state
-        let threshold: f64 = 0.001;
+        let threshold: f64 = 0.00001;
 
         // get the old system
         let old_system = self.properties.old_system().unwrap();
