@@ -1,9 +1,11 @@
 [package]
 name = "dialect"
-version = "0.2.0"
+version = "1.0.0"
 authors = [
     "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
     "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Xincheng Miao <xincheng.miao@uni-wuerzburg.de>",
+    "Luca Nils Philipp <luca_nils.philipp@uni-wuerzburg.de>",
     "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
 ]
 edition = "2021"
@@ -36,7 +38,6 @@ itertools = "0.10.5"
 libm = "0.2.5"
 bspline = "1.1.0"
 rusty-fitpack = { git = "https://github.com/einseler/Rusty-FITPACK" }
-#ndarray_einsum_beta = "0.7.0"
 petgraph = "0.6.3"
 nalgebra = "0.32.1"
 nshare = { version = "0.9", features = ["ndarray", "nalgebra"] }
@@ -59,7 +60,6 @@ rust_decimal = "1.26.1"
 serde_repr = "0.1.9"
 sphrs = { git = "https://github.com/einseler/sphrs" }
 splines = "4.1.1"
-rawpointer = { version = "0.2" }
 
 [profile.release]
 lto = true
