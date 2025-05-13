@@ -1,6 +1,14 @@
+use super::gamma_approximation::{gamma_ao_wise_shell_resolved, gamma_third_order};
+use super::mulliken::mulliken_aowise;
+use super::{
+    calc_coulomb_third_order, construct_h_third_order, get_electronic_energy_gamma_shell_resolved,
+    outer_sum,
+};
+use crate::constants::BOHR_TO_ANGS;
 use crate::fmo::scc::helpers::get_dispersion_energy;
 use crate::initialization::system::System;
 use crate::io::settings::MixConfig;
+use crate::optimization::helpers::{write_error_geom, XYZOutput};
 use crate::scc::gamma_approximation::{gamma_ao_wise, gamma_atomwise};
 use crate::scc::h0_and_s::h0_and_s;
 use crate::scc::helpers::density_matrix_ref;
@@ -20,8 +28,6 @@ use ndarray::prelude::*;
 use ndarray_linalg::*;
 use ndarray_stats::DeviationExt;
 use std::fmt;
-use super::gamma_approximation::gamma_third_order;
-use super::{calc_coulomb_third_order, construct_h_third_order};
 
 #[derive(Debug, Clone)]
 pub struct SCCError {
@@ -42,8 +48,8 @@ impl SCCError {
         Self {
             message,
             iteration: iter,
-            energy_diff: energy_diff,
-            charge_diff: charge_diff,
+            energy_diff,
+            charge_diff,
         }
     }
 }
@@ -68,13 +74,13 @@ pub trait RestrictedSCC {
     fn run_scc(&mut self) -> Result<f64, SCCError>;
 }
 
-impl<'a> RestrictedSCC for System {
+impl RestrictedSCC for System {
     ///  To run the SCC calculation the following properties in the molecule need to be set:
     /// - H0
     /// - S: overlap matrix in AO basis
     /// - Gamma matrix (and long-range corrected Gamma matrix if we use LRC)
     /// - If there are no charge differences, `dq`, from a previous calculation
-    ///  they are initialized to zeros
+    ///   they are initialized to zeros
     /// - the density matrix and reference density matrix
     fn prepare_scc(&mut self) {
         // get H0 and S
@@ -86,25 +92,47 @@ impl<'a> RestrictedSCC for System {
         let atomic_numbers: Vec<u8> = self.atoms.iter().map(|atom| atom.number).collect();
         self.properties.set_atomic_numbers(atomic_numbers);
         // get the gamma matrix
-        let gamma: Array2<f64> = gamma_atomwise(&self.gammafunction, &self.atoms, self.n_atoms);
-        // and save it as a `Property`
-        self.properties.set_gamma(gamma);
+        if !self.config.use_shell_resolved_gamma {
+            let gamma: Array2<f64> = gamma_atomwise(&self.gammafunction, &self.atoms, self.n_atoms);
+            // and save it as a `Property`
+            self.properties.set_gamma(gamma);
+        } else {
+            let gamma: Array2<f64> = gamma_atomwise(&self.gammafunction, &self.atoms, self.n_atoms);
+            // and save it as a `Property`
+            self.properties.set_gamma(gamma);
+            let gamma: Array2<f64> =
+                gamma_ao_wise_shell_resolved(&self.gammafunction, &self.atoms, self.n_orbs);
+            self.properties.set_gamma_ao(gamma);
+        }
 
         // if the system contains a long-range corrected Gammafunction the gamma matrix will be computed
         if self.gammafunction_lc.is_some() {
-            let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) = gamma_ao_wise(
-                self.gammafunction_lc.as_ref().unwrap(),
-                &self.atoms,
-                self.n_atoms,
-                self.n_orbs,
-            );
-            self.properties.set_gamma_lr(gamma_lr);
-            self.properties.set_gamma_lr_ao(gamma_lr_ao);
+            if !self.config.use_shell_resolved_gamma {
+                let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) = gamma_ao_wise(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    &self.atoms,
+                    self.n_atoms,
+                    self.n_orbs,
+                );
+                self.properties.set_gamma_lr(gamma_lr);
+                self.properties.set_gamma_lr_ao(gamma_lr_ao);
+            } else {
+                let gamma_lr_ao: Array2<f64> = gamma_ao_wise_shell_resolved(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    &self.atoms,
+                    self.n_orbs,
+                );
+                self.properties.set_gamma_lr_ao(gamma_lr_ao);
+            }
         }
 
         // if this is the first SCC calculation the charge differences will be initialized to zeros
         if !self.properties.contains_key("dq") {
-            self.properties.set_dq(Array1::zeros(self.n_atoms));
+            if !self.config.use_shell_resolved_gamma {
+                self.properties.set_dq(Array1::zeros(self.n_atoms));
+            } else {
+                self.properties.set_dq(Array1::zeros(self.n_orbs));
+            }
         }
 
         // this is also only needed in the first SCC calculation
@@ -119,23 +147,55 @@ impl<'a> RestrictedSCC for System {
                 .set_p(self.properties.p_ref().unwrap().to_owned());
         }
 
-        // // calculate the Gamma matrix for third order interactions if dftb3 is enabled
-        // if self.config.dftb3.use_dftb3 {
-        //     if !self.properties.contains_key("gamma_third_order") {
-        //         let gamma: Array2<f64> = gamma_third_order(
-        //             &self.gammafunction,
-        //             &self.atoms,
-        //             self.n_atoms,
-        //             &self.config.dftb3.hubbard_derivatives,
-        //         );
-        //
-        //         self.properties.set_gamma_third_order(gamma)
-        //     }
-        // }
+        // calculate the Gamma matrix for third order interactions if dftb3 is enabled
+        if self.config.dftb3.use_dftb3 && !self.properties.contains_key("gamma_third_order") {
+            let gamma: Array2<f64> = gamma_third_order(
+                &self.gammafunction,
+                &self.atoms,
+                self.n_atoms,
+                &self.config.dftb3.hubbard_derivatives,
+            );
+
+            self.properties.set_gamma_third_order(gamma)
+        }
     }
 
     // SCC Routine for a single molecule and for spin-unpolarized systems
     fn run_scc(&mut self) -> Result<f64, SCCError> {
+        let gs_result = self.run_scc_func();
+        let gs_result2: Result<f64, SCCError> = if gs_result.is_err() {
+            self.config.mix_config.use_aa = false;
+            let next_result = self.run_scc_func();
+            if next_result.is_err() {
+                // write geometry to file
+                let xyz_out: XYZOutput = XYZOutput::new(
+                    self.atoms
+                        .iter()
+                        .map(|atom| String::from(atom.name))
+                        .collect(),
+                    self.get_xyz()
+                        .clone()
+                        .into_shape([self.n_atoms, 3])
+                        .unwrap()
+                        .map(|val| val * BOHR_TO_ANGS),
+                );
+                write_error_geom(&xyz_out);
+                next_result
+            } else {
+                next_result
+            }
+        } else {
+            gs_result
+        };
+        self.properties.set_last_energy(gs_result2.clone().unwrap());
+
+        gs_result2
+    }
+}
+
+impl System {
+    // SCC Routine for a single molecule and for spin-unpolarized systems
+    fn run_scc_func(&mut self) -> Result<f64, SCCError> {
         let timer: Timer = Timer::start();
 
         // SCC settings from the user input
@@ -147,24 +207,31 @@ impl<'a> RestrictedSCC for System {
         // the properties that are changed during the SCC routine are taken
         // and will be inserted at the end of the SCC routine
         let mut p: Array2<f64> = self.properties.take_p().unwrap();
-        let mut delta_p: Array2<f64> = Array2::zeros(p.raw_dim());
         let mut dq: Array1<f64> = self.properties.take_dq().unwrap();
 
-        let mix_config: MixConfig = MixConfig::default();
-        let mut dim: usize = 0;
+        // let mix_config: MixConfig = MixConfig::default();
+        let mix_config: MixConfig = self.config.mix_config.clone();
+        let dim: usize;
         if self.gammafunction_lc.is_some() {
             dim = self.n_orbs * self.n_orbs;
+        } else if self.config.use_shell_resolved_gamma {
+            dim = self.n_orbs;
         } else {
             dim = self.n_atoms;
         }
         let mut accel = mix_config.build_mixer(dim).unwrap();
+        let mut broyden_mixer: BroydenMixer = if self.config.use_shell_resolved_gamma {
+            BroydenMixer::new(self.n_orbs)
+        } else {
+            BroydenMixer::new(self.n_atoms)
+        };
 
         // molecular properties, we take all properties that are needed from the Properties type
         let s: ArrayView2<f64> = self.properties.s().unwrap();
         let h0: ArrayView2<f64> = self.properties.h0().unwrap();
         let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
         let p0: ArrayView2<f64> = self.properties.p_ref().unwrap();
-        let _dp: Array2<f64> = &p - &p0;
+        let mut delta_p: Array2<f64> = &p - &p0;
 
         // the orbital energies and coefficients can be safely reset, since the
         // Hamiltonian does not depends on the charge differences and not on the orbital coefficients
@@ -177,8 +244,7 @@ impl<'a> RestrictedSCC for System {
         let mut last_energy: f64 = 0.0;
         let mut total_energy: Result<f64, SCCError> = Ok(0.0);
         let mut scf_energy: f64 = 0.0;
-        let _diff_dq_max: f64 = 0.0;
-        let _converged: bool = false;
+
         // add nuclear energy to the total scf energy
         let rep_energy: f64 = get_repulsive_energy(&self.atoms, self.n_atoms, &self.vrep);
 
@@ -195,30 +261,30 @@ impl<'a> RestrictedSCC for System {
         }
 
         'scf_loop: for i in 0..max_iter {
-            let h_coul: Array2<f64> =
-                construct_h1(self.n_orbs, &self.atoms, gamma.view(), dq.view()) * s.view();
+            let h_coul: Array2<f64> = if !self.config.use_shell_resolved_gamma {
+                construct_h1(self.n_orbs, &self.atoms, gamma.view(), dq.view()) * s.view()
+            } else {
+                outer_sum(self.properties.gamma_ao().unwrap().dot(&dq).view()) * s * 0.5
+            };
             let mut h: Array2<f64> = h_coul + h0.view();
-
             if self.config.lc.long_range_correction {
-                if i > 0 {
-                    let h_x: Array2<f64> = lc_exact_exchange(
-                        s.view(),
-                        self.properties.gamma_lr_ao().unwrap(),
-                        delta_p.view(),
-                    );
-                    h = h + h_x;
-                }
+                // if i > 0 {
+                let h_x: Array2<f64> = lc_exact_exchange(
+                    s.view(),
+                    self.properties.gamma_lr_ao().unwrap(),
+                    delta_p.view(),
+                );
+                h = h + h_x;
+                // }
+            } else if self.config.dftb3.use_dftb3 {
+                let h_third_order = construct_h_third_order(
+                    self.n_orbs,
+                    &self.atoms,
+                    self.properties.gamma_third_order().unwrap(),
+                    dq.view(),
+                ) * s.view();
+                h = h + h_third_order;
             }
-            // else if self.config.dftb3.use_dftb3 {
-            //     let h_third_order = construct_h_third_order(
-            //         self.n_orbs,
-            //         &self.atoms,
-            //         self.properties.gamma_third_order().unwrap(),
-            //         dq.view(),
-            //     ) * s.view();
-            //     h = h + h_third_order;
-            // }
-
             let h_save: Array2<f64> = h.clone();
 
             // H' = X^t.H.X
@@ -261,33 +327,53 @@ impl<'a> RestrictedSCC for System {
                 p = &delta_p + &p0;
 
                 // mulliken charges
-                mulliken_atomwise(delta_p.view(), s.view(), &self.atoms, self.n_atoms)
-            } else {
+                if !self.config.use_shell_resolved_gamma {
+                    mulliken_atomwise(delta_p.view(), s.view(), &self.atoms, self.n_atoms)
+                } else {
+                    mulliken_aowise(delta_p.view(), s.view())
+                }
+            } else if !self.config.use_shell_resolved_gamma {
                 // mulliken charges
                 let dq1 = mulliken_atomwise(dp.view(), s.view(), &self.atoms, self.n_atoms);
-                accel.apply(dq.view(), dq1.view()).unwrap()
+                let delta_dq: Array1<f64> = &dq1 - &dq;
+                broyden_mixer.next(dq.clone(), delta_dq)
+                // accel.apply(dq.view(), dq1.view()).unwrap()
+            } else {
+                // mulliken charges
+                let dq1 = mulliken_aowise(dp.view(), s.view());
+                let delta_dq: Array1<f64> = &dq1 - &dq;
+                broyden_mixer.next(dq.clone(), delta_dq)
+                // accel.apply(dq.view(), dq1.view()).unwrap()
             };
 
             // compute electronic energy
-            scf_energy = get_electronic_energy_new(
-                p.view(),
-                h0.view(),
-                dq_new.view(),
-                self.properties.gamma().unwrap(),
-            );
+            scf_energy = if !self.config.use_shell_resolved_gamma {
+                get_electronic_energy_new(
+                    p.view(),
+                    h0.view(),
+                    dq_new.view(),
+                    self.properties.gamma().unwrap(),
+                )
+            } else {
+                get_electronic_energy_gamma_shell_resolved(
+                    p.view(),
+                    h0.view(),
+                    dq_new.view(),
+                    self.properties.gamma_ao().unwrap(),
+                )
+            };
             if self.config.lc.long_range_correction {
                 scf_energy += calc_exchange(
                     s.view(),
                     self.properties.gamma_lr_ao().unwrap(),
                     delta_p.view(),
                 );
+            } else if self.config.dftb3.use_dftb3 {
+                scf_energy += calc_coulomb_third_order(
+                    self.properties.gamma_third_order().unwrap(),
+                    dq_new.view(),
+                );
             }
-            // else if self.config.dftb3.use_dftb3 {
-            //     scf_energy += calc_coulomb_third_order(
-            //         self.properties.gamma_third_order().unwrap(),
-            //         dq_new.view(),
-            //     );
-            // }
 
             let diff_dq_max: f64 = dq_new.root_mean_sq_err(&dq).unwrap();
 
@@ -296,13 +382,8 @@ impl<'a> RestrictedSCC for System {
             }
 
             // check if charge difference to the previous iteration is lower than 1e-5
-            let converged: bool = if (diff_dq_max < scf_charge_conv)
-                && (last_energy - scf_energy).abs() < scf_energy_conv
-            {
-                true
-            } else {
-                false
-            };
+            let converged: bool = (diff_dq_max < scf_charge_conv)
+                && (last_energy - scf_energy).abs() < scf_energy_conv;
             // save the scf energy from the current iteration
             last_energy = scf_energy;
             dq = dq_new;
@@ -332,13 +413,10 @@ impl<'a> RestrictedSCC for System {
         self.properties.set_occupation(f);
         self.properties.set_p(p);
         self.properties.set_dq(dq);
-        self.properties
-            .set_last_energy(total_energy.clone().unwrap());
-        return total_energy;
+        // self.properties.set_last_energy(energy);
+        total_energy
     }
-}
 
-impl System {
     // SCC Routine for a single molecule and for spin-unpolarized systems
     pub fn run_scc_old(&mut self) -> Result<f64, SCCError> {
         let timer: Timer = Timer::start();
@@ -465,7 +543,7 @@ impl System {
             q_ao = broyden_mixer.next(q_ao, delta_dq);
 
             // The density matrix is updated in accordance with the Mulliken charges.
-            p = p * &(&q_ao / &q_ao_n);
+            p *= &(&q_ao / &q_ao_n);
             dp = &p - &p0;
             dq = mulliken(dp.view(), s.view(), &self.atoms);
 
@@ -516,6 +594,67 @@ impl System {
         self.properties.set_occupation(f);
         self.properties.set_p(p);
         self.properties.set_dq(dq);
-        return total_energy;
+        total_energy
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::initialization::System;
+    use crate::properties::Properties;
+    use crate::scc::scc_routine::RestrictedSCC;
+    use crate::utils::tests::{get_molecule, get_molecule_no_lc, AVAILAIBLE_MOLECULES};
+    use approx::AbsDiffEq;
+    use phf::phf_map;
+
+    pub const EPSILON: f64 = 1e-11;
+    pub static ENERGY_MAP: phf::Map<&'static str, f64> = phf_map! {
+        "h2o" => -4.762702295687697,
+        "benzene"=>-15.222077136405014,
+        "ammonia"=>-4.227111182870961,
+        "uracil"=>-23.673891455275189
+    };
+    pub static ENERGY_MAP_NO_LC: phf::Map<&'static str, f64> = phf_map! {
+        "h2o" => -4.685317489964341,
+        "benzene"=>-14.554579577870948,
+        "ammonia"=>-4.113535617609521,
+        "uracil"=>-22.932577348074432
+    };
+
+    fn test_scc_routine(molecule_and_properties: (&str, System, Properties), lc: bool) {
+        let name = molecule_and_properties.0;
+        let mut molecule = molecule_and_properties.1;
+
+        // perform scc routine
+        molecule.prepare_scc();
+        let scc_energy: f64 = molecule.run_scc().unwrap();
+        let energy_ref = if lc {
+            ENERGY_MAP[name]
+        } else {
+            ENERGY_MAP_NO_LC[name]
+        };
+        assert!(
+            scc_energy.abs_diff_eq(&energy_ref, EPSILON),
+            "Molecule: {}, Energy ref {:.15}, Energy calc: {:.15}",
+            name,
+            energy_ref,
+            scc_energy
+        );
+    }
+
+    #[test]
+    fn get_scc_energy() {
+        let names = AVAILAIBLE_MOLECULES;
+        for molecule in names.iter() {
+            test_scc_routine(get_molecule(molecule), true);
+        }
+    }
+
+    #[test]
+    fn get_scc_energy_no_lc() {
+        let names = AVAILAIBLE_MOLECULES;
+        for molecule in names.iter() {
+            test_scc_routine(get_molecule_no_lc(molecule), false);
+        }
     }
 }

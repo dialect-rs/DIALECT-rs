@@ -1,17 +1,18 @@
 use crate::constants;
 use crate::fmo::SuperSystem;
 use crate::initialization::System;
+use crate::io::Configuration;
 use crate::optimization::helpers::*;
 use crate::scc::scc_routine::RestrictedSCC;
-use log::{debug, info, log_enabled, trace, warn, Level};
+use crate::xtb::initialization::system::XtbSystem;
+use log::{log_enabled, warn, Level};
 use ndarray::prelude::*;
-use ndarray_linalg::Norm;
 use ndarray_stats::QuantileExt;
 
 #[macro_export]
 macro_rules! impl_optimize_cartesian {
     () => {
-        pub fn optimize_cartesian(&mut self, state: usize) {
+        pub fn optimize_cartesian(&mut self, state: usize, config: &Configuration) {
             // solve the following optimization problem:
             // minimize f(x) subject to  c_i(x) > 0   for  i=1,...,m
             // where f(x) is a scalar function, x is a real vector of size n
@@ -27,7 +28,7 @@ macro_rules! impl_optimize_cartesian {
 
             let n_atoms: usize = self.atoms.len();
             // start the optimization
-            let (coordinates, gradient) = self.cartesian_optimization_loop(state);
+            let (coordinates, _gradient) = self.cartesian_optimization_loop(state, config);
 
             let new_coords: Array2<f64> =
                 constants::BOHR_TO_ANGS * coordinates.into_shape((n_atoms, 3)).unwrap();
@@ -52,7 +53,7 @@ macro_rules! impl_optimize_cartesian {
 #[macro_export]
 macro_rules! impl_cartesian_loop {
     () => {
-        pub fn cartesian_optimization_loop(&mut self, state: usize) -> (Array1<f64>, Array1<f64>){
+        pub fn cartesian_optimization_loop(&mut self, state: usize,config:&Configuration) -> (Array1<f64>, Array1<f64>){
             // get coordinates
             let coords: Array1<f64> = self.get_xyz();
             let n_atoms: usize = self.atoms.len();
@@ -61,23 +62,18 @@ macro_rules! impl_cartesian_loop {
             let gtol: f64 = 0.000001 * self.config.opt.geom_opt_tol_gradient;
             let ftol: f64 = 0.000001 * self.config.opt.geom_opt_tol_energy;
             let stol: f64 = 0.000001 * self.config.opt.geom_opt_tol_displacement;
-            let mut use_bfgs:bool = true;
-            let mut use_line_search:bool = true;
+            let use_bfgs:bool = config.opt.use_bfgs;
+            let use_line_search:bool = config.opt.use_line_search;
 
             let n: usize = coords.len();
             let mut x_old: Array1<f64> = coords.clone();
 
-            // variables for the storage of the energy and gradient
-            let mut fk: f64 = 0.0;
-            let mut grad_fk: Array1<f64> = Array::zeros(n);
-
             // calculate energy and gradient
             let tmp: (f64, Array1<f64>) = self.opt_energy_and_gradient(state);
-            fk = tmp.0;
-            grad_fk = tmp.1;
+            // variables for the storage of the energy and gradient
+            let mut fk = tmp.0;
+            let mut grad_fk = tmp.1;
 
-            let mut pk: Array1<f64> = Array::zeros(n);
-            let mut x_kp1: Array1<f64> = Array::zeros(n);
             let mut sk: Array1<f64> = Array::zeros(n);
             let mut yk: Array1<f64> = Array::zeros(n);
             let mut inv_hk: Array2<f64> = Array::eye(n);
@@ -91,11 +87,12 @@ macro_rules! impl_cartesian_loop {
                 .collect();
             let first_coords: Array2<f64> =
                 constants::BOHR_TO_ANGS * &coords.view().into_shape([n_atoms, 3]).unwrap();
-            let xyz_out: XYZ_Output = XYZ_Output::new(atom_names.clone(), first_coords);
+            let xyz_out: XYZOutput = XYZOutput::new(atom_names.clone(), first_coords);
 
             write_xyz_custom(&xyz_out,true);
 
             'optimization_loop: for k in 0..maxiter {
+                let pk: Array1<f64>;
                 if use_bfgs{
                     if k > 0 {
                         if yk.dot(&sk) <= 0.0 {
@@ -110,26 +107,26 @@ macro_rules! impl_cartesian_loop {
                 } else{
                     pk = -grad_fk.clone();
                 }
+                let mut f_kp1:f64 = 0.0;
+                let f_change: f64 = (f_kp1 - fk).abs();
 
-                if use_line_search{
-                    x_kp1 = self.line_search(x_old.view(), fk, grad_fk.view(), pk.view(), state);
+                let x_kp1:Array1<f64> = if use_line_search && f_change < 1.0e-3{
+                    self.line_search(x_old.view(), fk, grad_fk.view(), pk.view(), state)
                 } else{
                     let amax = 1.0;
-                    x_kp1 = &x_old + &(amax * &pk);
-                }
-                let mut f_kp1: f64 = 0.0;
-                let mut grad_f_kp1: Array1<f64> = Array::zeros(n);
+                    &x_old + &(amax * &pk)
+                };
 
                 // update coordinates
                 self.update_xyz(x_kp1.view());
                 // calculate new energy and gradient
                 let tmp: (f64, Array1<f64>) = self.opt_energy_and_gradient(state);
                 f_kp1 = tmp.0;
-                grad_f_kp1 = tmp.1;
+                let grad_f_kp1:Array1<f64> = tmp.1;
 
                 // check convergence
                 let f_change: f64 = (f_kp1 - fk).abs();
-                let gnorm: f64 = grad_f_kp1.norm();
+                // let gnorm: f64 = grad_f_kp1.norm();
 
                 let cnvg = |c| {
                     if c {
@@ -145,21 +142,21 @@ macro_rules! impl_cartesian_loop {
                 // print convergence criteria
                 warn!("{:>37}     {}     {}", "Maximum", "Tolerance", "Cnvgd?");
                 warn!(
-                    "          {:<19} {:2.6}     {:2.6}     {}",
+                    "          {:<19} {:2.8}     {:2.8}     {}",
                     "Gradient",
                     grad_fk.max().unwrap(),
                     gtol,
                     cnvg(grad_fk.max().unwrap() < &gtol),
                 );
                 warn!(
-                    "          {:<19} {:2.6}     {:2.6}     {}",
+                    "          {:<19} {:2.8}     {:2.8}     {}",
                     "Displacement",
                     sk.max().unwrap(),
                     stol,
                     cnvg(sk.max().unwrap() < &stol),
                 );
                 warn!(
-                    "          {:<19} {:2.6}     {:2.6}     {}",
+                    "          {:<19} {:2.8}     {:2.8}     {}",
                     "Energy change",
                     f_change,
                     ftol,
@@ -169,7 +166,7 @@ macro_rules! impl_cartesian_loop {
 
                 if f_change < ftol && grad_fk.max().unwrap() < &gtol && sk.max().unwrap() < &stol {
                     // set the last coordinates and gradient
-                    sk = &x_kp1 - &x_old;
+                    // sk = &x_kp1 - &x_old;
                     x_old = x_kp1;
                     grad_fk = grad_f_kp1;
                     fk = f_kp1;
@@ -188,7 +185,7 @@ macro_rules! impl_cartesian_loop {
 
                 let new_coords: Array2<f64> =
                     constants::BOHR_TO_ANGS * &x_old.view().into_shape((n_atoms, 3)).unwrap();
-                let xyz_out: XYZ_Output = XYZ_Output::new(
+                let xyz_out: XYZOutput = XYZOutput::new(
                     atom_names.clone(),
                     new_coords.clone().into_shape([n_atoms, 3]).unwrap(),
                 );
@@ -203,8 +200,8 @@ macro_rules! impl_cartesian_loop {
                 }
             }
             let new_coords:Array2<f64> = constants::BOHR_TO_ANGS * &x_old.view().into_shape((n_atoms,3)).unwrap();
-            let xyz_out:XYZ_Output =
-                XYZ_Output::new(
+            let xyz_out:XYZOutput =
+                XYZOutput::new(
                     atom_names.clone(),
                     new_coords.clone().into_shape([n_atoms,3]).unwrap());
             write_last_geom(&xyz_out);
@@ -221,52 +218,76 @@ impl System {
     impl_optimize_cartesian!();
 
     pub fn opt_energy_and_gradient(&mut self, state: usize) -> (f64, Array1<f64>) {
-        let mut energy: f64 = 0.0;
-        let mut gradient: Array1<f64> = Array::zeros(3 * self.n_atoms);
-
-        if state == 0 {
+        let (energy, gradient): (f64, Array1<f64>) = if state == 0 {
             // ground state energy and gradient
             self.prepare_scc();
-            energy = self.run_scc().unwrap();
-            gradient = self.ground_state_gradient(false);
+            let tmp_energy = self.run_scc().unwrap();
+            let tmp_gradient = self.ground_state_gradient(false);
+
+            (tmp_energy, tmp_gradient)
         } else {
             // excited state calculation
             let excited_state: usize = state - 1;
             self.prepare_scc();
-            energy = self.run_scc().unwrap();
+            let mut tmp_energy = self.run_scc().unwrap();
 
             // calculate excited states
             self.calculate_excited_states(false);
-            energy += self.properties.ci_eigenvalue(excited_state).unwrap();
+            tmp_energy += self.properties.ci_eigenvalue(excited_state).unwrap();
 
-            gradient = self.ground_state_gradient(true);
-            gradient = gradient + self.calculate_excited_state_gradient(excited_state);
-        }
-        self.properties.reset();
+            let mut tmp_gradient = self.ground_state_gradient(true);
+            tmp_gradient = tmp_gradient + self.calculate_excited_state_gradient(excited_state);
 
-        return (energy, gradient);
+            (tmp_energy, tmp_gradient)
+        };
+        self.properties.reset_reduced();
+
+        (energy, gradient)
     }
 
     pub fn calculate_energy_line_search(&mut self, state: usize) -> f64 {
-        let mut energy: f64 = 0.0;
-
-        if state == 0 {
+        let energy: f64 = if state == 0 {
             // ground state energy and gradient
             self.prepare_scc();
-            energy = self.run_scc().unwrap();
+            self.run_scc().unwrap()
         } else {
             // excited state calculation
             let excited_state: usize = state - 1;
             self.prepare_scc();
-            energy = self.run_scc().unwrap();
+            let mut tmp_energy: f64 = self.run_scc().unwrap();
 
             // calculate excited states
             self.calculate_excited_states(false);
-            energy += self.properties.ci_eigenvalue(excited_state).unwrap();
-        }
-        self.properties.reset();
+            tmp_energy += self.properties.ci_eigenvalue(excited_state).unwrap();
+            tmp_energy
+        };
+        self.properties.reset_reduced();
 
-        return (energy);
+        energy
+    }
+}
+
+impl XtbSystem {
+    impl_cartesian_loop!();
+    impl_optimize_cartesian!();
+
+    pub fn opt_energy_and_gradient(&mut self, _state: usize) -> (f64, Array1<f64>) {
+        // ground state energy and gradient
+        self.prepare_scc();
+        let energy = self.run_scc().unwrap();
+        let gradient = self.ground_state_gradient();
+        self.properties.reset_reduced();
+
+        (energy, gradient)
+    }
+
+    pub fn calculate_energy_line_search(&mut self, _state: usize) -> f64 {
+        // ground state energy
+        self.prepare_scc();
+        let energy = self.run_scc().unwrap();
+        self.properties.reset_reduced();
+
+        energy
     }
 }
 
@@ -275,52 +296,48 @@ impl SuperSystem<'_> {
     impl_optimize_cartesian!();
 
     pub fn opt_energy_and_gradient(&mut self, state: usize) -> (f64, Array1<f64>) {
-        let mut energy: f64 = 0.0;
-        let n_atoms: usize = self.atoms.len();
-        let mut gradient: Array1<f64> = Array::zeros(3 * n_atoms);
-
-        if state == 0 {
+        let (energy, gradient): (f64, Array1<f64>) = if state == 0 {
             // ground state energy and gradient
             self.prepare_scc();
-            energy = self.run_scc().unwrap();
-            gradient = self.ground_state_gradient();
+            let tmp_energy = self.run_scc().unwrap();
+            let tmp_gradient = self.ground_state_gradient();
+
+            (tmp_energy, tmp_gradient)
         } else {
             panic!(
                 "The optimization procedure for the fmo systems is restricted to the ground
             state"
             );
-        }
+        };
         for monomer in self.monomers.iter_mut() {
-            monomer.properties.reset();
+            monomer.properties.reset_reduced();
         }
         for pair in self.pairs.iter_mut() {
-            pair.properties.reset();
+            pair.properties.reset_reduced();
         }
-        self.properties.reset();
+        self.properties.reset_reduced();
 
         (energy, gradient)
     }
 
     pub fn calculate_energy_line_search(&mut self, state: usize) -> f64 {
-        let mut energy: f64 = 0.0;
-
-        if state == 0 {
+        let energy: f64 = if state == 0 {
             // ground state energy and gradient
             self.prepare_scc();
-            energy = self.run_scc().unwrap();
+            self.run_scc().unwrap()
         } else {
             panic!(
                 "The optimization procedure for the fmo systems is restricted to the ground
             state"
             );
-        }
+        };
         for monomer in self.monomers.iter_mut() {
-            monomer.properties.reset();
+            monomer.properties.reset_reduced();
         }
         for pair in self.pairs.iter_mut() {
-            pair.properties.reset();
+            pair.properties.reset_reduced();
         }
-        self.properties.reset();
+        self.properties.reset_reduced();
 
         energy
     }

@@ -14,22 +14,20 @@ pub fn generate_parameters(
     config: Configuration,
 ) -> (SlaterKoster, RepulsivePotential, Vec<Atom>, Vec<Atom>) {
     // create mutable Vectors
-    let mut unique_atoms: Vec<Atom> = Vec::new();
+    let unique_atoms: Vec<Atom>;
     let mut atoms: Vec<Atom> = Vec::new();
     let mut skf_handlers: Vec<SkfHandler> = Vec::new();
 
-    if config.slater_koster.use_external_skf == true {
+    if config.slater_koster.use_external_skf {
         // get the unique [Atom]s and the HashMap with the mapping from the numbers to the [Atom]s
         // if use_mio is true, create a vector of homonuclear SkfHandlers and a vector
         // of heteronuclear SkfHandlers
-
-        let mut num_to_atom: HashMap<u8, Atom> = HashMap::new();
         let (numbers, coords) = frame_to_coordinates(frame);
 
         let tmp: (Vec<Atom>, HashMap<u8, Atom>, Vec<SkfHandler>) =
             get_unique_atoms_skf(&numbers, &config);
         unique_atoms = tmp.0;
-        num_to_atom = tmp.1;
+        let num_to_atom: HashMap<u8, Atom> = tmp.1;
         skf_handlers = tmp.2;
 
         // get all the Atom's from the HashMap
@@ -42,7 +40,7 @@ pub fn generate_parameters(
         });
     } else {
         // get the unique [Atom]s and the HashMap with the mapping from the numbers to the [Atom]s
-        let tmp: (Vec<Atom>, Vec<Atom>) = frame_to_atoms(frame);
+        let tmp: (Vec<Atom>, Vec<Atom>) = frame_to_atoms(frame, &config.parameterization);
         atoms = tmp.0;
         unique_atoms = tmp.1;
     }
@@ -51,7 +49,7 @@ pub fn generate_parameters(
     let mut slako: SlaterKoster = SlaterKoster::new();
     let mut vrep: RepulsivePotential = RepulsivePotential::new();
 
-    if config.slater_koster.use_external_skf == true {
+    if config.slater_koster.use_external_skf {
         for handler in skf_handlers.iter() {
             let repot_table: RepulsivePotentialTable = RepulsivePotentialTable::from(handler);
             let slako_table_ab: SlaterKosterTable = SlaterKosterTable::from((handler, None, "ab"));
@@ -73,10 +71,10 @@ pub fn generate_parameters(
     } else {
         let element_iter = unique_atoms.iter().map(|atom| Element::from(atom.number));
         for (kind1, kind2) in element_iter.clone().cartesian_product(element_iter) {
-            slako.add(kind1, kind2);
+            slako.add(kind1, kind2, &config.parameterization);
             vrep.add(kind1, kind2);
         }
     }
 
-    return (slako, vrep, atoms, unique_atoms);
+    (slako, vrep, atoms, unique_atoms)
 }

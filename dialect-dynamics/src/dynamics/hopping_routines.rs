@@ -42,8 +42,13 @@ impl Simulation {
                 hopping_probabilities.sum() <= 1.0,
                 "Total hopping probability bigger than 1.0!"
             );
-
-            let random_number: f64 = StdRng::from_entropy().sample(Standard);
+            // const const_n: usize = 32;
+            // let random_number: f64 = StdRng::from_seed([0; const_n]).sample(Standard);
+            // let random_number: f64 = StdRng::seed_from_u64(1).sample(Standard);
+            // println!("random number:{}", random_number);
+            let random_number: f64 = self.rng.sample(Standard);
+            // println!("random number: {}", random_number);
+            // let random_number: f64 = StdRng::from_entropy().sample(Standard);
 
             let mut sum: f64 = 0.0;
             for state in 0..nstates {
@@ -59,18 +64,24 @@ impl Simulation {
         }
         //  If the energy gap between the first excited state and the ground state
         //  approaches zero, because the trajectory has hit a conical intersection to
-        //  the ground state, TD-DFT will break down. In this case, a transition
+        //  the ground state, TD-DFTB will break down. In this case, a transition
         //  to the ground state is forced.
-        let threshold: f64 = 0.1 / 27.211;
+        let threshold: f64 = self.config.hopping_config.force_switch_s0s1_threshold / 27.2114;
         if new_state > 0 && self.config.hopping_config.force_switch_to_gs {
             let gap: f64 = self.energies[new_state] - self.energies[0];
             if gap < threshold {
+                println!("-------------------------------------------------------------------------------------");
                 println!("Conical intersection to ground state reached.");
                 println!("The trajectory will continue on the ground state.");
+                println!("-------------------------------------------------------------------------------------");
                 new_state = 0;
+                let mut new_coeffs: Array1<c64> = Array1::zeros(self.config.nstates);
+                new_coeffs[0] = c64::from(1.0);
+                self.coefficients = new_coeffs;
                 // if a conical intersection to the ground state is encountered
                 // force the dynamic to stay in the ground state
-                self.config.gs_dynamic = true;
+                self.config.gs_dynamic = false;
+                self.config.use_surface_hopping = false;
             }
         }
         self.state = new_state;
@@ -98,7 +109,7 @@ impl Simulation {
         }
         let tmp: f64 =
             new_coefficients[self.state].re.powi(2) + new_coefficients[self.state].im.powi(2);
-        new_coefficients[self.state] = new_coefficients[self.state] * (1.0 - sm).sqrt() / tmp;
+        new_coefficients[self.state] *= ((1.0 - sm) / tmp).sqrt();
 
         new_coefficients
     }
@@ -123,81 +134,131 @@ impl Simulation {
     }
 
     pub fn rescaled_velocities(&self, old_state: usize) -> (Array2<f64>, usize) {
-        let mut factor: f64 = 1.0;
-        // get the nac vector for the state pair
-        let new_state: usize = self.state;
-        let mut index_1: usize = new_state;
-        let mut index_2: usize = old_state;
+        let state_after_rescale: usize;
+        let mut vel_after_rescale = self.velocities.clone();
 
-        if new_state > old_state {
-            factor = -1.0;
-            index_1 = old_state;
-            index_2 = new_state;
-        }
-        // get the correct nac vector from the array
-        let mut count: usize = 0;
-        let mut nac_idx: usize = 0;
-        for idx_1 in 1..self.config.nstates {
-            for idx_2 in 1..self.config.nstates {
-                if idx_1 < idx_2 {
-                    if index_1 == idx_1 && index_2 == idx_2 {
-                        nac_idx = count;
+        if self.state > old_state
+            && (self.energies[self.state] - self.energies[old_state]) > self.kinetic_energy
+        {
+            state_after_rescale = old_state;
+        } else {
+            let mut factor: f64 = 1.0;
+            // get the nac vector for the state pair
+            let new_state: usize = self.state;
+            let mut index_1: usize = new_state;
+            let mut index_2: usize = old_state;
+
+            if new_state > old_state {
+                factor = -1.0;
+                index_1 = old_state;
+                index_2 = new_state;
+            }
+            // get the correct nac vector from the array
+            let mut count: usize = 0;
+            let mut nac_idx: Option<usize> = None;
+            for idx_1 in 0..self.config.nstates {
+                for idx_2 in 0..self.config.nstates {
+                    if idx_1 < idx_2 {
+                        if index_1 == idx_1 && index_2 == idx_2 {
+                            nac_idx = Some(count);
+                        }
+                        count += 1;
                     }
                 }
-                count += 1;
             }
-        }
-        // get the nac vector
-        let nac_vector: Array1<f64> = self.nonadiabatic_vectors[nac_idx].clone();
-        // reshape the nac vector
-        let nac_vector: Array2<f64> = nac_vector.into_shape([self.n_atoms, 3]).unwrap();
+            let nac_idx: usize = nac_idx.unwrap();
+            // get the nac vector
+            let nac_vector: Array1<f64> = self.nonadiabatic_vectors[nac_idx].clone();
+            // reshape the nac vector
+            let nac_vector: Array2<f64> = nac_vector.into_shape([self.n_atoms, 3]).unwrap();
 
-        let mut state: usize = new_state;
+            let mut state: usize = new_state;
+            // get the energy difference
+            let delta_e: f64 = self.energies[old_state] - self.energies[new_state];
 
-        // get the energy difference
-        let delta_e: f64 = self.energies[old_state] - self.energies[new_state];
+            // get the mass weighted nac vector
+            let mut mass_weigh_nad: Array2<f64> = factor * &nac_vector;
+            for i in 0..self.n_atoms {
+                mass_weigh_nad
+                    .slice_mut(s![i, ..])
+                    .div_assign(self.masses[i]);
+            }
 
-        // get the mass weighted nac vector
-        let mut mass_weigh_nad: Array2<f64> = factor * &nac_vector;
-        for i in 0..self.n_atoms {
-            mass_weigh_nad
-                .slice_mut(s![i, ..])
-                .div_assign(self.masses[i]);
-        }
+            // calculate the rescaling factors
+            let mut a: f64 = 0.0;
+            for i in 0..self.n_atoms {
+                a += nac_vector
+                    .slice(s![i, ..])
+                    .dot(&nac_vector.slice(s![i, ..]))
+                    / self.masses[i];
+            }
+            a *= 0.5;
+            let mut b: f64 = 0.0;
+            for i in 0..self.n_atoms {
+                b += self
+                    .velocities
+                    .slice(s![i, ..])
+                    .dot(&(factor * &nac_vector.slice(s![i, ..])));
+            }
+            let val: f64 = b.powi(2) + 4.0 * a * delta_e;
 
-        // calculate the rescaling factors
-        let mut a: f64 = 0.0;
-        for i in 0..self.n_atoms {
-            a += nac_vector
-                .slice(s![i, ..])
-                .dot(&nac_vector.slice(s![i, ..]))
-                / self.masses[i];
-        }
-        a = 0.5 * a;
-        let mut b: f64 = 0.0;
-        for i in 0..self.n_atoms {
-            b += self
-                .velocities
-                .slice(s![i, ..])
-                .dot(&nac_vector.slice(s![i, ..]));
-        }
-        let val: f64 = b.powi(2) + 4.0 * a * delta_e;
+            let gamma: f64;
+            let new_velocities: Array2<f64>;
+            // check frustrated hop
+            if val < 0.0 {
+                println!("Frustrated hop occured!");
+                state = old_state;
 
-        let gamma: f64;
-        if val < 0.0 {
-            state = old_state;
-            gamma = b / a;
-        } else {
-            if b < 0.0 {
-                gamma = (b + val.sqrt()) / (2.0 * a);
+                if self.config.hopping_config.use_rescaling_at_frustrated_hop {
+                    gamma = b / a;
+                    let nac_1d: Array1<f64> =
+                        factor * nac_vector.clone().into_shape([3 * self.n_atoms]).unwrap();
+                    let forces_1d: Array1<f64> =
+                        self.forces.clone().into_shape([3 * self.n_atoms]).unwrap();
+                    let mut momentum: Array2<f64> = self.velocities.clone();
+                    for i in 0..self.n_atoms {
+                        momentum.slice_mut(s![i, ..]).div_assign(self.masses[i])
+                    }
+                    let velocities_1d: Array1<f64> =
+                        momentum.into_shape([3 * self.n_atoms]).unwrap();
+
+                    let p_h: f64 = velocities_1d.dot(&nac_1d);
+                    let f_h: f64 = forces_1d.dot(&nac_1d);
+                    let sign: f64 = p_h * f_h;
+                    // criterium for rescaling
+                    if sign < 0.0 {
+                        println!("Rescaled after frustrated hop!");
+                        new_velocities = &self.velocities - &(gamma * mass_weigh_nad);
+                    } else {
+                        new_velocities = self.velocities.clone();
+                    }
+                } else {
+                    new_velocities = self.velocities.clone();
+                }
             } else {
-                gamma = (b - val.sqrt()) / (2.0 * a);
+                println!("Hop occurs, the pot. diff is {:.5} eV!", delta_e * 27.2114);
+                // let compare_val_1: f64 = (-b + val.sqrt()).abs();
+                // let compare_val_2: f64 = (-b - val.sqrt()).abs();
+                // if compare_val_1 < compare_val_2 {
+                //     gamma = (-b + val.sqrt()) / (2.0 * a);
+                // } else {
+                //     gamma = (-b - val.sqrt()) / (2.0 * a);
+                // }
+                // get the new velocities
+                // new_velocities = &self.velocities + &(gamma * mass_weigh_nad);
+                if b < 0.0 {
+                    gamma = (b + val.sqrt()) / (2.0 * a);
+                } else {
+                    gamma = (b - val.sqrt()) / (2.0 * a);
+                }
+                // get the new velocities
+                new_velocities = &self.velocities - &(gamma * mass_weigh_nad);
             }
+            vel_after_rescale = new_velocities;
+            state_after_rescale = state;
         }
-        // get the new velocities
-        let new_velocities = &self.velocities - &(gamma * mass_weigh_nad);
 
-        (new_velocities, state)
+        (vel_after_rescale, state_after_rescale)
     }
 
     /// Rescaling of the velocities when using the energy conservation approach

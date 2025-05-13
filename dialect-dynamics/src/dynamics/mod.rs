@@ -4,6 +4,7 @@ pub use hopping_routines::*;
 pub mod dynamic_routines;
 mod ehrenfest;
 mod ehrenfest_integration;
+pub mod ehrenfest_tab;
 pub mod hopping_routines;
 pub mod schroedinger_integration;
 pub mod simulation;

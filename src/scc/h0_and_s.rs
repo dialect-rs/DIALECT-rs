@@ -16,12 +16,12 @@ pub fn h0_and_s_ab(
     let mut s: Array2<f64> = Array2::zeros((n_orbs_a, n_orbs_b));
     // iterate over atoms
     let mut mu: usize = 0;
-    for (_i, atomi) in atoms_a.iter().enumerate() {
+    for atomi in atoms_a.iter() {
         // iterate over orbitals on center i
         for orbi in atomi.valorbs.iter() {
             // iterate over atoms
             let mut nu: usize = 0;
-            for (_j, atomj) in atoms_b.iter().enumerate() {
+            for atomj in atoms_b.iter() {
                 // iterate over orbitals on center j
                 for orbj in atomj.valorbs.iter() {
                     //if geometry.proximities.as_ref().unwrap()[[i, j]] {
@@ -78,13 +78,13 @@ pub fn h0_and_s_ab(
                             );
                         }
                     }
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
-    return (s, h0);
+    (s, h0)
 }
 
 /// Computes the H0 and S matrix elements for a single molecule.
@@ -141,10 +141,10 @@ pub fn s_supersystem(n_orbs: usize, atoms: &[Atom], skt: &SlaterKoster) -> Array
                             s[[mu, nu]] = s[[nu, mu]];
                         }
                     }
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
     s
@@ -229,13 +229,13 @@ pub fn h0_and_s(n_orbs: usize, atoms: &[Atom], skt: &SlaterKoster) -> (Array2<f6
                             h0[[mu, nu]] = h0[[nu, mu]];
                         }
                     }
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
-    return (s, h0);
+    (s, h0)
 }
 
 // gradients of overlap matrix S and 0-order hamiltonian matrix H0
@@ -348,13 +348,13 @@ pub fn h0_and_s_gradients(
                             .slice_mut(s![(3 * i)..(3 * i + 3), nu, mu])
                             .assign(&h0_deriv);
                     }
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
-    return (grad_s, grad_h0);
+    (grad_s, grad_h0)
 }
 
 pub fn s_gradient(atoms: &[Atom], n_orbs: usize, skt: &SlaterKoster) -> Array3<f64> {
@@ -421,22 +421,21 @@ pub fn s_gradient(atoms: &[Atom], n_orbs: usize, skt: &SlaterKoster) -> Array3<f
                             .slice_mut(s![(3 * i)..(3 * i + 3), nu, mu])
                             .assign(&s_deriv);
                     }
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
-    return grad_s;
+    grad_s
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::initialization::Properties;
     use crate::initialization::System;
-    use crate::utils::*;
-    use approx::AbsDiffEq;
+    use crate::properties::Properties;
+    use crate::utils::tests::{get_molecule, AVAILAIBLE_MOLECULES};
 
     pub const EPSILON: f64 = 1e-15;
 
@@ -470,7 +469,7 @@ mod tests {
     fn get_h0_and_s() {
         let names = AVAILAIBLE_MOLECULES;
         for molecule in names.iter() {
-            test_h0_and_s(get_molecule(molecule, "no_lc_gs"));
+            test_h0_and_s(get_molecule(molecule));
         }
     }
 }

@@ -1,6 +1,109 @@
+use crate::initialization::System;
+use log::info;
 use ndarray::concatenate;
 use ndarray::prelude::*;
 use ndarray_linalg::SVD;
+use std::cmp::Ordering;
+
+impl System {
+    pub fn get_ntos_for_state(&self, state: usize) {
+        // get the tdm, the MO coefficients and the lumo index
+        let tdm: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let dim_o: usize = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold)
+                as usize;
+            let dim_v: usize = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold)
+                as usize;
+            self.properties
+                .tdm_restricted(state, dim_o, dim_v)
+                .unwrap()
+                .to_owned()
+        } else {
+            self.properties.tdm(state).unwrap().to_owned()
+        };
+
+        let orbs: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let dim_o: usize = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold)
+                as usize;
+            let dim_v: usize = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold)
+                as usize;
+            let homo: usize = self.virt_indices[0] - 1;
+            let lumo: usize = self.virt_indices[0];
+            let orbs = self.properties.orbs().unwrap();
+            orbs.slice(s![.., homo + 1 - dim_o..lumo + dim_v])
+                .to_owned()
+        } else {
+            self.properties.orbs().unwrap().to_owned()
+        };
+        // calculate the ntos
+        let (lambda, ntos): (Array1<f64>, Array2<f64>) =
+            natural_transition_orbitals_for_cubes(tdm.view(), orbs.view());
+        // get nocc
+        let (nocc, nvirt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
+            let dim_o: usize = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold)
+                as usize;
+            let dim_v: usize = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold)
+                as usize;
+            (dim_o, dim_v)
+        } else {
+            (self.occ_indices.len(), self.virt_indices.len())
+        };
+        let honto_idx: usize = if nocc > nvirt {
+            nocc - (nocc - nvirt) - 1
+        } else {
+            nocc - 1
+        };
+
+        // logging
+        info!("{:^80}", "");
+        info!(
+            "{:^22} {}{} ",
+            "",
+            "Natural Transition Orbitals for S",
+            state + 1
+        );
+        info!("{:-^80}", "");
+
+        // check lambdas
+        let mut index_vec: Vec<usize> = Vec::new();
+        for (idx, lambda_val) in lambda.iter().enumerate() {
+            if *lambda_val > 0.05 {
+                index_vec.push(idx);
+                if idx < honto_idx + 1 {
+                    let diff_from_honto: usize = honto_idx - idx;
+                    info!(
+                        "Transition: {} --> {}, Amplitude: {:.4}",
+                        idx + 1,
+                        (honto_idx + 1 + diff_from_honto) + 1,
+                        lambda_val
+                    );
+                }
+            }
+        }
+
+        // array for orbitals
+        let mut orbital_array: Array2<f64> = Array2::zeros([self.n_orbs, index_vec.len()]);
+
+        // create cube files for the highest contributions above 10 percent
+        for (idx, idx_val) in index_vec.iter().enumerate() {
+            let lambda_val: f64 = lambda[*idx_val];
+            if lambda_val > 0.1 {
+                // create the cube files
+                // self.cube_from_orbital(nto, idx, state);
+                orbital_array
+                    .slice_mut(s![.., idx])
+                    .assign(&ntos.slice(s![.., *idx_val]));
+            }
+        }
+        let index_vec: Vec<usize> = index_vec.iter().map(|idx| *idx + 1).collect();
+        self.cube_from_orbital_arr(orbital_array.view(), &index_vec, state + 1, "nto");
+    }
+}
 
 /// Compute the MO coefficients of natural transition orbitals.
 ///
@@ -89,6 +192,53 @@ pub fn natural_transition_orbitals(
     (lambda, ntos)
 }
 
+pub fn natural_transition_orbitals_for_cubes(
+    tdm: ArrayView2<f64>,
+    orbs: ArrayView2<f64>,
+) -> (Array1<f64>, Array2<f64>) {
+    // Number of occupied and virtual orbitals.
+    let (n_occ, n_virt): (usize, usize) = tdm.dim();
+
+    // The number of occupied/virtual orbitals is given by the smaller of the two, due to the SVD
+    let crop: CropCoeffs = CropCoeffs::new(n_occ, n_virt);
+
+    // Singular value decomposition of the reduced transition density matrix in MO basis.
+    let (u, sigma, vt): (Option<Array2<f64>>, Array1<f64>, Option<Array2<f64>>) =
+        tdm.svd(true, true).unwrap();
+
+    // Invert the NTO axis (columns) of U, since the singular values are ordered in decreasing order.
+    let mut u: Array2<f64> = u.unwrap();
+    u.invert_axis(Axis(1));
+
+    // Singular values.
+    let lambda: Array1<f64> = &sigma * &sigma;
+    let mut lambda_rev: Array1<f64> = lambda.clone();
+    lambda_rev.invert_axis(Axis(0));
+    let lambda: Array1<f64> = concatenate![Axis(0), lambda_rev, lambda];
+
+    // Array for the MO coefficients of the natural transition orbitals.
+    let mut ntos: Array2<f64> = Array2::zeros(orbs.raw_dim());
+
+    // Occupied orbitals are transformed.
+    ntos.slice_mut(s![.., 0..n_occ])
+        .assign(&(orbs.slice(s![.., ..n_occ]).dot(&u)));
+
+    // Virtual orbitals are transformed.
+    ntos.slice_mut(s![.., n_occ..])
+        .assign(&(orbs.slice(s![.., n_occ..]).dot(&vt.unwrap().t())));
+
+    // The NTO coefficients are cropped so that the length of the singular values corresponds to
+    // the NTOs.
+    ntos = match crop {
+        CropCoeffs::None => ntos,
+        CropCoeffs::Occ(n) => ntos.slice_move(s![.., n..]),
+        CropCoeffs::Virt(n) => ntos.slice_move(s![.., ..n]),
+    };
+
+    // (singular values, coefficients of NTOs)
+    (lambda, ntos)
+}
+
 /// The length of singular values from the SVD corresponds to the shorter axis of the input matrix.
 /// In the case that there are more occupied orbitals than virtual ones, the MO coefficients of the
 /// occupied orbitals need to be cropped. If there are less occupied orbitals then the highest
@@ -103,13 +253,18 @@ enum CropCoeffs {
 
 impl CropCoeffs {
     pub fn new(n_occ: usize, n_virt: usize) -> Self {
-        if n_occ == n_virt {
-            Self::None
-        } else if n_occ > n_virt {
-            Self::Occ(n_occ - n_virt)
-        } else {
-            Self::Virt(2 * n_occ)
+        match n_occ.cmp(&n_virt) {
+            Ordering::Equal => Self::None,
+            Ordering::Greater => Self::Occ(n_occ - n_virt),
+            Ordering::Less => Self::Virt(2 * n_occ),
         }
+        // if n_occ == n_virt {
+        //     Self::None
+        // } else if n_occ > n_virt {
+        //     Self::Occ(n_occ - n_virt)
+        // } else {
+        //     Self::Virt(2 * n_occ)
+        // }
     }
 }
 

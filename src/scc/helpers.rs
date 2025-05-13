@@ -9,7 +9,7 @@ use ndarray::prelude::*;
 pub fn get_frontier_orbitals(n_elec: usize) -> (usize, usize) {
     let homo: usize = (n_elec / 2) - 1;
     let lumo: usize = homo + 1;
-    return (homo, lumo);
+    (homo, lumo)
 }
 
 // find indices of HOMO and LUMO orbitals (starting from 0)
@@ -22,7 +22,7 @@ pub fn get_frontier_orbitals_from_occ(f: &[f64]) -> (usize, usize) {
         .len();
     let homo: usize = n_occ - 1;
     let lumo: usize = homo + 1;
-    return (homo, lumo);
+    (homo, lumo)
 }
 
 // compute HOMO-LUMO gap in Hartree
@@ -40,7 +40,7 @@ pub fn get_repulsive_energy(atoms: &[Atom], n_atoms: usize, v_rep: &RepulsivePot
             e_nuc += v_rep.get(atomi.kind, atomj.kind).spline_eval(r);
         }
     }
-    return e_nuc;
+    e_nuc
 }
 
 /// the repulsive potential, the dispersion correction and only depend on the nuclear
@@ -72,7 +72,7 @@ pub fn get_electronic_energy(
         e_elec += e_hf_x;
     }
 
-    return e_elec;
+    e_elec
 }
 
 pub fn get_electronic_energy_unrestricted(
@@ -99,7 +99,7 @@ pub fn get_electronic_energy_unrestricted(
     // electronic energy as sum of band structure energy and Coulomb energy
     let e_elec: f64 = e_band_structure + e_coulomb + e_spin;
 
-    return e_elec;
+    e_elec
 }
 
 /// Construct part of the Hamiltonian corresponding to long range
@@ -112,36 +112,6 @@ pub fn lc_exact_exchange(
     g0_lr_ao: ArrayView2<f64>,
     dp: ArrayView2<f64>,
 ) -> Array2<f64> {
-    // let mut hx: Array2<f64> = (&g0_lr_ao * &s.dot(&dp)).dot(&s);
-    // hx = hx + &g0_lr_ao * &(s.dot(&dp)).dot(&s);
-    // hx = hx + (s.dot(&(&dp * &g0_lr_ao))).dot(&s);
-    // hx = hx + s.dot(&(&g0_lr_ao * &dp.dot(&s)));
-    // hx = hx * -0.125;
-
-    // let mut hx: Array2<f64> = Array2::zeros(s.raw_dim());
-    // let dim = s.dim().0;
-    // for mu in 0..dim {
-    //     for nu in 0..dim {
-    //         if mu <= nu{
-    //             for la in 0..dim {
-    //                 for sig in 0..dim {
-    //                     hx[[mu, nu]] += -0.125
-    //                         * dp[[la, sig]]
-    //                         * s[[mu, la]]
-    //                         * s[[nu, sig]]
-    //                         * (g0_lr_ao[[mu, sig]]
-    //                         + g0_lr_ao[[mu, nu]]
-    //                         + g0_lr_ao[[la, sig]]
-    //                         + g0_lr_ao[[la, nu]]);
-    //                 }
-    //             }
-    //         }
-    //         else{
-    //             hx[[mu,nu]] = hx[[nu,mu]];
-    //         }
-    //     }
-    // }
-
     let s_dot_dp = s.dot(&dp);
     let tmp = (&g0_lr_ao * &s_dot_dp).dot(&s);
     let mut hx: Array2<f64> = &tmp + &tmp.t();
@@ -150,7 +120,7 @@ pub fn lc_exact_exchange(
     hx *= -0.125;
     hx = 0.5 * (&hx + &hx.t());
 
-    return hx;
+    hx
 }
 
 pub fn lc_exchange_energy(
@@ -161,10 +131,10 @@ pub fn lc_exchange_energy(
 ) -> f64 {
     let dp: Array2<f64> = &p - &p0;
     let mut e_hf_x: f64 = 0.0;
-    e_hf_x += ((s.dot(&dp.dot(&s))) * &dp * &g0_lr_ao).sum();
-    e_hf_x += (s.dot(&dp) * dp.dot(&s) * &g0_lr_ao).sum();
+    e_hf_x += ((s.dot(&dp.dot(&s))) * &dp * g0_lr_ao).sum();
+    e_hf_x += (s.dot(&dp) * dp.dot(&s) * g0_lr_ao).sum();
     e_hf_x *= -0.125;
-    return e_hf_x;
+    e_hf_x
 }
 
 /// Compute electronic energies
@@ -181,12 +151,29 @@ pub fn get_electronic_energy_new(
     // electronic energy as sum of band structure energy and Coulomb energy
     let e_elec: f64 = e_band_structure + e_coulomb;
 
-    return e_elec;
+    e_elec
+}
+
+pub fn get_electronic_energy_gamma_shell_resolved(
+    p: ArrayView2<f64>,
+    h0: ArrayView2<f64>,
+    dq_ao: ArrayView1<f64>,
+    gamma_ao: ArrayView2<f64>,
+) -> f64 {
+    // band structure energy
+    let e_band_structure: f64 = (&p * &h0).sum();
+    // Coulomb energy from monopoles
+    let e_coulomb: f64 = 0.5 * &dq_ao.dot(&gamma_ao.dot(&dq_ao));
+    // electronic energy as sum of band structure energy and Coulomb energy
+    let e_elec: f64 = e_band_structure + e_coulomb;
+
+    e_elec
 }
 
 pub fn calc_coulomb_third_order(gamma_third_order: ArrayView2<f64>, dq: ArrayView1<f64>) -> f64 {
     let dq2: Array1<f64> = dq.mapv(|val| val.powi(2));
-    1.0 / 3.0 * &dq2.dot(&gamma_third_order.dot(&dq))
+    let third_energy: f64 = 1.0 / 3.0 * dq2.dot(&gamma_third_order.dot(&dq));
+    third_energy
 }
 
 pub fn calc_exchange(s: ArrayView2<f64>, g0_lr_ao: ArrayView2<f64>, dp: ArrayView2<f64>) -> f64 {
@@ -210,7 +197,7 @@ pub fn density_matrix(orbs: ArrayView2<f64>, f: &[f64]) -> Array2<f64> {
     }
     let f_occ_mat: Array2<f64> = Array2::from_shape_vec(occ_orbs.raw_dim(), f_occ_mat).unwrap();
     let p: Array2<f64> = (f_occ_mat * &occ_orbs).dot(&occ_orbs.t());
-    return p;
+    p
 }
 
 /// Construct reference density matrix
@@ -226,7 +213,13 @@ pub fn density_matrix_ref(n_orbs: usize, atoms: &[Atom]) -> Array2<f64> {
             idx += 1;
         }
     }
-    return p0;
+    p0
+}
+
+pub fn outer_sum(vec: ArrayView1<f64>) -> Array2<f64> {
+    let vec_column: Array2<f64> = vec.to_owned().insert_axis(Axis(1));
+    let result: Array2<f64> = &vec_column.broadcast((vec.dim(), vec.dim())).unwrap() + &vec;
+    result
 }
 
 pub fn construct_h1(
@@ -245,13 +238,13 @@ pub fn construct_h1(
             for (j, atomj) in atoms.iter().enumerate() {
                 for _ in 0..(atomj.n_orbs) {
                     h1[[mu, nu]] = 0.5 * (e_stat_pot[i] + e_stat_pot[j]);
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
-    return h1;
+    h1
 }
 
 pub fn construct_h_third_order(
@@ -261,6 +254,7 @@ pub fn construct_h_third_order(
     dq: ArrayView1<f64>,
 ) -> Array2<f64> {
     let e_stat_pot: Array1<f64> = gamma_third_order.dot(&dq);
+    let e_stat_pot2: Array1<f64> = dq.map(|val| val.powi(2)).dot(&gamma_third_order);
     let mut h: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
     let mut mu: usize = 0;
     let mut nu: usize;
@@ -270,22 +264,94 @@ pub fn construct_h_third_order(
             for (j, atomj) in atoms.iter().enumerate() {
                 for _ in 0..(atomj.n_orbs) {
                     let contrib_1: f64 =
-                        1.0 / 2.0 * (e_stat_pot[i] * dq[i] + e_stat_pot[j] * dq[j]);
-                    let mut contrib_2: f64 = 0.0;
-                    for (k, atomk) in atoms.iter().enumerate() {
-                        contrib_2 +=
-                            (gamma_third_order[[k, i]] + gamma_third_order[[k, j]]) * dq[k].powi(2);
-                    }
-                    contrib_2 += 1.0 / 6.0;
+                        1.0 / 3.0 * (e_stat_pot[i] * dq[i] + e_stat_pot[j] * dq[j]);
+                    let contrib_2: f64 = 1.0 / 6.0 * (e_stat_pot2[i] + e_stat_pot2[j]);
                     // add to h
                     h[[mu, nu]] = contrib_1 + contrib_2;
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
-    return h;
+    h
+}
+
+pub fn construct_third_order_gradient_contribution(
+    n_orbs: usize,
+    atoms: &[Atom],
+    gamma_third_order: ArrayView2<f64>,
+    dq: ArrayView1<f64>,
+) -> Array2<f64> {
+    let e_stat_pot: Array1<f64> = gamma_third_order.dot(&dq);
+    let e_stat_pot_2: Array1<f64> = dq.map(|val| val.powi(2)).dot(&gamma_third_order);
+    let mut h: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
+    let mut mu: usize = 0;
+    let mut nu: usize;
+    for (i, atomi) in atoms.iter().enumerate() {
+        for _ in 0..(atomi.n_orbs) {
+            nu = 0;
+            for (j, atomj) in atoms.iter().enumerate() {
+                for _ in 0..(atomj.n_orbs) {
+                    // add to h
+                    h[[mu, nu]] = (2.0 * e_stat_pot[i] * dq[i]
+                        + e_stat_pot_2[i]
+                        + 2.0 * e_stat_pot[j] * dq[j]
+                        + e_stat_pot_2[j])
+                        / 3.0;
+                    nu += 1;
+                }
+            }
+            mu += 1;
+        }
+    }
+    h
+}
+
+pub fn construct_third_order_gradient_contribution_test(
+    n_orbs: usize,
+    atoms: &[Atom],
+    gamma_third_order: ArrayView2<f64>,
+    dq: ArrayView1<f64>,
+    grad_atom: &Atom,
+    atom_idx: usize,
+) -> Array2<f64> {
+    let e_stat_pot: Array1<f64> = gamma_third_order.dot(&dq);
+    let e_stat_pot_2: Array1<f64> = dq.map(|val| val.powi(2)).dot(&gamma_third_order);
+    let mut h: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
+    let mut mu: usize = 0;
+    let mut nu: usize;
+
+    let mut ao_count: usize = 0;
+    let mut count: usize = 0;
+    for (idx, atom) in atoms.iter().enumerate() {
+        if idx == atom_idx {
+            ao_count = count;
+            break;
+        }
+        for _ in 0..(atom.n_orbs) {
+            count += 1;
+        }
+    }
+
+    for (i, atomi) in atoms.iter().enumerate() {
+        for _ in 0..(atomi.n_orbs) {
+            nu = ao_count;
+            if atom_idx != i {
+                for _ in 0..(grad_atom.n_orbs) {
+                    // add to h
+                    h[[mu, nu]] = (2.0 * e_stat_pot[i] * dq[i]
+                        + e_stat_pot_2[i]
+                        + 2.0 * e_stat_pot[atom_idx] * dq[atom_idx]
+                        + e_stat_pot_2[atom_idx])
+                        / 3.0;
+                    nu += 1;
+                }
+            }
+            mu += 1;
+        }
+    }
+    h
 }
 
 pub fn construct_h_magnetization(
@@ -304,13 +370,13 @@ pub fn construct_h_magnetization(
             for (j, atomj) in atoms.iter().enumerate() {
                 for _ in 0..(atomj.n_orbs) {
                     h[[mu, nu]] = 0.5 * (pot[i] + pot[j]);
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
-    return h;
+    h
 }
 
 pub(crate) fn enable_level_shifting(orbe: ArrayView1<f64>, n_elec: usize) -> bool {

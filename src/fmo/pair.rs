@@ -43,7 +43,7 @@ pub fn get_pair_type(mi_atoms: &[Atom], mj_atoms: &[Atom], vdw_scaling: f64) -> 
             }
         }
     }
-    return kind;
+    kind
 }
 
 /// Type that holds a fragment pair that use the ESD approximation. For this kind of pair no SCC
@@ -82,13 +82,13 @@ impl<'a> ESDPair<'a> {
         vrep: &'a RepulsivePotential,
     ) -> Self {
         Self {
-            i: i,
-            j: j,
+            i,
+            j,
             n_atoms: monomer1.n_atoms + monomer2.n_atoms,
             n_orbs: monomer1.n_orbs + monomer2.n_orbs,
             properties: Properties::new(),
-            vrep: vrep,
-            slako: slako,
+            vrep,
+            slako,
             gammafunction: monomer1.gammafunction.clone(),
             gammafunction_lc: monomer1.gammafunction_lc.clone(),
         }
@@ -154,13 +154,13 @@ impl<'a> Pair<'a> {
         vrep: &'a RepulsivePotential,
     ) -> Self {
         Self {
-            i: i,
-            j: j,
+            i,
+            j,
             n_atoms: monomer1.n_atoms + monomer2.n_atoms,
             n_orbs: monomer1.n_orbs + monomer2.n_orbs,
             properties: Properties::new(),
-            vrep: vrep,
-            slako: slako,
+            vrep,
+            slako,
             gammafunction: monomer1.gammafunction.clone(),
             gammafunction_lc: monomer1.gammafunction_lc.clone(),
         }

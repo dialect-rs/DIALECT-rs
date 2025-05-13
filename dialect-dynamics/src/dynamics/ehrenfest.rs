@@ -1,16 +1,27 @@
 use crate::initialization::restart::read_restart_parameters;
 use crate::initialization::Simulation;
 use crate::interface::QCInterface;
+use crate::output::helper::{
+    print_footer_dynamics, print_footer_electronic_structure, print_header_dynamics_step,
+    print_init_electronic_structure,
+};
 use ndarray::prelude::*;
 use ndarray_linalg::c64;
+// use ndarray_npy::NpzWriter;
+// use std::fs::File;
+// use faer::{set_global_parallelism, Parallelism};
 use std::ops::AddAssign;
+use std::time::Instant;
 
 impl Simulation {
     ///Ehrenfest dynamics routine of the struct Simulation
     pub fn ehrenfest_dynamics(&mut self, interface: &mut dyn QCInterface) {
-        self.initialize_ehrenfest(interface, 0);
+        let initial_step: usize = self.initialize_ehrenfest(interface);
         for step in 1..self.config.nstep {
-            self.ehrenfest_step(interface, step);
+            print_header_dynamics_step();
+            let timer: Instant = Instant::now();
+            self.ehrenfest_step(interface, step + initial_step);
+            print_footer_dynamics(timer.elapsed().as_secs_f64());
         }
     }
 
@@ -20,14 +31,8 @@ impl Simulation {
         // calculate the gradient and the excitonic couplings
         let excitonic_couplings: Array2<f64> = self.get_ehrenfest_data(interface, step);
 
-        // ehrenfest procedure
-        if self.config.ehrenfest_config.use_state_couplings {
-            self.coefficients = self.ehrenfest_matrix_exponential_nacme(excitonic_couplings.view());
-        } else if self.config.ehrenfest_config.use_rk_integration {
-            self.coefficients = self.ehrenfest_rk(excitonic_couplings.view());
-        } else {
-            self.coefficients = self.ehrenfest_matrix_exponential_2(excitonic_couplings.view());
-        }
+        // ehrenfest integration
+        self.choose_ehrenfest_integration(excitonic_couplings.view());
 
         // Calculate new coordinates from velocity-verlet
         self.velocities = self.get_velocities_verlet(old_forces.view());
@@ -52,21 +57,35 @@ impl Simulation {
         self.coordinates = self.shift_to_center_of_mass();
     }
 
-    pub fn initialize_ehrenfest(&mut self, interface: &mut dyn QCInterface, step: usize) {
-        if self.config.restart_flag {
-            self.restart_trajectory_ehrenfest(interface, step);
-            // Print settings
-            self.print_ehrenfest_data(None, false, 0);
+    pub fn choose_ehrenfest_integration(&mut self, excitonic_couplings: ArrayView2<f64>) {
+        // ehrenfest procedure
+        if self.config.ehrenfest_config.use_state_coupling {
+            self.coefficients = self.ehrenfest_matrix_exponential_nacme(excitonic_couplings.view());
+        } else if self.config.ehrenfest_config.use_rk_integration {
+            self.coefficients = self.ehrenfest_rk(excitonic_couplings.view());
         } else {
-            self.initiate_ehrenfest_trajectory(interface, step);
+            self.coefficients = self.ehrenfest_matrix_exponential_2(excitonic_couplings.view());
+        }
+    }
+
+    pub fn initialize_ehrenfest(&mut self, interface: &mut dyn QCInterface) -> usize {
+        let step: usize = if self.config.restart_flag {
+            let step: usize = self.restart_trajectory_ehrenfest(interface);
+            // Print settings
+            self.print_ehrenfest_data(None, false, step);
+            step
+        } else {
+            self.initiate_ehrenfest_trajectory(interface, 0);
             // Print settings
             self.print_ehrenfest_data(None, true, 0);
-        }
+            0
+        };
 
         // Calculate new coordinates from velocity-verlet
         self.coordinates = self.get_coord_verlet();
         // Shift coordinates to center of mass
         self.coordinates = self.shift_to_center_of_mass();
+        step
     }
 
     /// Initiate the trajectory
@@ -77,24 +96,41 @@ impl Simulation {
         // remove tranlation and rotation
         self.velocities = self.eliminate_translation_rotation_from_velocity();
         // do the first calculation using the QuantumChemistryInterface
-        self.get_ehrenfest_data(interface, step);
+        if self.config.ehrenfest_config.use_tab_decoherence {
+            self.get_ehrenfest_data_tab(interface, step);
+        } else {
+            self.get_ehrenfest_data(interface, step);
+        }
 
         // calculate the kinetic energy
         self.kinetic_energy = self.get_kinetic_energy();
     }
 
     /// Restart the trajectory
-    pub fn restart_trajectory_ehrenfest(&mut self, interface: &mut dyn QCInterface, step: usize) {
-        let temp: (Array2<f64>, Array2<f64>, Array2<f64>, Array1<c64>) = read_restart_parameters();
+    pub fn restart_trajectory_ehrenfest(&mut self, interface: &mut dyn QCInterface) -> usize {
+        let temp: (
+            Array2<f64>,
+            Array2<f64>,
+            Array2<f64>,
+            Array1<c64>,
+            usize,
+            usize,
+        ) = read_restart_parameters();
         self.coordinates = temp.0;
         self.initial_coordinates = self.coordinates.clone();
         self.velocities = temp.1;
         self.nonadiabatic_scalar = temp.2;
         self.coefficients = temp.3;
+        let step: usize = temp.5;
 
         // calculate quantum chemical data
-        self.get_ehrenfest_data(interface, step);
+        if self.config.ehrenfest_config.use_tab_decoherence {
+            self.get_ehrenfest_data_tab(interface, step);
+        } else {
+            self.get_ehrenfest_data(interface, step);
+        }
         self.kinetic_energy = self.get_kinetic_energy();
+        step
     }
 
     pub fn get_ehrenfest_data(
@@ -102,15 +138,21 @@ impl Simulation {
         interface: &mut dyn QCInterface,
         step: usize,
     ) -> Array2<f64> {
-        let abs_coefficients: Array1<f64> = self.coefficients.map(|val| val.norm_sqr());
+        // header
+        print_init_electronic_structure();
+        // timer
+        let timer: Instant = Instant::now();
+
+        // let abs_coefficients: Array1<f64> = self.coefficients.map(|val| val.norm_sqr());
         let tmp: (f64, Array2<f64>, Array2<f64>, Array2<f64>) = interface.compute_ehrenfest(
             self.coordinates.view(),
             self.velocities.view(),
-            abs_coefficients.view(),
+            self.coefficients.view(),
+            // abs_coefficients.view(),
             self.config.ehrenfest_config.state_threshold,
             self.config.stepsize,
             step,
-            self.config.ehrenfest_config.use_state_couplings,
+            self.config.ehrenfest_config.use_state_coupling,
             self.config.nonadibatic_config.use_nacv_couplings,
         );
         self.energies[0] = tmp.0;
@@ -131,6 +173,10 @@ impl Simulation {
         if self.config.ehrenfest_config.use_restraint {
             self.apply_harmonic_restraint();
         }
+
+        // footer
+        print_footer_electronic_structure(timer.elapsed().as_secs_f64());
+
         // diabatic_couplings
         excitonic_couplings
     }

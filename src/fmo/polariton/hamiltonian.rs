@@ -2,9 +2,10 @@ use crate::fmo::polariton::polaritonic_state::ExcitonPolaritonStates;
 use crate::fmo::{BasisState, SuperSystem};
 use crate::initialization::Atom;
 use crate::io::settings::PolaritonConfig;
+use crate::{initial_subspace, Davidson};
 use nalgebra::Vector3;
+use ndarray::concatenate;
 use ndarray::prelude::*;
-use ndarray::{concatenate, Slice};
 use ndarray_linalg::{Eigh, UPLO};
 use rayon::prelude::*;
 use std::f64::consts::PI;
@@ -67,12 +68,17 @@ impl SuperSystem<'_> {
                         }
                     });
             });
-        let h: Array2<f64> = Array::from(h).into_shape((dim, dim)).unwrap();
+        let mut h: Array2<f64> = Array::from(h).into_shape((dim, dim)).unwrap();
         // increase the size of the array to include the interaction with the electric field of the cavity
         let photon_dim: usize = polariton_config.photon_energy.len();
-        let mut h_new: Array2<f64> = Array2::zeros([dim + photon_dim, dim + photon_dim]);
-        h_new.slice_mut(s![..dim, ..dim]).assign(&h);
-        drop(h);
+        // Extend the matrix
+        h.append(Axis(0), Array2::zeros([photon_dim, dim]).view())
+            .unwrap();
+        h.append(
+            Axis(1),
+            Array2::zeros([dim + photon_dim, photon_dim]).view(),
+        )
+        .unwrap();
 
         for (i, (((photon_energy, vol), p), e)) in polariton_config
             .photon_energy
@@ -87,29 +93,57 @@ impl SuperSystem<'_> {
             let mut arr: Array1<f64> = Array1::zeros(dim);
             if polarization == Vector3::zeros() {
                 for (i, state_i) in states.iter().enumerate() {
-                    match state_i {
-                        BasisState::LE(ref a) => {
-                            arr[i] = -g * (a.tr_dipole.dot(&a.tr_dipole).sqrt());
-                        }
-                        _ => {}
+                    if let BasisState::LE(ref a) = state_i {
+                        arr[i] = -g * (a.tr_dipole.dot(&a.tr_dipole).sqrt());
                     }
                 }
             } else {
-                let polarization = polarization / polarization.dot(&polarization).sqrt();
+                // let polarization = polarization / polarization.dot(&polarization).sqrt();
                 let polarization = Vector3::new(p[0] * e[0], p[1] * e[1], p[2] * e[2]);
                 for (i, state_i) in states.iter().enumerate() {
-                    match state_i {
-                        BasisState::LE(ref a) => {
-                            arr[i] = -g * (a.tr_dipole.dot(&polarization));
-                        }
-                        _ => {}
+                    if let BasisState::LE(ref a) = state_i {
+                        arr[i] = -g * (a.tr_dipole.dot(&polarization));
                     }
                 }
             }
-            h_new.slice_mut(s![..dim, dim + i]).assign(&arr);
-            h_new[[dim + i, dim + i]] = *photon_energy;
+            h.slice_mut(s![..dim, dim + i]).assign(&arr);
+            h[[dim + i, dim + i]] = *photon_energy;
         }
-        let (energies, eigvectors): (Array1<f64>, Array2<f64>) = h_new.eigh(UPLO::Lower).unwrap();
+
+        let energies: Array1<f64>;
+        let eigvectors: Array2<f64>;
+        // calculate all excited states
+        if self.config.fmo_lc_tddftb.calculate_all_states {
+            let (energies_tmp, eigvectors_tmp) = h.eigh(UPLO::Lower).unwrap();
+            energies = energies_tmp;
+            eigvectors = eigvectors_tmp;
+        } else {
+            // fill the matrix
+            for idx_1 in 0..(dim + photon_dim) {
+                for idx_2 in 0..(dim + photon_dim) {
+                    if idx_1 >= idx_2 {
+                        h[[idx_1, idx_2]] = h[[idx_2, idx_1]];
+                    }
+                }
+            }
+
+            // Use the davidson algorithm to obtain a limited number of eigenvalues
+            let nroots: usize = self.config.excited.nstates;
+            let guess: Array2<f64> = initial_subspace(h.diag(), nroots);
+            let davidson: Davidson = Davidson::new(
+                &mut h,
+                guess,
+                nroots,
+                1e-4,
+                200,
+                true,
+                self.config.excited.davidson_subspace_multiplier,
+                false,
+            )
+            .unwrap();
+            energies = davidson.eigenvalues;
+            eigvectors = davidson.eigenvectors;
+        }
 
         let n_occ: usize = self
             .monomers
@@ -137,7 +171,7 @@ impl SuperSystem<'_> {
                 .assign(&mol_orbs.slice(s![.., lumo..]));
         }
         let orbs: Array2<f64> = concatenate![Axis(1), occ_orbs, virt_orbs];
-        let orbs: Array2<f64> = orbs.map(|val| *val as f64);
+        let orbs: Array2<f64> = orbs.map(|val| *val);
 
         // calculate the oscillator strenghts of the excited states
         let polariton = ExcitonPolaritonStates::new(
@@ -150,7 +184,7 @@ impl SuperSystem<'_> {
         );
 
         // write the excited state spectra to files
-        polariton.spectrum_to_npy("lcmo_plrtn_spec.npy");
+        polariton.spectrum_to_npy("lcmo_plrtn_spec.npy").unwrap();
         polariton.spectrum_to_txt("lcmo_plrtn_spec.txt");
 
         println!("{}", polariton);

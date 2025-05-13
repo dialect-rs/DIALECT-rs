@@ -72,7 +72,7 @@ impl Mixer for BroydenMixer {
         let _q_in: Array1<f64> = q.clone();
         let mut q: Array1<f64> = q;
 
-        let rel_change: f64 = &delta_q.norm() / &self.delta_q_old.norm();
+        let rel_change: f64 = delta_q.norm() / self.delta_q_old.norm();
 
         // it is sometimes beneficial to restart the Broyden mixer to prevent convergence problems
         if self.iter > 0 && rel_change > 1.0 {
@@ -136,7 +136,7 @@ impl Mixer for BroydenMixer {
                             * &(&self.weights.slice(s![0..iter_usize])
                                 * &self.a_mat.slice(s![0..iter_usize, i]))),
                     );
-                    beta[[i, i]] = beta[[i, i]] + self.omega0.powi(2);
+                    beta[[i, i]] += self.omega0.powi(2);
                 }
                 // The inverse of the matrix is computed.
                 beta = beta.inv().unwrap();
@@ -155,13 +155,13 @@ impl Mixer for BroydenMixer {
                 // Build new vector
                 q = &q + &(self.alpha * &delta_q);
                 for i in 0..iter_usize {
-                    q = q - &(&self.uu.slice(s![.., i]) * self.weights[i] * gamma[i]);
+                    q -= &(&self.uu.slice(s![.., i]) * self.weights[i] * gamma[i]);
                 }
                 Ok(q)
             }
             _ => Err("SCC did not converge"),
         };
         self.iter += 1;
-        return q_out.unwrap();
+        q_out.unwrap()
     }
 }

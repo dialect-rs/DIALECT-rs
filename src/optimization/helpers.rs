@@ -1,6 +1,6 @@
-use crate::constants;
 use crate::fmo::SuperSystem;
-use crate::initialization::{Atom, System};
+use crate::initialization::System;
+use crate::xtb::initialization::system::XtbSystem;
 use ndarray::prelude::*;
 use ndarray_linalg::{into_col, into_row};
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,6 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::path::Path;
-
 // References
 // ----------
 // [1] J. Nocedal, S. Wright, 'Numerical Optimization', Springer, 2006
@@ -18,24 +17,23 @@ pub fn bfgs_update(
     sk: ArrayView1<f64>,
     yk: ArrayView1<f64>,
     k: usize,
-) -> (Array2<f64>) {
+) -> Array2<f64> {
     // update the inverse Hessian invH_(k+1) based on Algorithm 6.1 in Ref.[1]
     let n: usize = sk.len();
     let id: Array2<f64> = Array::eye(n);
-    let mut inv_hkp1: Array2<f64> = Array::zeros((n, n));
 
     assert!(k >= 1);
-    if k == 1 {
-        inv_hkp1 = yk.dot(&sk) / yk.dot(&yk) * &id;
+    let inv_hkp1: Array2<f64> = if k == 1 {
+        yk.dot(&sk) / yk.dot(&yk) * &id
     } else {
         let rk: f64 = 1.0 / yk.dot(&sk);
         let u: Array2<f64> = &id - &(rk * into_col(sk).dot(&into_row(yk)));
         let v: Array2<f64> = &id - &(rk * into_col(yk).dot(&into_row(sk)));
         let w: Array2<f64> = rk * into_col(sk).dot(&into_row(sk));
 
-        inv_hkp1 = u.dot(&inv_hk.dot(&v)) + w;
-    }
-    return inv_hkp1;
+        u.dot(&inv_hk.dot(&v)) + w
+    };
+    inv_hkp1
 }
 
 #[macro_export]
@@ -51,7 +49,7 @@ macro_rules! impl_line_search {
         ) -> Array1<f64> {
             // set defaults
             let mut a: f64 = 1.0;
-            let rho: f64 = 0.8;
+            let rho: f64 = 0.5;
             let c: f64 = 0.0001;
             let lmax: usize = 100;
 
@@ -61,7 +59,7 @@ macro_rules! impl_line_search {
             assert!(df <= 0.0, "pk = {} not a descent direction", &pk);
             let mut x_interp: Array1<f64> = Array::zeros(xk.len());
 
-            for i in 0..lmax {
+            for _i in 0..lmax {
                 x_interp = &xk + &(a * &pk);
 
                 // update coordinates
@@ -72,7 +70,7 @@ macro_rules! impl_line_search {
                 if energy <= (fk + c * a * df) {
                     break;
                 } else {
-                    a = a * rho;
+                    a *= rho;
                 }
             }
             return x_interp;
@@ -84,41 +82,42 @@ impl System {
     impl_line_search!();
 }
 
+impl XtbSystem {
+    impl_line_search!();
+}
+
 impl SuperSystem<'_> {
     impl_line_search!();
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct XYZ_Output {
+pub struct XYZOutput {
     pub atoms: Vec<String>,
     pub coordinates: Array2<f64>,
 }
 
-impl XYZ_Output {
-    pub fn new(atoms: Vec<String>, coordinates: Array2<f64>) -> XYZ_Output {
-        XYZ_Output {
-            atoms: atoms,
-            coordinates: coordinates,
-        }
+impl XYZOutput {
+    pub fn new(atoms: Vec<String>, coordinates: Array2<f64>) -> XYZOutput {
+        XYZOutput { atoms, coordinates }
     }
 }
 
-pub fn write_xyz_wigner(xyz: &XYZ_Output, filename: String) {
+pub fn write_xyz_wigner(xyz: &XYZOutput, filename: String) {
     let file_path: &Path = Path::new(&filename);
     let n_atoms: usize = xyz.atoms.len();
     let mut string: String = n_atoms.to_string();
-    string.push_str("\n");
-    string.push_str("\n");
-    for atom in (0..n_atoms) {
+    string.push('\n');
+    string.push('\n');
+    for atom in 0..n_atoms {
         let str: String = xyz.atoms[atom].to_string();
         string.push_str(&str);
-        string.push_str("\t");
-        for item in (0..3) {
+        string.push('\t');
+        for item in 0..3 {
             let str: String = xyz.coordinates.slice(s![atom, item]).to_string();
             string.push_str(&str);
-            string.push_str("\t");
+            string.push('\t');
         }
-        string.push_str("\n");
+        string.push('\n');
     }
 
     if file_path.exists() {
@@ -135,22 +134,22 @@ pub fn write_xyz_wigner(xyz: &XYZ_Output, filename: String) {
     }
 }
 
-pub fn write_xyz_custom(xyz: &XYZ_Output, first_call: bool) {
+pub fn write_xyz_custom(xyz: &XYZOutput, first_call: bool) {
     let file_path: &Path = Path::new("optimization.xyz");
     let n_atoms: usize = xyz.atoms.len();
     let mut string: String = n_atoms.to_string();
-    string.push_str("\n");
-    string.push_str("\n");
-    for atom in (0..n_atoms) {
+    string.push('\n');
+    string.push('\n');
+    for atom in 0..n_atoms {
         let str: String = xyz.atoms[atom].to_string();
         string.push_str(&str);
-        string.push_str("\t");
-        for item in (0..3) {
+        string.push('\t');
+        for item in 0..3 {
             let str: String = xyz.coordinates.slice(s![atom, item]).to_string();
             string.push_str(&str);
-            string.push_str("\t");
+            string.push('\t');
         }
-        string.push_str("\n");
+        string.push('\n');
     }
 
     if file_path.exists() {
@@ -171,22 +170,54 @@ pub fn write_xyz_custom(xyz: &XYZ_Output, first_call: bool) {
     }
 }
 
-pub fn write_last_geom(xyz: &XYZ_Output) {
+pub fn write_last_geom(xyz: &XYZOutput) {
     let file_path: &Path = Path::new("opt_geom.xyz");
     let n_atoms: usize = xyz.atoms.len();
     let mut string: String = n_atoms.to_string();
-    string.push_str("\n");
-    string.push_str("\n");
-    for atom in (0..n_atoms) {
+    string.push('\n');
+    string.push('\n');
+    for atom in 0..n_atoms {
         let str: String = xyz.atoms[atom].to_string();
         string.push_str(&str);
-        string.push_str("\t");
-        for item in (0..3) {
+        string.push('\t');
+        for item in 0..3 {
             let str: String = xyz.coordinates.slice(s![atom, item]).to_string();
             string.push_str(&str);
-            string.push_str("\t");
+            string.push('\t');
         }
-        string.push_str("\n");
+        string.push('\n');
+    }
+
+    if file_path.exists() {
+        let file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(file_path)
+            .unwrap();
+        let mut stream = BufWriter::new(file);
+        stream.write_fmt(format_args!("{}", string)).unwrap();
+        stream.flush().unwrap();
+    } else {
+        fs::write(file_path, string).expect("Unable to write to opt_geom.xyz file");
+    }
+}
+
+pub fn write_error_geom(xyz: &XYZOutput) {
+    let file_path: &Path = Path::new("error_geom.xyz");
+    let n_atoms: usize = xyz.atoms.len();
+    let mut string: String = n_atoms.to_string();
+    string.push('\n');
+    string.push('\n');
+    for atom in 0..n_atoms {
+        let str: String = xyz.atoms[atom].to_string();
+        string.push_str(&str);
+        string.push('\t');
+        for item in 0..3 {
+            let str: String = xyz.coordinates.slice(s![atom, item]).to_string();
+            string.push_str(&str);
+            string.push('\t');
+        }
+        string.push('\n');
     }
 
     if file_path.exists() {
@@ -211,19 +242,16 @@ pub struct OptEnergyOutput {
 
 impl OptEnergyOutput {
     pub fn new(step: usize, energy: f64) -> OptEnergyOutput {
-        OptEnergyOutput {
-            step: step,
-            energy: energy,
-        }
+        OptEnergyOutput { step, energy }
     }
 }
 
 pub fn write_opt_energy(energy_out: &OptEnergyOutput, first_call: bool) {
     let file_path: &Path = Path::new("opt_energies.txt");
     let mut string: String = energy_out.step.to_string();
-    string.push_str("\t");
+    string.push('\t');
     string.push_str(&energy_out.energy.to_string());
-    string.push_str("\n");
+    string.push('\n');
 
     if file_path.exists() {
         let file = if first_call {

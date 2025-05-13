@@ -27,5 +27,5 @@ pub fn gradient_disp(atoms: &[Atom], config: &DispersionConfig) -> Array1<f64> {
         .build();
     let param: RationalDamping3Param = RationalDamping3Param::from((d3param, &disp_mol.num));
     let disp_result = get_dispersion(&mut disp_mol, &disp, &param, &cutoff, false, true);
-    Array1::from_iter(disp_result.gradient.unwrap().into_iter())
+    Array1::from_iter(disp_result.gradient.unwrap())
 }

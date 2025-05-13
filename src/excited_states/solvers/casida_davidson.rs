@@ -43,6 +43,7 @@ impl CasidaSolver {
         tolerance: f64,
         max_iter: usize,
         subspace_multiplier: usize,
+        shell_resolved: bool,
     ) -> Result<Self, CasidaError> {
         // Timer to measure the time within the Davidson routine.
         let timer: Instant = Instant::now();
@@ -56,7 +57,7 @@ impl CasidaSolver {
         let mut dim_sub: usize = dim_sub_origin;
 
         // The maximal possible subspace, before it will be collapsed.
-        let mut max_space: usize = subspace_multiplier * n_roots;
+        let max_space: usize = subspace_multiplier * n_roots;
 
         // storage for print strings
         let mut print_str = String::from("");
@@ -74,7 +75,11 @@ impl CasidaSolver {
         for i in 0..max_iter {
             // 1. The initial subspace is formed by projecting into the new guess vectors.
             // Matrix-vector product of A with the trial vectors.
-            let (ax, bx): (Array2<f64>, Array2<f64>) = engine.compute_products(guess.view());
+            let (ax, bx): (Array2<f64>, Array2<f64>) = if shell_resolved {
+                engine.compute_products_ao(guess.view())
+            } else {
+                engine.compute_products(guess.view())
+            };
 
             // build a+b and a-b
             let a_m_b: Array2<f64> = &ax - &bx;
@@ -118,7 +123,7 @@ impl CasidaSolver {
                 guess = original_guess.clone();
                 // increase subspace and tolerance
                 // max_space = (subspace_multiplier + 1) * n_roots;
-                tolerance = tolerance + 2.0 * original_tol;
+                tolerance += 2.0 * original_tol;
             } else {
                 // 3.2 approximate right R = (X+Y) and left L = (X-Y) eigenvectors
                 // in the basis bs
@@ -222,7 +227,7 @@ impl CasidaSolver {
                         let orth_v: Array1<f64> = &vec - &guess.dot(&guess.t().dot(&vec));
                         let norm: f64 = orth_v.norm();
                         if norm > 1.0e-7 {
-                            guess.push_column((&orth_v / norm).view());
+                            guess.push_column((&orth_v / norm).view()).unwrap();
                             new_dim += 1;
                         }
                     }
@@ -233,7 +238,7 @@ impl CasidaSolver {
                         guess = ritz.slice(s![.., 0..dim_sub]).to_owned();
                     }
 
-                    dim_sub = dim_sub + new_dim;
+                    dim_sub += new_dim;
                 }
                 // 5.1 If the dimension is larger than the maximal subspace size, the subspace is
                 //     collapsed.

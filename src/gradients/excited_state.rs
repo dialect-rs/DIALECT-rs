@@ -1,9 +1,9 @@
-use crate::excited_states::trans_charges;
+use crate::excited_states::{trans_charges, trans_charges_ao};
 use crate::gradients::helpers::*;
 use crate::initialization::*;
 use crate::scc::gamma_approximation::{
     gamma_ao_wise_from_gamma_atomwise, gamma_gradients_ao_wise,
-    gamma_gradients_ao_wise_from_atomwise,
+    gamma_gradients_ao_wise_from_atomwise, gamma_gradients_ao_wise_shell_resolved,
 };
 use crate::utils::ToOwnedF;
 use ndarray::{s, Array, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
@@ -19,41 +19,65 @@ impl System {
             } else {
                 self.tda_gradient_lc(state)
             }
+        } else if self.config.excited.use_casida {
+            self.tddft_gradient_no_lc(state)
         } else {
-            if self.config.excited.use_casida {
-                self.tddft_gradient_no_lc(state)
-            } else {
-                self.tda_gradient_nolc(state)
-            }
+            self.tda_gradient_nolc(state)
         };
         gradient
     }
 
     pub fn prepare_excited_grad(&mut self) {
         // calculate transition charges if they don't exist
-        if self.properties.contains_key("q_ov") == false {
-            let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
-                self.n_atoms,
-                &self.atoms,
-                self.properties.orbs().unwrap(),
-                self.properties.s().unwrap(),
-                &self.occ_indices,
-                &self.virt_indices,
-            );
+        if !self.properties.contains_key("q_ov") {
+            if !self.config.use_shell_resolved_gamma {
+                let tmp: (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
+                    self.n_atoms,
+                    &self.atoms,
+                    self.properties.orbs().unwrap(),
+                    self.properties.s().unwrap(),
+                    &self.occ_indices,
+                    &self.virt_indices,
+                );
 
-            self.properties.set_q_ov(tmp.0);
-            self.properties.set_q_oo(tmp.1);
-            self.properties.set_q_vv(tmp.2);
+                self.properties.set_q_ov(tmp.0);
+                self.properties.set_q_oo(tmp.1);
+                self.properties.set_q_vv(tmp.2);
+            } else {
+                let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges_ao(
+                    self.n_orbs,
+                    self.properties.orbs().unwrap(),
+                    self.properties.s().unwrap(),
+                    &self.occ_indices,
+                    &self.virt_indices,
+                );
+                // And stored in the properties HashMap.
+                self.properties.set_q_oo(qoo);
+                self.properties.set_q_ov(qov);
+                self.properties.set_q_vv(qvv);
+            }
         }
-        // prepare gamma and grad gamma AO matrix
-        let g0_ao: Array2<f64> = gamma_ao_wise_from_gamma_atomwise(
-            self.properties.gamma().unwrap(),
-            &self.atoms,
-            self.n_orbs,
-        );
-        self.properties.set_gamma_ao(g0_ao);
+        if !self.properties.contains_key("gamma_ao_wise") && !self.config.use_shell_resolved_gamma {
+            // prepare gamma and grad gamma AO matrix
+            let g0_ao: Array2<f64> = gamma_ao_wise_from_gamma_atomwise(
+                self.properties.gamma().unwrap(),
+                &self.atoms,
+                self.n_orbs,
+            );
+            self.properties.set_gamma_ao(g0_ao);
+        }
 
-        if self.properties.contains_key("grad_gamma") == false {
+        if self.config.use_shell_resolved_gamma {
+            if !self.properties.contains_key("grad_gamma_ao") {
+                let g1_ao: Array3<f64> = gamma_gradients_ao_wise_shell_resolved(
+                    &self.gammafunction,
+                    &self.atoms,
+                    self.n_atoms,
+                    self.n_orbs,
+                );
+                self.properties.set_grad_gamma_ao(g1_ao);
+            }
+        } else if !self.properties.contains_key("grad_gamma") {
             let (g1, g1_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
                 &self.gammafunction,
                 &self.atoms,
@@ -74,17 +98,42 @@ impl System {
     }
 
     pub fn tda_gradient_nolc(&mut self, state: usize) -> Array1<f64> {
+        // The index of the HOMO (zero based).
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+
+        // The index of the LUMO (zero based).
+        let lumo: usize = self.virt_indices[0];
+
+        // get number of occupied and virtual orbitals
+        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
+            let n_occ = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+            let n_virt = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+
+            (n_occ, n_virt)
+        } else {
+            let n_occ: usize = self.occ_indices.len();
+            let n_virt: usize = self.virt_indices.len();
+
+            (n_occ, n_virt)
+        };
+
         // set the occupied and virtual orbital energies
         let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        let orbe_occ: Array1<f64> = self.occ_indices.iter().map(|&occ| orbe[occ]).collect();
-        let orbe_virt: Array1<f64> = self.virt_indices.iter().map(|&virt| orbe[virt]).collect();
+        // Energies of the occupied orbitals.
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        // Energies of the virtual orbitals.
+        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
+
+        // // set the occupied and virtual orbital energies
+        // let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        // let orbe_occ: Array1<f64> = self.occ_indices.iter().map(|&occ| orbe[occ]).collect();
+        // let orbe_virt: Array1<f64> = self.virt_indices.iter().map(|&virt| orbe[virt]).collect();
 
         // transform the energies to a diagonal 2d matrix
         let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
         let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        let n_occ: usize = orbe_occ.len();
-        let n_virt: usize = orbe_virt.len();
 
         // excitation energy of the state
         let n_states: usize = self.config.excited.nstates;
@@ -109,27 +158,52 @@ impl System {
         let t_ij: Array2<f64> = x_state.dot(&x_state.t());
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = self
-            .properties
-            .q_ov()
-            .unwrap()
-            .into_shape((self.n_atoms, n_occ, n_virt))
-            .unwrap();
-        let qtrans_oo: ArrayView3<f64> = self
-            .properties
-            .q_oo()
-            .unwrap()
-            .into_shape((self.n_atoms, n_occ, n_occ))
-            .unwrap();
-        let qtrans_vv: ArrayView3<f64> = self
-            .properties
-            .q_vv()
-            .unwrap()
-            .into_shape((self.n_atoms, n_virt, n_virt))
-            .unwrap();
+        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
 
         // set gamma matrix
-        let g0: ArrayView2<f64> = self.properties.gamma().unwrap();
+        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
 
         // compute hplus of tab and tij
         let hplus_tab: Array2<f64> = h_a_nolr(g0, qtrans_oo, qtrans_vv, t_ab.view());
@@ -169,7 +243,7 @@ impl System {
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + h_a_nolr(g0, qtrans_oo, qtrans_ov, z_ia.view());
         for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] = w_ij[[i, i]] / 2.0;
+            w_ij[[i, i]] /= 2.0;
         }
         // w_ia
         let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia); //+ h_a_nolr(g0, qtrans_ov, qtrans_ov, z_ia.view());
@@ -180,7 +254,7 @@ impl System {
         // w_ab
         let mut w_ab: Array2<f64> = q_ab;
         for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] = w_ab[[i, i]] / 2.0;
+            w_ab[[i, i]] /= 2.0;
         }
 
         // build w matrix: combine w_ij, w_ia, w_ai and w_ab
@@ -205,7 +279,11 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = self.properties.gamma_ao().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
         let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
         let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
         let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
@@ -225,14 +303,17 @@ impl System {
 
         // set the occupied and virtuals orbital coefficients
         let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let mut orbs_occ: Array2<f64> = Array::zeros((self.n_orbs, n_occ));
-        let mut orbs_virt: Array2<f64> = Array::zeros((self.n_orbs, n_virt));
-        for (i, index) in self.occ_indices.iter().enumerate() {
-            orbs_occ.slice_mut(s![.., i]).assign(&orbs.column(*index));
-        }
-        for (i, index) in self.virt_indices.iter().enumerate() {
-            orbs_virt.slice_mut(s![.., i]).assign(&orbs.column(*index));
-        }
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        // let mut orbs_occ: Array2<f64> = Array::zeros((self.n_orbs, n_occ));
+        // let mut orbs_virt: Array2<f64> = Array::zeros((self.n_orbs, n_virt));
+        // for (i, index) in self.occ_indices.iter().enumerate() {
+        //     orbs_occ.slice_mut(s![.., i]).assign(&orbs.column(*index));
+        // }
+        // for (i, index) in self.virt_indices.iter().enumerate() {
+        //     orbs_virt.slice_mut(s![.., i]).assign(&orbs.column(*index));
+        // }
 
         // transform t and z vectors to AO basis
         let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
@@ -241,7 +322,12 @@ impl System {
 
         // transform w matrix and excited state vectors to AO basis
         let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = orbs.dot(&w_triangular.dot(&orbs.t()));
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
         let x_ao: Array2<f64> = orbs_occ.dot(&x_state.dot(&orbs_virt.t()));
 
         // calculate contributions to the excited gradient
@@ -280,21 +366,46 @@ impl System {
                     .unwrap()
                     .dot(&x_ao.view().into_shape(self.n_orbs * self.n_orbs).unwrap());
 
-        return grad_exc;
+        grad_exc
     }
 
     pub fn tda_gradient_lc(&mut self, state: usize) -> Array1<f64> {
+        // The index of the HOMO (zero based).
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+
+        // The index of the LUMO (zero based).
+        let lumo: usize = self.virt_indices[0];
+
+        // get number of occupied and virtual orbitals
+        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
+            let n_occ = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+            let n_virt = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+
+            (n_occ, n_virt)
+        } else {
+            let n_occ: usize = self.occ_indices.len();
+            let n_virt: usize = self.virt_indices.len();
+
+            (n_occ, n_virt)
+        };
+
         // set the occupied and virtual orbital energies
         let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        let orbe_occ: Array1<f64> = self.occ_indices.iter().map(|&occ| orbe[occ]).collect();
-        let orbe_virt: Array1<f64> = self.virt_indices.iter().map(|&virt| orbe[virt]).collect();
+        // Energies of the occupied orbitals.
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        // Energies of the virtual orbitals.
+        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
+
+        // // set the occupied and virtual orbital energies
+        // let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        // let orbe_occ: Array1<f64> = self.occ_indices.iter().map(|&occ| orbe[occ]).collect();
+        // let orbe_virt: Array1<f64> = self.virt_indices.iter().map(|&virt| orbe[virt]).collect();
 
         // transform the energies to a diagonal 2d matrix
         let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
         let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        let n_occ: usize = orbe_occ.len();
-        let n_virt: usize = orbe_virt.len();
 
         // excitation energy of the state
         let n_states: usize = self.config.excited.nstates;
@@ -319,24 +430,45 @@ impl System {
         let t_ij: Array2<f64> = x_state.dot(&x_state.t());
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = self
-            .properties
-            .q_ov()
-            .unwrap()
-            .into_shape((self.n_atoms, n_occ, n_virt))
-            .unwrap();
-        let qtrans_oo: ArrayView3<f64> = self
-            .properties
-            .q_oo()
-            .unwrap()
-            .into_shape((self.n_atoms, n_occ, n_occ))
-            .unwrap();
-        let qtrans_vv: ArrayView3<f64> = self
-            .properties
-            .q_vv()
-            .unwrap()
-            .into_shape((self.n_atoms, n_virt, n_virt))
-            .unwrap();
+        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
         let qtrans_vo: Array3<f64> = qtrans_ov
             .permuted_axes([0, 2, 1])
             .as_standard_layout()
@@ -347,8 +479,16 @@ impl System {
         let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
 
         // set gamma matrix
-        let g0: ArrayView2<f64> = self.properties.gamma().unwrap();
-        let g0_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
+        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+        let g0_lr: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma_lr().unwrap()
+        } else {
+            self.properties.gamma_lr_ao().unwrap()
+        };
 
         // compute hplus of tab and tij
         let hplus_tab: Array2<f64> = hav.compute(g0, g0_lr, t_ab.view(), HplusType::Tab);
@@ -394,7 +534,7 @@ impl System {
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij); //+hav.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
         for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] = w_ij[[i, i]] / 2.0;
+            w_ij[[i, i]] /= 2.0;
         }
         // w_ia
         let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia); //+ h_a_nolr(g0, qtrans_ov, qtrans_ov, z_ia.view());
@@ -405,7 +545,7 @@ impl System {
         // w_ab
         let mut w_ab: Array2<f64> = q_ab;
         for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] = w_ab[[i, i]] / 2.0;
+            w_ab[[i, i]] /= 2.0;
         }
 
         // build w matrix: combine w_ij, w_ia, w_ai and w_ab
@@ -430,7 +570,11 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = self.properties.gamma_ao().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
         let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
         let flr_dmd0: ArrayView3<f64> = self.properties.f_lr_dmd0().unwrap();
         let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
@@ -451,14 +595,14 @@ impl System {
 
         // set the occupied and virtuals orbital coefficients
         let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let mut orbs_occ: Array2<f64> = Array::zeros((self.n_orbs, n_occ));
-        let mut orbs_virt: Array2<f64> = Array::zeros((self.n_orbs, n_virt));
-        for (i, index) in self.occ_indices.iter().enumerate() {
-            orbs_occ.slice_mut(s![.., i]).assign(&orbs.column(*index));
-        }
-        for (i, index) in self.virt_indices.iter().enumerate() {
-            orbs_virt.slice_mut(s![.., i]).assign(&orbs.column(*index));
-        }
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+        // for (i, index) in self.occ_indices.iter().enumerate() {
+        //     orbs_occ.slice_mut(s![.., i]).assign(&orbs.column(*index));
+        // }
+        // for (i, index) in self.virt_indices.iter().enumerate() {
+        //     orbs_virt.slice_mut(s![.., i]).assign(&orbs.column(*index));
+        // }
 
         // transform t and z vectors to AO basis
         let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
@@ -467,11 +611,21 @@ impl System {
 
         // transform w matrix and excited state vectors to AO basis
         let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = orbs.dot(&w_triangular.dot(&orbs.t()));
+        // let w_ao: Array2<f64> = orbs.dot(&w_triangular.dot(&orbs.t()));
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
         let x_ao: Array2<f64> = orbs_occ.dot(&x_state.dot(&orbs_virt.t()));
 
         // set g0lr_ao and g1lr_ao
-        let g0lr_ao: ArrayView2<f64> = self.properties.gamma_lr_ao().unwrap();
+        let g0lr_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma_lr_ao().unwrap()
+        } else {
+            g0_lr.view()
+        };
         let g1lr_ao: ArrayView3<f64> = self.properties.grad_gamma_lr_ao().unwrap();
 
         // calculate contributions to the excited gradient
@@ -524,21 +678,41 @@ impl System {
                 .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
                 .unwrap()
                 .dot(&x_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        return grad_exc;
+        grad_exc
     }
 
     pub fn tddft_gradient_lc(&mut self, state: usize) -> Array1<f64> {
+        // The index of the HOMO (zero based).
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+
+        // The index of the LUMO (zero based).
+        let lumo: usize = self.virt_indices[0];
+
+        // get number of occupied and virtual orbitals
+        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
+            let n_occ = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+            let n_virt = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+
+            (n_occ, n_virt)
+        } else {
+            let n_occ: usize = self.occ_indices.len();
+            let n_virt: usize = self.virt_indices.len();
+
+            (n_occ, n_virt)
+        };
+
         // set the occupied and virtual orbital energies
         let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        let orbe_occ: Array1<f64> = self.occ_indices.iter().map(|&occ| orbe[occ]).collect();
-        let orbe_virt: Array1<f64> = self.virt_indices.iter().map(|&virt| orbe[virt]).collect();
+        // Energies of the occupied orbitals.
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        // Energies of the virtual orbitals.
+        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
 
         // transform the energies to a diagonal 2d matrix
         let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
         let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        let n_occ: usize = orbe_occ.len();
-        let n_virt: usize = orbe_virt.len();
 
         // take state specific values from the excitation vectors
         let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
@@ -563,24 +737,45 @@ impl System {
             0.5 * (xpy_state.dot(&xpy_state.t()) + xmy_state.dot(&xmy_state.t()));
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = self
-            .properties
-            .q_ov()
-            .unwrap()
-            .into_shape((self.n_atoms, n_occ, n_virt))
-            .unwrap();
-        let qtrans_oo: ArrayView3<f64> = self
-            .properties
-            .q_oo()
-            .unwrap()
-            .into_shape((self.n_atoms, n_occ, n_occ))
-            .unwrap();
-        let qtrans_vv: ArrayView3<f64> = self
-            .properties
-            .q_vv()
-            .unwrap()
-            .into_shape((self.n_atoms, n_virt, n_virt))
-            .unwrap();
+        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
         let qtrans_vo: Array3<f64> = qtrans_ov
             .permuted_axes([0, 2, 1])
             .as_standard_layout()
@@ -589,9 +784,17 @@ impl System {
         // create struct hplus
         let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
 
-        // set gamma matrices
-        let g0: ArrayView2<f64> = self.properties.gamma().unwrap();
-        let g0_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
+        // set gamma matrix
+        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+        let g0_lr: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma_lr().unwrap()
+        } else {
+            self.properties.gamma_lr_ao().unwrap()
+        };
 
         // compute hplus of tab and tij
         let hplus_tab: Array2<f64> = hplus.compute(g0, g0_lr, t_ab.view(), HplusType::Tab);
@@ -656,7 +859,7 @@ impl System {
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
         for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] = w_ij[[i, i]] / 2.0;
+            w_ij[[i, i]] /= 2.0;
         }
         // w_ia
         let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
@@ -667,7 +870,7 @@ impl System {
         // w_ab
         let mut w_ab: Array2<f64> = q_ab;
         for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] = w_ab[[i, i]] / 2.0;
+            w_ab[[i, i]] /= 2.0;
         }
 
         // build w matrix: combine w_ij, w_ia, w_ai and w_ab
@@ -692,7 +895,11 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = self.properties.gamma_ao().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
         let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
         let flr_dmd0: ArrayView3<f64> = self.properties.f_lr_dmd0().unwrap();
         let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
@@ -713,14 +920,8 @@ impl System {
 
         // set the occupied and virtuals orbital coefficients
         let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let mut orbs_occ: Array2<f64> = Array::zeros((self.n_orbs, n_occ));
-        let mut orbs_virt: Array2<f64> = Array::zeros((self.n_orbs, n_virt));
-        for (i, index) in self.occ_indices.iter().enumerate() {
-            orbs_occ.slice_mut(s![.., i]).assign(&orbs.column(*index));
-        }
-        for (i, index) in self.virt_indices.iter().enumerate() {
-            orbs_virt.slice_mut(s![.., i]).assign(&orbs.column(*index));
-        }
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
 
         // transform t and z vectors to AO basis
         let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
@@ -729,12 +930,21 @@ impl System {
 
         // transform w matrix and excited state vectors to AO basis
         let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = orbs.dot(&w_triangular.dot(&orbs.t()));
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
         let xpy_ao: Array2<f64> = orbs_occ.dot(&xpy_state.dot(&orbs_virt.t()));
         let xmy_ao: Array2<f64> = orbs_occ.dot(&xmy_state.dot(&orbs_virt.t()));
 
         // set g0lr_ao and g1lr_ao
-        let g0lr_ao: ArrayView2<f64> = self.properties.gamma_lr_ao().unwrap();
+        let g0lr_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma_lr_ao().unwrap()
+        } else {
+            g0_lr.view()
+        };
         let g1lr_ao: ArrayView3<f64> = self.properties.grad_gamma_lr_ao().unwrap();
 
         // calculate contributions to the excited gradient
@@ -805,21 +1015,41 @@ impl System {
                     .unwrap()
                     .dot(&xmy_ao.view().into_shape(self.n_orbs * self.n_orbs).unwrap());
 
-        return grad_exc;
+        grad_exc
     }
 
     pub fn tddft_gradient_no_lc(&mut self, state: usize) -> Array1<f64> {
+        // The index of the HOMO (zero based).
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+
+        // The index of the LUMO (zero based).
+        let lumo: usize = self.virt_indices[0];
+
+        // get number of occupied and virtual orbitals
+        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
+            let n_occ = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+            let n_virt = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+
+            (n_occ, n_virt)
+        } else {
+            let n_occ: usize = self.occ_indices.len();
+            let n_virt: usize = self.virt_indices.len();
+
+            (n_occ, n_virt)
+        };
+
         // set the occupied and virtual orbital energies
         let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        let orbe_occ: Array1<f64> = self.occ_indices.iter().map(|&occ| orbe[occ]).collect();
-        let orbe_virt: Array1<f64> = self.virt_indices.iter().map(|&virt| orbe[virt]).collect();
+        // Energies of the occupied orbitals.
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        // Energies of the virtual orbitals.
+        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
 
         // transform the energies to a diagonal 2d matrix
         let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
         let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        let n_occ: usize = orbe_occ.len();
-        let n_virt: usize = orbe_virt.len();
 
         // take state specific values from the excitation vectors
         let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
@@ -844,27 +1074,52 @@ impl System {
             0.5 * (xpy_state.dot(&xpy_state.t()) + xmy_state.dot(&xmy_state.t()));
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = self
-            .properties
-            .q_ov()
-            .unwrap()
-            .into_shape((self.n_atoms, n_occ, n_virt))
-            .unwrap();
-        let qtrans_oo: ArrayView3<f64> = self
-            .properties
-            .q_oo()
-            .unwrap()
-            .into_shape((self.n_atoms, n_occ, n_occ))
-            .unwrap();
-        let qtrans_vv: ArrayView3<f64> = self
-            .properties
-            .q_vv()
-            .unwrap()
-            .into_shape((self.n_atoms, n_virt, n_virt))
-            .unwrap();
+        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
 
         // set gamma matrix
-        let g0: ArrayView2<f64> = self.properties.gamma().unwrap();
+        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
 
         // compute hplus of tab and tij
         let hplus_tab: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_vv, t_ab.view());
@@ -904,7 +1159,7 @@ impl System {
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + h_plus_no_lr(g0, qtrans_oo, qtrans_ov, z_ia.view());
         for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] = w_ij[[i, i]] / 2.0;
+            w_ij[[i, i]] /= 2.0;
         }
         // w_ia
         let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
@@ -915,7 +1170,7 @@ impl System {
         // w_ab
         let mut w_ab: Array2<f64> = q_ab;
         for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] = w_ab[[i, i]] / 2.0;
+            w_ab[[i, i]] /= 2.0;
         }
 
         // build w matrix: combine w_ij, w_ia, w_ai and w_ab
@@ -940,7 +1195,11 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = self.properties.gamma_ao().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
         let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
         let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
         let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
@@ -960,14 +1219,8 @@ impl System {
 
         // set the occupied and virtuals orbital coefficients
         let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let mut orbs_occ: Array2<f64> = Array::zeros((self.n_orbs, n_occ));
-        let mut orbs_virt: Array2<f64> = Array::zeros((self.n_orbs, n_virt));
-        for (i, index) in self.occ_indices.iter().enumerate() {
-            orbs_occ.slice_mut(s![.., i]).assign(&orbs.column(*index));
-        }
-        for (i, index) in self.virt_indices.iter().enumerate() {
-            orbs_virt.slice_mut(s![.., i]).assign(&orbs.column(*index));
-        }
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
 
         // transform t and z vectors to AO basis
         let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
@@ -976,7 +1229,12 @@ impl System {
 
         // transform w matrix and excited state vectors to AO basis
         let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = orbs.dot(&w_triangular.dot(&orbs.t()));
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
         let xpy_ao: Array2<f64> = orbs_occ.dot(&xpy_state.dot(&orbs_virt.t()));
 
         // calculate contributions to the excited gradient
@@ -1015,6 +1273,6 @@ impl System {
                     .unwrap()
                     .dot(&xpy_ao.view().into_shape(self.n_orbs * self.n_orbs).unwrap());
 
-        return grad_exc;
+        grad_exc
     }
 }

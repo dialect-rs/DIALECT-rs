@@ -1,10 +1,7 @@
 use crate::excited_states::trans_charges;
 use crate::fmo::helpers::get_pair_slice;
 use crate::fmo::{ChargeTransferPair, ESDPair, Monomer, Pair, PairType, SuperSystem};
-use crate::gradients::helpers::{
-    f_lr, f_v, h_a_nolr, h_minus, h_plus_no_lr, tda_zvector_lc, tda_zvector_no_lc, zvector_lc,
-    zvector_no_lc, Hav, Hplus, HplusType,
-};
+use crate::gradients::helpers::{f_lr, f_v, zvector_lc, Hav, Hplus, HplusType};
 use crate::initialization::Atom;
 use crate::scc::gamma_approximation::{
     gamma_ao_wise, gamma_ao_wise_from_gamma_atomwise, gamma_atomwise_ab, gamma_gradients_ao_wise,
@@ -12,7 +9,7 @@ use crate::scc::gamma_approximation::{
 use crate::scc::h0_and_s::{h0_and_s_ab, h0_and_s_gradients};
 use crate::utils::ToOwnedF;
 use ndarray::prelude::*;
-use ndarray_linalg::{into_col, into_row, IntoTriangular, Solve, UPLO};
+use ndarray_linalg::{into_col, into_row, IntoTriangular, UPLO};
 
 impl SuperSystem<'_> {
     pub fn charge_transfer_pair_gradient(&self, ct_state: &ChargeTransferPair) -> Array1<f64> {
@@ -58,9 +55,7 @@ impl SuperSystem<'_> {
                 m_j.slice.atom_as_range(),
             );
 
-            if !(self.config.jobtype == String::from("dynamics")
-                && self.config.fmo_lc_tddftb.n_ct > 1)
-            {
+            if !(self.config.jobtype == *"dynamics" && self.config.fmo_lc_tddftb.n_ct > 1) {
                 // do a scc calculation of the ESD pair
                 pair_ij.prepare_scc(&pair_atoms, m_i, m_j);
                 pair_ij.run_scc_lc(&pair_atoms, self.config.scf);
@@ -73,7 +68,7 @@ impl SuperSystem<'_> {
             // pair_ij.properties.reset_gradient();
         };
 
-        return ct_gradient;
+        ct_gradient
     }
 }
 
@@ -81,12 +76,12 @@ impl Pair<'_> {
     pub fn prepare_lcmo_gradient(&mut self, pair_atoms: &[Atom], m_i: &Monomer, m_j: &Monomer) {
         if self.properties.s().is_none() {
             let mut s: Array2<f64> = Array2::zeros([self.n_orbs, self.n_orbs]);
-            let (s_ab, h0_ab): (Array2<f64>, Array2<f64>) = h0_and_s_ab(
+            let (s_ab, _h0_ab): (Array2<f64>, Array2<f64>) = h0_and_s_ab(
                 m_i.n_orbs,
                 m_j.n_orbs,
                 &pair_atoms[0..m_i.n_atoms],
                 &pair_atoms[m_i.n_atoms..],
-                &m_i.slako,
+                m_i.slako,
             );
             let mu: usize = m_i.n_orbs;
             s.slice_mut(s![0..mu, 0..mu])
@@ -124,7 +119,7 @@ impl Pair<'_> {
         if self.gammafunction_lc.is_some() {
             if self.properties.grad_gamma_lr_ao().is_none() {
                 // calculate the gamma gradient matrix in AO basis
-                let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+                let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
                     self.gammafunction_lc.as_ref().unwrap(),
                     pair_atoms,
                     self.n_atoms,
@@ -162,7 +157,7 @@ impl Pair<'_> {
 
         // derivative of H0 and S
         if self.properties.grad_s().is_none() || self.properties.grad_h0().is_none() {
-            let (grad_s, grad_h0) = h0_and_s_gradients(&pair_atoms, self.n_orbs, &self.slako);
+            let (grad_s, grad_h0) = h0_and_s_gradients(pair_atoms, self.n_orbs, self.slako);
             self.properties.set_grad_s(grad_s);
             self.properties.set_grad_h0(grad_h0);
         }
@@ -170,8 +165,8 @@ impl Pair<'_> {
         // check if occ and virt indices exist
         let mut occ_indices: Vec<usize> = Vec::new();
         let mut virt_indices: Vec<usize> = Vec::new();
-        if (self.properties.contains_key("occ_indices") == false)
-            || (self.properties.contains_key("virt_indices") == true)
+        if (!self.properties.contains_key("occ_indices"))
+            || (self.properties.contains_key("virt_indices"))
         {
             // calculate the number of electrons
             let n_elec: usize = pair_atoms.iter().fold(0, |n, atom| n + atom.n_elec);
@@ -215,12 +210,12 @@ impl Pair<'_> {
     ) {
         if self.properties.s().is_none() {
             let mut s: Array2<f64> = Array2::zeros([self.n_orbs, self.n_orbs]);
-            let (s_ab, h0_ab): (Array2<f64>, Array2<f64>) = h0_and_s_ab(
+            let (s_ab, _h0_ab): (Array2<f64>, Array2<f64>) = h0_and_s_ab(
                 m_i.n_orbs,
                 m_j.n_orbs,
                 &pair_atoms[0..m_i.n_atoms],
                 &pair_atoms[m_i.n_atoms..],
-                &m_i.slako,
+                m_i.slako,
             );
             let mu: usize = m_i.n_orbs;
             s.slice_mut(s![0..mu, 0..mu])
@@ -258,7 +253,7 @@ impl Pair<'_> {
         if self.gammafunction_lc.is_some() {
             if self.properties.grad_gamma_lr_ao().is_none() {
                 // calculate the gamma gradient matrix in AO basis
-                let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+                let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
                     self.gammafunction_lc.as_ref().unwrap(),
                     pair_atoms,
                     self.n_atoms,
@@ -296,7 +291,7 @@ impl Pair<'_> {
 
         // derivative of H0 and S
         if self.properties.grad_s().is_none() || self.properties.grad_h0().is_none() {
-            let (grad_s, grad_h0) = h0_and_s_gradients(&pair_atoms, self.n_orbs, &self.slako);
+            let (grad_s, grad_h0) = h0_and_s_gradients(pair_atoms, self.n_orbs, self.slako);
             self.properties.set_grad_s(grad_s);
             self.properties.set_grad_h0(grad_h0);
         }
@@ -304,8 +299,8 @@ impl Pair<'_> {
         // check if occ and virt indices exist
         let mut occ_indices: Vec<usize> = Vec::new();
         let mut virt_indices: Vec<usize> = Vec::new();
-        if (self.properties.contains_key("occ_indices") == false)
-            || (self.properties.contains_key("virt_indices") == true)
+        if (!self.properties.contains_key("occ_indices"))
+            || (self.properties.contains_key("virt_indices"))
         {
             // calculate the number of electrons
             let n_elec: usize = pair_atoms.iter().fold(0, |n, atom| n + atom.n_elec);
@@ -351,8 +346,8 @@ impl Pair<'_> {
         // check if occ and virt indices exist
         let mut occ_indices: Vec<usize> = Vec::new();
         let mut virt_indices: Vec<usize> = Vec::new();
-        if (self.properties.contains_key("occ_indices") == false)
-            || (self.properties.contains_key("virt_indices") == true)
+        if (!self.properties.contains_key("occ_indices"))
+            || (self.properties.contains_key("virt_indices"))
         {
             // calculate the number of electrons
             let n_elec: usize = atoms.iter().fold(0, |n, atom| n + atom.n_elec);
@@ -520,10 +515,9 @@ impl Pair<'_> {
         q_ia = q_ia - hav.compute(g0, g0_lr, t_ij.view(), HplusType::QiaTij);
 
         // calculate q_ai
-        let mut q_ai: Array2<f64> =
-            x_state
-                .t()
-                .dot(&hav.compute(g0, g0_lr, x_state, HplusType::Qai));
+        let q_ai: Array2<f64> = x_state
+            .t()
+            .dot(&hav.compute(g0, g0_lr, x_state, HplusType::Qai));
 
         // calculate right hand side of the z-vector equation
         let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
@@ -532,7 +526,7 @@ impl Pair<'_> {
         let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
             .dot(&into_row(orbe_virt.clone()))
             - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
-        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape((n_occ * n_virt)).unwrap();
+        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
         let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
 
         // calculate the z-vector
@@ -549,7 +543,7 @@ impl Pair<'_> {
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
         for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] = w_ij[[i, i]] / 2.0;
+            w_ij[[i, i]] /= 2.0;
         }
         // w_ia
         let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia); //+ h_a_nolr(g0, qtrans_ov, qtrans_ov, z_ia.view());
@@ -560,7 +554,7 @@ impl Pair<'_> {
         // w_ab
         let mut w_ab: Array2<f64> = q_ab;
         for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] = w_ab[[i, i]] / 2.0;
+            w_ab[[i, i]] /= 2.0;
         }
 
         // build w matrix: combine w_ij, w_ia, w_ai and w_ab
@@ -686,7 +680,7 @@ impl Pair<'_> {
                 .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
                 .unwrap()
                 .dot(&x_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        return grad_exc;
+        grad_exc
     }
 }
 
@@ -710,7 +704,7 @@ impl ESDPair<'_> {
 
         // derivative of H0 and S
         if self.properties.grad_s().is_none() || self.properties.grad_h0().is_none() {
-            let (grad_s, grad_h0) = h0_and_s_gradients(&pair_atoms, self.n_orbs, &self.slako);
+            let (grad_s, grad_h0) = h0_and_s_gradients(pair_atoms, self.n_orbs, self.slako);
             self.properties.set_grad_s(grad_s);
             self.properties.set_grad_h0(grad_h0);
         }
@@ -718,8 +712,8 @@ impl ESDPair<'_> {
         // check if occ and virt indices exist
         let mut occ_indices: Vec<usize> = Vec::new();
         let mut virt_indices: Vec<usize> = Vec::new();
-        if (self.properties.contains_key("occ_indices") == false)
-            || (self.properties.contains_key("virt_indices") == true)
+        if (!self.properties.contains_key("occ_indices"))
+            || (self.properties.contains_key("virt_indices"))
         {
             // calculate the number of electrons
             let n_elec: usize = pair_atoms.iter().fold(0, |n, atom| n + atom.n_elec);
@@ -765,8 +759,8 @@ impl ESDPair<'_> {
         // check if occ and virt indices exist
         let mut occ_indices: Vec<usize> = Vec::new();
         let mut virt_indices: Vec<usize> = Vec::new();
-        if (self.properties.contains_key("occ_indices") == false)
-            || (self.properties.contains_key("virt_indices") == true)
+        if (!self.properties.contains_key("occ_indices"))
+            || (self.properties.contains_key("virt_indices"))
         {
             // calculate the number of electrons
             let n_elec: usize = atoms.iter().fold(0, |n, atom| n + atom.n_elec);
@@ -855,7 +849,7 @@ impl ESDPair<'_> {
         if self.gammafunction_lc.is_some() {
             if self.properties.grad_gamma_lr_ao().is_none() {
                 // calculate the gamma gradient matrix in AO basis
-                let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+                let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
                     self.gammafunction_lc.as_ref().unwrap(),
                     pair_atoms,
                     self.n_atoms,
@@ -893,7 +887,7 @@ impl ESDPair<'_> {
 
         // derivative of H0 and S
         if self.properties.grad_s().is_none() || self.properties.grad_h0().is_none() {
-            let (grad_s, grad_h0) = h0_and_s_gradients(&pair_atoms, self.n_orbs, &self.slako);
+            let (grad_s, grad_h0) = h0_and_s_gradients(pair_atoms, self.n_orbs, self.slako);
             self.properties.set_grad_s(grad_s);
             self.properties.set_grad_h0(grad_h0);
         }
@@ -901,8 +895,8 @@ impl ESDPair<'_> {
         // check if occ and virt indices exist
         let mut occ_indices: Vec<usize> = Vec::new();
         let mut virt_indices: Vec<usize> = Vec::new();
-        if (self.properties.contains_key("occ_indices") == false)
-            || (self.properties.contains_key("virt_indices") == true)
+        if (!self.properties.contains_key("occ_indices"))
+            || (self.properties.contains_key("virt_indices"))
         {
             // calculate the number of electrons
             let n_elec: usize = pair_atoms.iter().fold(0, |n, atom| n + atom.n_elec);
@@ -1027,10 +1021,9 @@ impl ESDPair<'_> {
         q_ia = q_ia - hav.compute(g0, g0_lr, t_ij.view(), HplusType::QiaTij);
 
         // calculate q_ai
-        let mut q_ai: Array2<f64> =
-            x_state
-                .t()
-                .dot(&hav.compute(g0, g0_lr, x_state, HplusType::Qai));
+        let q_ai: Array2<f64> = x_state
+            .t()
+            .dot(&hav.compute(g0, g0_lr, x_state, HplusType::Qai));
 
         // calculate right hand side of the z-vector equation
         let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
@@ -1039,7 +1032,7 @@ impl ESDPair<'_> {
         let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
             .dot(&into_row(orbe_virt.clone()))
             - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
-        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape((n_occ * n_virt)).unwrap();
+        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
         let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
 
         // calculate the z-vector
@@ -1056,7 +1049,7 @@ impl ESDPair<'_> {
         // calculate w_ij
         let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
         for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] = w_ij[[i, i]] / 2.0;
+            w_ij[[i, i]] /= 2.0;
         }
         // w_ia
         let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia); //+ h_a_nolr(g0, qtrans_ov, qtrans_ov, z_ia.view());
@@ -1067,7 +1060,7 @@ impl ESDPair<'_> {
         // w_ab
         let mut w_ab: Array2<f64> = q_ab;
         for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] = w_ab[[i, i]] / 2.0;
+            w_ab[[i, i]] /= 2.0;
         }
 
         // build w matrix: combine w_ij, w_ia, w_ai and w_ab
@@ -1193,6 +1186,6 @@ impl ESDPair<'_> {
                 .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
                 .unwrap()
                 .dot(&x_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        return grad_exc;
+        grad_exc
     }
 }

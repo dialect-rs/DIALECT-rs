@@ -11,14 +11,17 @@ use ndarray_linalg::Determinant;
 use rayon::prelude::*;
 
 impl System {
-    pub fn get_scalar_coupling(&mut self, dt: f64, step: usize) -> (Array2<f64>, Array2<f64>) {
-        let n_states: usize = self.config.excited.nstates + 1;
-
-        let old_system = if !self.properties.old_system().is_none() {
+    pub fn get_scalar_coupling(
+        &mut self,
+        dt: f64,
+        step: usize,
+        n_states: usize,
+    ) -> (Array2<f64>, Array2<f64>) {
+        let old_system = if self.properties.old_system().is_some() {
             self.properties.old_system().unwrap().clone()
         } else {
             println!("Create old system at first step!");
-            OldSystem::new(&self, None, None)
+            OldSystem::new(self, None, None)
         };
 
         // scalar coupling matrix
@@ -83,14 +86,14 @@ impl System {
         // Because of the finite time-step it will not be completely antisymmetric,
         coupling = 0.5 * (&coupling - &coupling.t());
 
-        let old_system: OldSystem = OldSystem::new(&self, Some(coupling.clone()), None);
+        let old_system: OldSystem = OldSystem::new(self, Some(coupling.clone()), None);
         self.properties.set_old_system(old_system);
 
         // coupl = <Psi_A|d/dR Psi_B>*dR/dt * dt
-        coupling = coupling / dt;
+        coupling /= dt;
 
         // coupling
-        return (coupling, s_ci);
+        (coupling, s_ci)
     }
 }
 
@@ -112,7 +115,7 @@ impl SuperSystem<'_> {
         // calculate the overlap of the wavefunctions
         let (sci_overlap, s_ao): (Array2<f64>, Array2<f64>) =
             self.scalar_coupling_ci_overlaps(&old_system);
-        let dim: usize = sci_overlap.dim().0;
+        // let dim: usize = sci_overlap.dim().0;
 
         // align phases
         // The eigenvalue solver produces vectors with arbitrary global phases
@@ -131,7 +134,26 @@ impl SuperSystem<'_> {
             p_exclude_gs.dot(&excitonic_coupling).dot(&p_exclude_gs);
 
         // align overlap matrix
-        let mut s_ci = sci_overlap.dot(&p);
+        let s_ci = sci_overlap.dot(&p);
+
+        // // The relative signs for the overlap between the ground and excited states at different geometries
+        // // cannot be deduced from the diagonal elements of Sci. The phases are chosen such that the coupling
+        // // between S0 and S1-SN changes smoothly for most of the states.
+        // if old_system.last_scalar_coupling.is_some() {
+        //     let old_s_ci: Array2<f64> = old_system.last_scalar_coupling.unwrap();
+        //     let s: Array1<f64> =
+        //         get_sign_of_array((&old_s_ci.slice(s![0, 1..]) / &s_ci.slice(s![0, 1..])).view());
+        //     let w: Array1<f64> =
+        //         (&s_ci.slice(s![0, 1..]) - &old_s_ci.slice(s![0, 1..])).map(|val| val.abs());
+        //     let mut mean_sign: f64 = ((&w * &s).sum() / w.sum()).signum();
+        //     if mean_sign.is_nan() {
+        //         mean_sign = 1.0
+        //     }
+        //     for i in (1..dim) {
+        //         s_ci[[0, i]] *= mean_sign;
+        //         s_ci[[i, 0]] *= mean_sign;
+        //     }
+        // }
 
         // set diagonal elements of coupl to zero
         let mut coupling: Array2<f64> = s_ci.clone();
@@ -147,36 +169,45 @@ impl SuperSystem<'_> {
         self.properties.set_last_scalar_coupling(last_coupling);
 
         // coupl = <Psi_A|d/dR Psi_B>*dR/dt * dt
-        coupling = coupling / dt;
+        coupling /= dt;
+        println!(
+            "Scalar couplings for monomer 1: {:.5}",
+            coupling.slice(s![1..5, 1..5])
+        );
 
         // align the CI coefficients
         self.scalar_coupling_align_coefficients(sign.view());
 
         // create the OldSupersystem and store it
-        let old_system = OldSupersystem::new(&self);
+        let old_system = OldSupersystem::new(self);
         self.properties.set_old_supersystem(old_system);
 
-        return (coupling, excitonic_coupling, s_ao, diag.to_owned(), sign);
+        (coupling, excitonic_coupling, s_ao, diag.to_owned(), sign)
     }
 
     pub fn align_signs_diabatic_hamiltonian(
         &mut self,
         excitonic_coupling: ArrayView2<f64>,
-    ) -> (Array2<f64>) {
+    ) -> Array2<f64> {
         // get old supersystem from properties
         let old_supersystem = self.properties.old_supersystem();
         // get the old supersystem
-        let old_system: OldSupersystem = if old_supersystem.is_some() {
-            old_supersystem.unwrap().to_owned()
-        }
-        // if the dynamic is at it's first step, calculate the coupling between the
-        // starting geometry
-        else {
-            OldSupersystem::new(&self)
+        // let old_system: OldSupersystem = if old_supersystem.is_some() {
+        //     old_supersystem.unwrap().to_owned()
+        // }
+        // // if the dynamic is at it's first step, calculate the coupling between the
+        // // starting geometry
+        // else {
+        //     OldSupersystem::new(self)
+        // };
+        let old_system = if let Some(oldsystem) = old_supersystem {
+            oldsystem.to_owned()
+        } else {
+            OldSupersystem::new(self)
         };
+
         // calculate the overlap of the wavefunctions
         let sci_overlap_diag: Array1<f64> = self.scalar_coupling_ci_overlaps_diagonal(&old_system);
-
         // align phases
         // The eigenvalue solver produces vectors with arbitrary global phases
         // (+1 or -1). The orbitals of the ground state can also change their signs.
@@ -184,16 +215,16 @@ impl SuperSystem<'_> {
         let sign: Array1<f64> = get_sign_of_array(sci_overlap_diag.view());
 
         // create 2D matrix from the sign array
-        let p: Array2<f64> = Array::from_diag(&sign);
+        // let p: Array2<f64> = Array::from_diag(&sign);
         // align the excitonic coupling matrix using the p matrix
         // let excitonic_coupling: Array2<f64> = p.dot(&excitonic_coupling).dot(&p);
         // alternative way of aligning
         let mut excitonic_vec: Vec<f64> = Vec::new();
-        for ((idx_i, val_i), exc_val_i) in
+        for ((_idx_i, val_i), exc_val_i) in
             sign.iter().enumerate().zip(excitonic_coupling.outer_iter())
         {
             let mut tmp_vec: Vec<f64> = Vec::new();
-            for ((idx_j, val_j), exc_val_ij) in sign.iter().enumerate().zip(exc_val_i.iter()) {
+            for ((_idx_j, val_j), exc_val_ij) in sign.iter().enumerate().zip(exc_val_i.iter()) {
                 if *exc_val_ij > 1.0e-8 {
                     let new_coupling: f64 = val_i * val_j * exc_val_ij;
                     tmp_vec.push(new_coupling);
@@ -209,12 +240,13 @@ impl SuperSystem<'_> {
             Array::from(excitonic_vec).into_shape((dim, dim)).unwrap();
 
         let mut signs: Array1<f64> = Array1::zeros(sign.len() + 1);
+        signs.slice_mut(s![1..]).assign(&sign);
 
         // align the CI coefficients
         self.scalar_coupling_align_coefficients(signs.view());
 
         // create the OldSupersystem and store it
-        let old_system = OldSupersystem::new(&self);
+        let old_system = OldSupersystem::new(self);
         self.properties.set_old_supersystem(old_system);
 
         excitonic_coupling
@@ -281,6 +313,26 @@ impl SuperSystem<'_> {
         for (idx, arr) in coupling_vec.iter().enumerate() {
             coupling.slice_mut(s![idx + 1, 1..]).assign(arr);
         }
+        // // parallel calculation
+        // let diabatic_gs: Vec<f64> = basis_states
+        //     .par_iter()
+        //     .map(|state| {
+        //         // coupling between the ground state and the diabatic states
+        //         self.scalar_coupling_diabatic_gs(other, state, s.view(), true)
+        //     })
+        //     .collect();
+        // // cooupling between the ground state and the diabatic state
+        // let gs_diabatic: Vec<f64> = old_basis
+        //     .par_iter()
+        //     .map(|state| self.scalar_coupling_diabatic_gs(other, state, s.view(), false))
+        //     .collect();
+        // // slice coupling matrix
+        // coupling
+        //     .slice_mut(s![0, 1..])
+        //     .assign(&Array::from(gs_diabatic));
+        // coupling
+        //     .slice_mut(s![1.., 0])
+        //     .assign(&Array::from(diabatic_gs));
 
         (coupling, s)
     }
@@ -340,13 +392,12 @@ impl SuperSystem<'_> {
         // get the CI matrix of the LE state
         let nocc: usize = m_new.properties.occ_indices().unwrap().len();
         let nvirt: usize = m_new.properties.virt_indices().unwrap().len();
-        let mut ci: Array2<f64> = Array2::zeros([nocc, nvirt]);
-        if gs_old {
-            ci = m_new.properties.tdm(state.state_index).unwrap().to_owned();
+        let ci: Array2<f64> = if gs_old {
+            m_new.properties.tdm(state.state_index).unwrap().to_owned()
         } else {
             let ci_vector: ArrayView1<f64> = m_old.tdm.slice(s![.., state.state_index]);
-            ci = ci_vector.to_owned().into_shape([nocc, nvirt]).unwrap();
-        }
+            ci_vector.to_owned().into_shape([nocc, nvirt]).unwrap()
+        };
         // get the occupied MO overlap matrix
         let s_mo_occ: ArrayView2<f64> = s_mo.slice(s![..nocc, ..nocc]);
 
@@ -375,7 +426,7 @@ impl SuperSystem<'_> {
         let mut s_ci: f64 = 0.0;
 
         for i in 0..nocc {
-            for (a_idx, a) in (nocc..norb).into_iter().enumerate() {
+            for (a_idx, a) in (nocc..norb).enumerate() {
                 // slice the CI coefficients of the diabatic state J at the indicies i and a
                 let coeff = ci[[i, a_idx]];
                 if coeff.abs() > threshold {
@@ -529,7 +580,7 @@ impl SuperSystem<'_> {
         let mut s_ci: f64 = 0.0;
 
         for i in 0..nocc_hole {
-            for (a_idx, a) in (start_virt_elec..norb).into_iter().enumerate() {
+            for (a_idx, a) in (start_virt_elec..norb).enumerate() {
                 // slice the CI coefficients of the diabatic state J at the indicies i and a
                 let coeff = cis[[i, a_idx]];
 
@@ -575,22 +626,19 @@ impl SuperSystem<'_> {
             // coupling between two LE states.
             (ReducedBasisState::LE(ref a), ReducedBasisState::LE(ref b)) => {
                 if a.monomer_index == b.monomer_index {
-                    let val = self.scalar_coupling_le_le(other, a, b, overlap);
-
-                    val
+                    self.scalar_coupling_le_le(other, a, b, overlap)
                 } else {
                     0.0
                 }
             }
             // coupling between LE and CT state.
-            (ReducedBasisState::LE(ref a), ReducedBasisState::CT(ref b)) => 0.0,
+            (ReducedBasisState::LE(ref _a), ReducedBasisState::CT(ref _b)) => 0.0,
             // coupling between CT and LE state.
-            (ReducedBasisState::CT(ref a), ReducedBasisState::LE(ref b)) => 0.0,
+            (ReducedBasisState::CT(ref _a), ReducedBasisState::LE(ref _b)) => 0.0,
             // coupling between CT and CT
             (ReducedBasisState::CT(ref a), ReducedBasisState::CT(ref b)) => {
                 if a.m_h == b.m_h && a.m_l == b.m_l {
-                    let sci = self.scalar_coupling_ct_ct(other, a, b, overlap);
-                    sci
+                    self.scalar_coupling_ct_ct(other, a, b, overlap)
                 } else {
                     0.0
                 }
@@ -655,7 +703,7 @@ impl SuperSystem<'_> {
         let mut s_ci: f64 = 0.0;
 
         for i in 0..nocc {
-            for (a_idx, a) in (nocc..norb).into_iter().enumerate() {
+            for (a_idx, a) in (nocc..norb).enumerate() {
                 // slice the CI coefficients of the diabatic state J at the indicies i and a
                 let coeff_i = ci_old[[i, a_idx]];
 
@@ -668,7 +716,7 @@ impl SuperSystem<'_> {
                     let det_aj: f64 = s_aj.det().unwrap();
 
                     for j in 0..nocc {
-                        for (b_idx, b) in (nocc..norb).into_iter().enumerate() {
+                        for (b_idx, b) in (nocc..norb).enumerate() {
                             let coeff_j = ci_new[[j, b_idx]];
 
                             if coeff_j.powi(2) > threshold {
@@ -761,10 +809,10 @@ impl SuperSystem<'_> {
         let nvirt_j: usize = m_new_hole.properties.virt_indices().unwrap().len();
         let nvirt_i: usize = m_new_elec.properties.virt_indices().unwrap().len();
         // number of orbitals
-        let norb_i: usize = nocc_i + nvirt_i;
+        // let norb_i: usize = nocc_i + nvirt_i;
         let norb_j: usize = nocc_j + nvirt_j;
         let nocc: usize = nocc_i + nocc_j;
-        let nvirt: usize = nvirt_i + nvirt_j;
+        // let nvirt: usize = nvirt_i + nvirt_j;
 
         // slice the MO overlap matrix
         let mut s_mo_occ: Array2<f64> = Array2::zeros((nocc, nocc));
@@ -825,7 +873,7 @@ impl SuperSystem<'_> {
         let mut s_ci: f64 = 0.0;
 
         for i in 0..nocc_hole {
-            for (a_idx, a) in (start_virt_elec..norb).into_iter().enumerate() {
+            for (a_idx, a) in (start_virt_elec..norb).enumerate() {
                 // slice the CI coefficients of the diabatic state J at the indicies i and a
                 let coeff_i = ci_new[[i, a_idx]];
 
@@ -840,7 +888,7 @@ impl SuperSystem<'_> {
                     let det_aj: f64 = s_aj.det().unwrap();
 
                     for j in 0..nocc_hole {
-                        for (b_idx, b) in (start_virt_elec..norb).into_iter().enumerate() {
+                        for (b_idx, b) in (start_virt_elec..norb).enumerate() {
                             let coeff_j = ci_old[[j, b_idx]];
 
                             if coeff_j.powi(2) > threshold {
@@ -896,12 +944,12 @@ impl SuperSystem<'_> {
 
         let mut mu: usize = 0;
         // iterate over the atoms of the system
-        for (idx_i, atom_i) in atoms.iter().enumerate() {
+        for atom_i in atoms.iter() {
             // iterate over the orbitals on atom I
             for orbi in atom_i.valorbs.iter() {
                 // iterate over the atoms of the old geometry
                 let mut nu: usize = 0;
-                for (j, atom_j) in old_atoms.iter().enumerate() {
+                for atom_j in old_atoms.iter() {
                     // iterate over the orbitals on atom J
                     for orbj in atom_j.valorbs.iter() {
                         if (atom_i - atom_j).norm() < defaults::PROXIMITY_CUTOFF {

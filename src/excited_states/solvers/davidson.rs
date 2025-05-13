@@ -16,6 +16,7 @@ that the correction vector is computed.
 
 use crate::excited_states::solvers::utils;
 use crate::excited_states::solvers::DavidsonEngine;
+// use crate::utils::array_helper::parallel_matrix_multiply;
 use ndarray::prelude::*;
 use ndarray_linalg::*;
 use ndarray_stats::QuantileExt;
@@ -56,6 +57,7 @@ impl Davidson {
         max_iter: usize,
         use_qr: bool,
         subspace_multiplier: usize,
+        shell_resolved: bool,
     ) -> Result<Self, DavidsonError> {
         // Timer to measure the time within the Davidson routine.
         let timer: Instant = Instant::now();
@@ -65,11 +67,9 @@ impl Davidson {
 
         // The initial guess needs to be mutable.
         let mut guess: Array2<f64> = guess;
-        let original_guess: Array2<f64> = guess.clone();
 
         // set original tolerance
-        let mut tolerance: f64 = tolerance;
-        let original_tol: f64 = tolerance;
+        let tolerance: f64 = tolerance;
 
         // Dimension of the subspace.
         let dim_sub_origin: usize = guess.ncols();
@@ -91,10 +91,15 @@ impl Davidson {
         for i in 0..max_iter {
             // 1. The initial subspace is formed by projecting into the new guess vectors.
             // Matrix-vector product of A with the trial vectors.
-            let ax: Array2<f64> = engine.compute_products(guess.view());
+            let ax: Array2<f64> = if shell_resolved {
+                engine.compute_products_ao(guess.view())
+            } else {
+                engine.compute_products(guess.view())
+            };
 
             // 1.1 Initialization of the subspace Hamiltonian.
             let a_proj: Array2<f64> = guess.t().dot(&ax);
+            // let a_proj: Array2<f64> = parallel_matrix_multiply(guess.t(), ax.view(), 6); // guess.t().dot(&ax);
 
             // 2. Solve the eigenvalue problem for the subspace Hamiltonian.
             // The eigenvalues (u) and eigenvectors (v) are already sorted in ascending order.
@@ -106,18 +111,18 @@ impl Davidson {
 
             // check if omega contains zero
             let mut zero_bool: bool = false;
+            let mut zero_counter: usize = 0;
             for val in u.iter() {
-                if *val < 1.0e-3 || val.is_nan() {
-                    zero_bool = true;
+                if *val < 1.0e-4 || val.is_nan() {
+                    zero_counter += 1;
                 }
             }
+            if zero_counter > 1 {
+                zero_bool = true;
+            }
             if zero_bool {
-                // The dimension of the subspace is reset to the initial value.
-                dim_sub = dim_sub_origin;
-                guess = original_guess.clone();
-                // increase subspace and tolerance
-                // max_space = (subspace_multiplier + 1) * n_roots;
-                tolerance = tolerance + 2.0 * original_tol;
+                // stop davidson
+                break;
             } else {
                 // 3. Convergence checks are made.
                 // 3.1 Compute the Ritz vectors.
@@ -186,7 +191,7 @@ impl Davidson {
                         let orth_v: Array1<f64> = &vec - &guess.dot(&guess.t().dot(&vec));
                         let norm: f64 = orth_v.norm();
                         if norm > 1.0e-7 {
-                            guess.push_column((&orth_v / norm).view());
+                            guess.push_column((&orth_v / norm).view()).unwrap();
                         }
                     }
 
@@ -226,7 +231,7 @@ impl Davidson {
 
         Davidson {
             eigenvalues: subspace_eigenvalues.slice(s![0..nvalues]).to_owned(),
-            eigenvectors: eigenvectors,
+            eigenvectors,
         }
     }
 }

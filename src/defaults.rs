@@ -1,10 +1,12 @@
+#![allow(warnings)]
+
 use crate::scc::mixer::AAType;
 /// Default settings for Anderson Acceleration/Mixing
 pub const USE_AA: bool = true;
-pub const AA_MEMORY: usize = 6;
-pub const AA_TYPE: AAType = AAType::I;
-pub const AA_REGULARIZATION: f64 = 1e-3;
-pub const TOL_SAFEGUARD: f64 = 2.0;
+pub const AA_MEMORY: usize = 14;
+pub const AA_TYPE: AAType = AAType::II;
+pub const AA_REGULARIZATION: f64 = 1e-8;
+pub const TOL_SAFEGUARD: f64 = 1.0;
 pub const AA_MAX_NORM: f64 = 1e10;
 
 // MOLECULE SPECIFICATION

@@ -10,7 +10,7 @@ impl System {
         // symmetrize the hessian
         let hessian: Array2<f64> = 0.5 * (&hess + &hess.t());
 
-        return hessian;
+        hessian
     }
 
     pub fn gs_gradient_wrapper_hessian(&mut self, geometry: Array1<f64>) -> Array1<f64> {
@@ -19,8 +19,7 @@ impl System {
         self.prepare_scc();
         self.run_scc().unwrap();
 
-        let grad = self.ground_state_gradient(false);
-        return grad;
+        self.ground_state_gradient(false)
     }
 }
 
@@ -51,7 +50,7 @@ fn derivative_gradient_fd(system: &System, origin: Array1<f64>, stepsize: f64) -
         derivatives.slice_mut(s![idx, ..]).assign(array);
     }
 
-    return derivatives;
+    derivatives
 }
 
 fn finite_difference_1d<D>(
@@ -68,9 +67,7 @@ where
     let mut step: Array1<f64> = Array1::zeros([origin.len()]);
     step[index] = 1.0;
 
-    let estimate = (system.gs_gradient_wrapper_hessian(&origin + &(&step * stepsize))
+    (system.gs_gradient_wrapper_hessian(&origin + &(&step * stepsize))
         - system.gs_gradient_wrapper_hessian(&origin - &(&step * stepsize)))
-        / (2.0 * stepsize);
-
-    return estimate;
+        / (2.0 * stepsize)
 }

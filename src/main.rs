@@ -1,9 +1,4 @@
 #![allow(dead_code)]
-#![allow(warnings)]
-
-use std::env;
-use std::io::Write;
-use std::process;
 
 use crate::excited_states::davidson::Davidson;
 use crate::excited_states::initial_subspace;
@@ -14,7 +9,7 @@ use crate::io::{
     create_dynamics_data, read_dynamic_input, read_dynamic_input_ehrenfest, read_input,
     write_header, Configuration,
 };
-use crate::io::write_footer;
+use crate::io::{create_dynamics_data_xtb, write_footer};
 use crate::scc::scc_routine::RestrictedSCC;
 use crate::utils::Timer;
 use chemfiles::Frame;
@@ -23,9 +18,10 @@ use dialect_dynamics::initialization::{DynamicConfiguration, Simulation, SystemD
 use env_logger::Builder;
 use fmo::helpers::{monomer_identification, remove_duplicate_atoms};
 use log::LevelFilter;
-use ndarray::prelude::*;
-use ndarray_npy::write_npy;
-use rusty_fitpack::splev_uniform;
+use std::env;
+use std::io::Write;
+use std::process;
+use xtb::initialization::system::XtbSystem;
 
 mod constants;
 mod couplings;
@@ -41,9 +37,11 @@ mod initialization;
 mod io;
 mod optimization;
 mod param;
+mod parameterization;
 mod properties;
 mod scc;
 mod utils;
+mod xtb;
 
 #[macro_use]
 extern crate clap;
@@ -96,103 +94,177 @@ fn main() {
     // ................................................................
     match config.jobtype.as_str() {
         "sp" => {
-            // Normal DFTB calculation
-            if !config.fmo {
-                // Create system from frame and config
-                let mut system = System::from((frame, config.clone()));
+            if !config.use_xtb1 {
+                // Normal DFTB calculation
+                if !config.fmo {
+                    // Create system from frame and config
+                    let mut system = System::from((frame, config.clone()));
+                    system.input_check();
 
-                // Prepare and run the SCC routine
-                system.prepare_scc();
-                let _en = system.run_scc();
+                    // Prepare and run the SCC routine
+                    system.prepare_scc();
+                    system.run_scc().unwrap();
 
-                // Calculate the excited state energies
-                if config.excited.calculate_excited_states {
-                    system.calculate_excited_states(true);
+                    // Calculate the excited state energies
+                    if config.excited.calculate_excited_states {
+                        system.calculate_excited_states(true);
+                    }
+                // FMO DFTB calculation
+                } else {
+                    // create Slater-Koster files and the atoms from frame and config
+                    let (slako, vrep, atoms, unique_atoms) =
+                        generate_parameters(frame.clone(), config.clone());
+                    // Create the system from the Slater-Koster files, the config and the atoms
+                    let mut system = SuperSystem::from((
+                        frame,
+                        config.clone(),
+                        &slako,
+                        &vrep,
+                        unique_atoms,
+                        atoms,
+                    ));
+                    system.input_check();
+
+                    // Prepare and run the FMO SCC routine
+                    system.prepare_scc();
+                    system.run_scc().unwrap();
+
+                    // Calculate the excited state energies
+                    if config.excited.calculate_excited_states {
+                        system.create_exciton_hamiltonian();
+                    }
                 }
-            // FMO DFTB calculation
             } else {
-                // create Slater-Koster files and the atoms from frame and config
-                let (slako, vrep, atoms, unique_atoms) =
-                    generate_parameters(frame.clone(), config.clone());
-                // Create the system from the Slater-Koster files, the config and the atoms
-                let mut system =
-                    SuperSystem::from((frame, config.clone(), &slako, &vrep, unique_atoms, atoms));
+                // xtb1 calculation
+                // create the xtb system
+                let mut system = XtbSystem::from((frame, config.clone()));
+                system.input_check();
 
-                // Prepare and run the FMO SCC routine
+                // prepare and run the scc routine
                 system.prepare_scc();
-                let _en = system.run_scc();
-
-                // Calculate the excited state energies
-                if config.excited.calculate_excited_states {
-                    system.create_exciton_hamiltonian();
-                }
+                system.run_scc().unwrap();
             }
         }
         // Calculate the density on a grid and save it in a cube file
         "density" => {
             let system = System::from((frame, config.clone()));
+            system.input_check();
             system.density_to_cube();
         }
         "dynamics" => {
-            if !config.fmo {
-                let mut system = System::from((frame, config.clone()));
+            if !config.use_xtb1 {
+                if !config.fmo {
+                    let mut system = System::from((frame, config.clone()));
+                    system.input_check();
+                    let dynamics_config: DynamicConfiguration = read_dynamic_input(&system.config);
+                    let dynamics_data: SystemData =
+                        create_dynamics_data(&system.atoms, dynamics_config);
+
+                    let mut dynamics: Simulation = Simulation::new(&dynamics_data);
+                    if dynamics.config.gs_dynamic || dynamics.config.use_surface_hopping {
+                        if dynamics.config.langevin_config.use_langevin {
+                            dynamics.langevin_dynamics(&mut system);
+                        } else {
+                            dynamics.verlet_dynamics(&mut system);
+                        }
+                    } else if dynamics.config.use_ehrenfest {
+                        if dynamics.config.ehrenfest_config.use_tab_decoherence {
+                            dynamics.ehrenfest_dynamics_tab(&mut system);
+                        } else {
+                            dynamics.ehrenfest_dynamics(&mut system);
+                        }
+                    } else {
+                        dynamics.verlet_dynamics(&mut system);
+                    }
+                } else {
+                    // create Slater-Koster files and the atoms from frame and config
+                    let (slako, vrep, atoms, unique_atoms) =
+                        generate_parameters(frame.clone(), config.clone());
+                    // Create the system from the Slater-Koster files, the config and the atoms
+                    let mut system = SuperSystem::from((
+                        frame,
+                        config.clone(),
+                        &slako,
+                        &vrep,
+                        unique_atoms,
+                        atoms,
+                    ));
+                    system.input_check();
+
+                    let n_monomer: usize = system.monomers.len();
+                    let mut dynamics_config: DynamicConfiguration =
+                        read_dynamic_input_ehrenfest(&config, n_monomer);
+
+                    if dynamics_config.use_ehrenfest {
+                        let dynamics_data: SystemData =
+                            create_dynamics_data(&system.atoms, dynamics_config);
+                        let mut dynamics: Simulation = Simulation::new(&dynamics_data);
+
+                        if dynamics.config.ehrenfest_config.use_tab_decoherence {
+                            dynamics.ehrenfest_dynamics_tab(&mut system);
+                        } else {
+                            dynamics.ehrenfest_dynamics(&mut system);
+                        }
+                    } else {
+                        // Only allow ground-state dynamics
+                        dynamics_config.nstates = 1;
+                        let dynamics_data: SystemData =
+                            create_dynamics_data(&system.atoms, dynamics_config);
+                        let mut dynamics: Simulation = Simulation::new(&dynamics_data);
+
+                        dynamics.verlet_dynamics(&mut system);
+                    }
+                }
+            } else {
+                // create the xtb system
+                let mut system = XtbSystem::from((frame, config.clone()));
+                system.input_check();
                 let dynamics_config: DynamicConfiguration = read_dynamic_input(&system.config);
                 let dynamics_data: SystemData =
-                    create_dynamics_data(&system.atoms, dynamics_config);
-
+                    create_dynamics_data_xtb(&system.atoms, dynamics_config);
                 let mut dynamics: Simulation = Simulation::new(&dynamics_data);
+                // start the dynamics
                 if dynamics.config.langevin_config.use_langevin {
                     dynamics.langevin_dynamics(&mut system);
                 } else {
                     dynamics.verlet_dynamics(&mut system);
                 }
-            } else {
-                // create Slater-Koster files and the atoms from frame and config
-                let (slako, vrep, atoms, unique_atoms) =
-                    generate_parameters(frame.clone(), config.clone());
-                // Create the system from the Slater-Koster files, the config and the atoms
-                let mut system =
-                    SuperSystem::from((frame, config.clone(), &slako, &vrep, unique_atoms, atoms));
-
-                let n_monomer: usize = system.monomers.len();
-                let mut dynamics_config: DynamicConfiguration =
-                    read_dynamic_input_ehrenfest(&config, n_monomer);
-
-                if dynamics_config.ehrenfest_config.use_ehrenfest {
-                    let dynamics_data: SystemData =
-                        create_dynamics_data(&system.atoms, dynamics_config);
-                    let mut dynamics: Simulation = Simulation::new(&dynamics_data);
-
-                    dynamics.ehrenfest_dynamics(&mut system);
-                } else {
-                    // Only allow ground-state dynamics
-                    dynamics_config.nstates = 1;
-                    let dynamics_data: SystemData =
-                        create_dynamics_data(&system.atoms, dynamics_config);
-                    let mut dynamics: Simulation = Simulation::new(&dynamics_data);
-
-                    dynamics.verlet_dynamics(&mut system);
-                    // panic!("No other implementation of molecular dynamics for the FMO system besides ehrenfest yet!");
-                }
             }
         }
         "opt" => {
-            if !config.fmo {
-                // Create system from frame and config
-                let mut system = System::from((frame, config.clone()));
-                // run the cartesian optimization
-                system.optimize_cartesian(system.config.opt.state_to_optimize);
-            } else {
-                // create Slater-Koster files and the atoms from frame and config
-                let (slako, vrep, atoms, unique_atoms) =
-                    generate_parameters(frame.clone(), config.clone());
-                // Create the system from the Slater-Koster files, the config and the atoms
-                let mut system =
-                    SuperSystem::from((frame, config.clone(), &slako, &vrep, unique_atoms, atoms));
+            if !config.use_xtb1 {
+                if !config.fmo {
+                    // Create system from frame and config
+                    let mut system = System::from((frame, config.clone()));
+                    system.input_check();
+                    // run the cartesian optimization
+                    system.optimize_cartesian(system.config.opt.state_to_optimize, &config);
+                } else {
+                    // create Slater-Koster files and the atoms from frame and config
+                    let (slako, vrep, atoms, unique_atoms) =
+                        generate_parameters(frame.clone(), config.clone());
+                    // Create the system from the Slater-Koster files, the config and the atoms
+                    let mut system = SuperSystem::from((
+                        frame,
+                        config.clone(),
+                        &slako,
+                        &vrep,
+                        unique_atoms,
+                        atoms,
+                    ));
+                    system.input_check();
 
-                // run the cartesian optimization
-                // at the moment, only a ground state optimization of the fmo system is implemented
-                system.optimize_cartesian(system.config.opt.state_to_optimize);
+                    // run the cartesian optimization
+                    // at the moment, only a ground state optimization of the fmo system is implemented
+                    system.optimize_cartesian(system.config.opt.state_to_optimize, &config);
+                }
+            } else {
+                // create the xtb system
+                let mut system = XtbSystem::from((frame, config.clone()));
+                system.input_check();
+
+                // start the optimization of the ground state
+                system.optimize_cartesian(0, &config);
             }
         }
         "tdm_ehrenfest" => {
@@ -202,33 +274,58 @@ fn main() {
             // Create the system from the Slater-Koster files, the config and the atoms
             let mut system =
                 SuperSystem::from((frame, config.clone(), &slako, &vrep, unique_atoms, atoms));
+            system.input_check();
 
             system.get_ehrenfest_densities();
         }
         "grad" => {
-            // Normal DFTB calculation
-            if !config.fmo {
-                // Create system from frame and config
-                let mut system = System::from((frame, config.clone()));
+            if !config.use_xtb1 {
+                // Normal DFTB calculation
+                if !config.fmo {
+                    // Create system from frame and config
+                    let mut system = System::from((frame, config.clone()));
+                    system.input_check();
 
-                // Prepare and run the SCC routine
-                system.prepare_scc();
-                system.run_scc();
+                    // Prepare and run the SCC routine
+                    system.prepare_scc();
+                    system.run_scc().unwrap();
 
-                let gradient = system.ground_state_gradient(false);
+                    if system.config.excited.calculate_excited_states {
+                        system.ground_state_gradient(true);
+                        system.calculate_excited_states(true);
+                        system.calculate_excited_state_gradient(0);
+                    } else {
+                        system.ground_state_gradient(false);
+                    }
+                } else {
+                    // FMO DFTB calculation
+                    // create Slater-Koster files and the atoms from frame and config
+                    let (slako, vrep, atoms, unique_atoms) =
+                        generate_parameters(frame.clone(), config.clone());
+                    // Create the system from the Slater-Koster files, the config and the atoms
+                    let mut system = SuperSystem::from((
+                        frame,
+                        config.clone(),
+                        &slako,
+                        &vrep,
+                        unique_atoms,
+                        atoms,
+                    ));
+                    system.input_check();
+
+                    // Prepare and run the FMO SCC routine
+                    system.prepare_scc();
+                    system.run_scc().unwrap();
+                    system.ground_state_gradient();
+                }
             } else {
-                // FMO DFTB calculation
-                // create Slater-Koster files and the atoms from frame and config
-                let (slako, vrep, atoms, unique_atoms) =
-                    generate_parameters(frame.clone(), config.clone());
-                // Create the system from the Slater-Koster files, the config and the atoms
-                let mut system =
-                    SuperSystem::from((frame, config.clone(), &slako, &vrep, unique_atoms, atoms));
+                // create the xtb system
+                let mut system = XtbSystem::from((frame, config.clone()));
 
-                // Prepare and run the FMO SCC routine
+                // prepare and run the scc routine
                 system.prepare_scc();
-                system.run_scc();
-                let gradient = system.ground_state_gradient();
+                system.run_scc().unwrap();
+                system.ground_state_gradient();
             }
         }
         "monomer_identification" => {
@@ -239,7 +336,7 @@ fn main() {
             let new_atoms = remove_duplicate_atoms(&atoms);
 
             // Create the system from the Slater-Koster files, the config and the atoms
-            let mut system = SuperSystem::from((
+            let system = SuperSystem::from((
                 frame,
                 config.clone(),
                 &slako,
@@ -247,70 +344,22 @@ fn main() {
                 unique_atoms,
                 new_atoms,
             ));
-
+            system.input_check();
+            // get the number of monomers and pairs
             println!("Number of Monomers: {}", system.monomers.len());
+            println!("Number of pairs: {}", system.pairs.len());
 
-            monomer_identification(
+            let monomer_indices: Vec<usize> = monomer_identification(
                 &config.identification_config,
                 &system.atoms,
                 &system.monomers,
             );
-        }
-        "get_splines" => {
-            let mut system = System::from((frame, config.clone()));
-            system.prepare_scc();
-            system.run_scc();
-
-            let d_arr: Array1<f64> = Array1::linspace(0.0, 10.0, 200);
-            write_npy("r_vals.npy", &d_arr);
-
-            let mut atom_vec: Vec<(u8, u8)> = Vec::new();
-
-            for atom_1 in system.atoms.iter() {
-                for atom_2 in system.atoms.iter() {
-                    if atom_vec.contains(&(atom_1.number, atom_2.number))
-                        || atom_vec.contains(&(atom_2.number, atom_1.number))
-                    {
-                        continue;
-                    } else {
-                        let skt = system.slako.get(atom_1.kind, atom_2.kind).s_spline.clone();
-                        let skt_h = system.slako.get(atom_1.kind, atom_2.kind).h_spline.clone();
-
-                        for key in skt.keys() {
-                            let mut vals: Array1<f64> = Array1::zeros(d_arr.len());
-                            for (d_val, mut val) in d_arr.iter().zip(vals.iter_mut()) {
-                                *val = splev_uniform(&skt[key].0, &skt[key].1, skt[key].2, *d_val);
-                            }
-                            let fname: String = format!(
-                                "s_spline_atoms_{}_{}_key_{}_vals.npy",
-                                atom_1.number, atom_2.number, key
-                            );
-                            write_npy(fname, &vals);
-
-                            let mut vals: Array1<f64> = Array1::zeros(d_arr.len());
-                            for (d_val, mut val) in d_arr.iter().zip(vals.iter_mut()) {
-                                *val = splev_uniform(
-                                    &skt_h[key].0,
-                                    &skt_h[key].1,
-                                    skt_h[key].2,
-                                    *d_val,
-                                );
-                            }
-                            let fname: String = format!(
-                                "h_spline_atoms_{}_{}_key_{}_vals.npy",
-                                atom_1.number, atom_2.number, key
-                            );
-                            write_npy(fname, &vals);
-                        }
-
-                        atom_vec.push((atom_1.number, atom_2.number));
-                    }
-                }
-            }
+            println!("Monomer indices: {:?}", monomer_indices);
         }
         "initial_conditions" => {
             // Create system from frame and config
             let mut system = System::from((frame, config.clone()));
+            system.input_check();
             // sample the wigner ensemble
             system.create_initial_conditions();
         }
@@ -321,10 +370,11 @@ fn main() {
             // Create the system from the Slater-Koster files, the config and the atoms
             let mut system =
                 SuperSystem::from((frame, config.clone(), &slako, &vrep, unique_atoms, atoms));
+            system.input_check();
 
             // Prepare and run the FMO SCC routine
             system.prepare_scc();
-            system.run_scc();
+            system.run_scc().unwrap();
 
             // Calculate the excited state energies
             system.create_exciton_polariton_hamiltonian();

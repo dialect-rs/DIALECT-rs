@@ -6,7 +6,7 @@ use crate::initialization::{initialize_gamma_function, Atom};
 use crate::io::Configuration;
 use crate::properties::Properties;
 use crate::scc::gamma_approximation::{gamma_atomwise, GammaFunction};
-use crate::scc::h0_and_s::{h0_and_s, s_supersystem};
+use crate::scc::h0_and_s::s_supersystem;
 use crate::utils::Timer;
 use chemfiles::Frame;
 use hashbrown::HashMap;
@@ -83,8 +83,13 @@ impl<'a>
         let mut properties: Properties = Properties::new();
 
         // Initialize the unscreened Gamma function -> r_lr == 0.00
-        let gf: GammaFunction =
-            initialize_gamma_function(&unique_atoms, 0.0, input.1.use_gaussian_gamma);
+        let gf: GammaFunction = initialize_gamma_function(
+            &unique_atoms,
+            0.0,
+            input.1.use_gaussian_gamma,
+            input.1.use_shell_resolved_gamma,
+            input.1.dftb3.use_gamma_damping,
+        );
 
         // Initialize the screened gamma function only if LRC is requested
         let gf_lc: Option<GammaFunction> = if input.1.lc.long_range_correction {
@@ -92,6 +97,8 @@ impl<'a>
                 &unique_atoms,
                 input.1.lc.long_range_radius,
                 input.1.use_gaussian_gamma,
+                input.1.use_shell_resolved_gamma,
+                input.1.dftb3.use_gamma_damping,
             ))
         } else {
             None
@@ -142,7 +149,7 @@ impl<'a>
             };
 
             // Create the slices for the atoms, grads and orbitals
-            let m_slice: MolecularSlice = MolecularSlice::new(mol_indices.clone(), increments);
+            let m_slice: MolecularSlice = MolecularSlice::new(mol_indices, increments);
 
             // Create the Monomer object
             let mut current_monomer = Monomer::new(
@@ -235,10 +242,10 @@ impl<'a>
 
         Self {
             config: input.1,
-            atoms: atoms,
+            atoms,
             n_mol: monomers.len(),
-            monomers: monomers,
-            properties: properties,
+            monomers,
+            properties,
             gammafunction: gf,
             gammafunction_lc: gf_lc,
             pairs,
@@ -271,11 +278,20 @@ impl SuperSystem<'_> {
     }
 
     pub fn gamma_a_b(&self, a: usize, b: usize, lrc: LRC) -> ArrayView2<f64> {
-        let atoms_a: Slice = self.monomers[a].slice.atom.clone();
-        let atoms_b: Slice = self.monomers[b].slice.atom.clone();
+        let atoms_a: Slice = self.monomers[a].slice.atom;
+        let atoms_b: Slice = self.monomers[b].slice.atom;
         match lrc {
             LRC::ON => self.properties.gamma_lr_slice(atoms_a, atoms_b).unwrap(),
             LRC::OFF => self.properties.gamma_slice(atoms_a, atoms_b).unwrap(),
+        }
+    }
+
+    pub fn gamma_a_b_ao(&self, a: usize, b: usize, lrc: LRC) -> ArrayView2<f64> {
+        let atoms_a: Slice = self.monomers[a].slice.orb;
+        let atoms_b: Slice = self.monomers[b].slice.orb;
+        match lrc {
+            LRC::ON => self.properties.gamma_lr_ao_slice(atoms_a, atoms_b).unwrap(),
+            LRC::OFF => self.properties.gamma_ao_slice(atoms_a, atoms_b).unwrap(),
         }
     }
 
@@ -291,6 +307,19 @@ impl SuperSystem<'_> {
         gamma
             .slice_mut(s![n_atoms_a.., ..])
             .assign(&self.gamma_a_b(b, c, lrc));
+        gamma
+    }
+
+    pub fn gamma_ab_c_ao(&self, a: usize, b: usize, c: usize, lrc: LRC) -> Array2<f64> {
+        let n_orbs_a: usize = self.monomers[a].n_orbs;
+        let mut gamma: Array2<f64> =
+            Array2::zeros([n_orbs_a + self.monomers[b].n_orbs, self.monomers[c].n_orbs]);
+        gamma
+            .slice_mut(s![0..n_orbs_a, ..])
+            .assign(&self.gamma_a_b_ao(a, c, lrc));
+        gamma
+            .slice_mut(s![n_orbs_a.., ..])
+            .assign(&self.gamma_a_b_ao(b, c, lrc));
         gamma
     }
 
@@ -313,6 +342,28 @@ impl SuperSystem<'_> {
         gamma
             .slice_mut(s![n_atoms_a.., n_atoms_c..])
             .assign(&self.gamma_a_b(b, d, lrc));
+        gamma
+    }
+
+    pub fn gamma_ab_cd_ao(&self, a: usize, b: usize, c: usize, d: usize, lrc: LRC) -> Array2<f64> {
+        let n_orbs_a: usize = self.monomers[a].n_orbs;
+        let n_orbs_c: usize = self.monomers[c].n_orbs;
+        let mut gamma: Array2<f64> = Array2::zeros([
+            n_orbs_a + self.monomers[b].n_orbs,
+            n_orbs_c + self.monomers[d].n_orbs,
+        ]);
+        gamma
+            .slice_mut(s![0..n_orbs_a, ..n_orbs_c])
+            .assign(&self.gamma_a_b_ao(a, c, lrc));
+        gamma
+            .slice_mut(s![n_orbs_a.., ..n_orbs_c])
+            .assign(&self.gamma_a_b_ao(b, c, lrc));
+        gamma
+            .slice_mut(s![0..n_orbs_a, n_orbs_c..])
+            .assign(&self.gamma_a_b_ao(a, d, lrc));
+        gamma
+            .slice_mut(s![n_orbs_a.., n_orbs_c..])
+            .assign(&self.gamma_a_b_ao(b, d, lrc));
         gamma
     }
 

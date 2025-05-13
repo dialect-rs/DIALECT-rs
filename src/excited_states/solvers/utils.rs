@@ -41,7 +41,7 @@ pub fn generate_random_symmetric(dim: usize, magnitude: f64) -> Array2<f64> {
     arr.dot(&arr.t())
 }
 
-pub fn sort_vector<T: PartialOrd>(vs: &mut Vec<T>, ascending: bool) {
+pub fn sort_vector<T: PartialOrd>(vs: &mut [T], ascending: bool) {
     if ascending {
         vs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     } else {
@@ -156,9 +156,9 @@ pub fn print_davidson_iteration(
 pub fn print_davidson_end(result_is_ok: bool, time: Instant, mut string: String) {
     string += &format!("{:-^75}\n ", "");
     if result_is_ok {
-        string += &format!("Davidson routine converged\n")
+        string += "Davidson routine converged\n"
     } else {
-        string += &format!("Davidson routine did not converge!\n")
+        string += "Davidson routine did not converge!\n"
     }
     string += &format!(
         "{:>68} {:>8.2} s\n",

@@ -1,18 +1,12 @@
 #![allow(dead_code)]
 #![allow(warnings)]
 #[macro_use]
-use clap::crate_version;
 use crate::constants;
 use crate::defaults::*;
 use chemfiles::{Frame, Trajectory};
-use clap::App;
-use log::{debug, error, info, trace, warn};
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::path::Path;
-use std::ptr::eq;
 use std::{env, fs};
 
 fn default_nstep() -> usize {
@@ -112,11 +106,14 @@ fn default_print_configuration() -> PrintConfiguration {
     let config: PrintConfiguration = toml::from_str("").unwrap();
     config
 }
+fn default_force_switch_s0s1_threshold() -> f64 {
+    0.1
+}
 fn default_use_ehrenfest() -> bool {
     USE_EHRENFEST
 }
-fn default_use_state_couplings() -> bool {
-    USE_EHRENFEST
+fn default_use_surface_hopping() -> bool {
+    false
 }
 fn default_use_nacv_couplings() -> bool {
     true
@@ -136,9 +133,29 @@ fn default_force_constant() -> f64 {
 fn default_use_rk_integration() -> bool {
     USE_RK_INTEGRATION
 }
+fn default_use_local_diabatisation() -> bool {
+    true
+}
+fn default_use_rescaling_at_frustrated_hop() -> bool {
+    false
+}
 fn default_print_coefficients() -> bool {
     PRINT_COEFFICIENTS
 }
+fn default_use_tab_decoherence() -> bool {
+    false
+}
+fn default_tab_grad_threshold() -> f64 {
+    1.0e-5
+}
+// fn default_alpha_values() -> HashMap<u8, f64> {
+//     let mut map: HashMap<u8, f64> = HashMap::new();
+//     map.insert(1, 4.7);
+//     map.insert(6, 22.7);
+//     map.insert(7, 19.0);
+//     map.insert(8, 12.2);
+//     map
+// }
 fn default_ehrenfest_configuration() -> EhrenfestConfiguration {
     let config: EhrenfestConfiguration = toml::from_str("").unwrap();
     config
@@ -147,6 +164,10 @@ fn default_nonadiabatic_configuration() -> NonadiabaticConfiguration {
     let config: NonadiabaticConfiguration = toml::from_str("").unwrap();
     config
 }
+// fn default_ehrenfest_decoherence() -> EhrenfestDecoherence {
+//     let config: EhrenfestDecoherence = toml::from_str("").unwrap();
+//     config
+// }
 
 /// Struct that loads the configuration of the dynamics from the file "fish.toml"
 /// It holds the structs [HoppingConfiguration] and  [PulseConfigration]
@@ -164,6 +185,10 @@ pub struct DynamicConfiguration {
     pub nstates: usize,
     #[serde(default = "default_gs_dynamic")]
     pub gs_dynamic: bool,
+    #[serde(default = "default_use_surface_hopping")]
+    pub use_surface_hopping: bool,
+    #[serde(default = "default_use_ehrenfest")]
+    pub use_ehrenfest: bool,
     #[serde(default = "default_load_velocities_from_file")]
     pub load_velocities_from_file: bool,
     #[serde(default = "default_use_boltzmann_velocities")]
@@ -172,6 +197,8 @@ pub struct DynamicConfiguration {
     pub artificial_energy_conservation: bool,
     #[serde(default = "default_ehrenfest_configuration")]
     pub ehrenfest_config: EhrenfestConfiguration,
+    // #[serde(default = "default_ehrenfest_decoherence")]
+    // pub ehrenfest_decoherence: EhrenfestDecoherence,
     #[serde(default = "default_hopping_config")]
     pub hopping_config: HoppingConfiguration,
     #[serde(default = "default_nonadiabatic_configuration")]
@@ -209,12 +236,14 @@ impl DynamicConfiguration {
 /// Structs that holds the parameters for the Ehrenfest routine
 #[derive(Serialize, Deserialize, Clone)]
 pub struct EhrenfestConfiguration {
-    #[serde(default = "default_use_ehrenfest")]
-    pub use_ehrenfest: bool,
-    #[serde(default = "default_use_state_couplings")]
-    pub use_state_couplings: bool,
+    #[serde(default = "default_use_state_coupling")]
+    pub use_state_coupling: bool,
     #[serde(default = "default_state_threshold")]
     pub state_threshold: f64,
+    #[serde(default = "default_use_tab_decoherence")]
+    pub use_tab_decoherence: bool,
+    #[serde(default = "default_tab_grad_threshold")]
+    pub tab_grad_threshold: f64,
     #[serde(default = "default_use_restraint")]
     pub use_restraint: bool,
     #[serde(default = "default_force_constant")]
@@ -226,6 +255,12 @@ pub struct EhrenfestConfiguration {
     #[serde(default = "default_print_coefficients")]
     pub print_coefficients: bool,
 }
+
+// #[derive(Serialize, Deserialize, Clone)]
+// pub struct EhrenfestDecoherence {
+//     #[serde(default = "default_alpha_values")]
+//     pub alpha_values: HashMap<u8, f64>,
+// }
 
 /// Structs that holds the parameters for the Nonadiabatic couplings
 #[derive(Serialize, Deserialize, Clone)]
@@ -239,16 +274,18 @@ pub struct NonadiabaticConfiguration {
 /// Structs that holds the parameters for the surface hopping routines
 #[derive(Serialize, Deserialize, Clone)]
 pub struct HoppingConfiguration {
-    #[serde(default = "default_use_state_coupling")]
-    pub use_state_coupling: bool,
     #[serde(default = "default_force_switch_to_gs")]
     pub force_switch_to_gs: bool,
+    #[serde(default = "default_force_switch_s0s1_threshold")]
+    pub force_switch_s0s1_threshold: f64,
     #[serde(default = "default_decoherence_correction")]
     pub decoherence_correction: bool,
     #[serde(default = "default_rk_integration")]
     pub use_rk_integration: bool,
-    #[serde(default = "default_rk_integration")]
-    pub use_expm_integration: bool,
+    #[serde(default = "default_use_local_diabatisation")]
+    pub use_local_diabatisation: bool,
+    #[serde(default = "default_use_rescaling_at_frustrated_hop")]
+    pub use_rescaling_at_frustrated_hop: bool,
     #[serde(default = "default_integration_steps")]
     pub integration_steps: usize,
 }

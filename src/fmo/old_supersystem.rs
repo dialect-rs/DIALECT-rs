@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use crate::fmo::helpers::MolecularSlice;
 use crate::fmo::{ESDPair, Monomer, Pair, ReducedBasisState, SuperSystem};
 use crate::initialization::Atom;
@@ -15,7 +17,6 @@ pub struct OldSupersystem {
     pub esd_pairs: Vec<OldEsdPair>,
     pub basis_states: Vec<ReducedBasisState>,
     pub last_scalar_coupling: Option<Array2<f64>>,
-    pub state_order: Vec<usize>,
     pub nacv_storage: HashMap<(usize, usize), Array1<f64>>,
 }
 
@@ -50,7 +51,6 @@ impl OldSupersystem {
             esd_pairs: esd_pairs,
             basis_states: system.properties.basis_states().unwrap().to_vec(),
             last_scalar_coupling,
-            state_order: system.properties.state_order().unwrap().to_owned(),
             nacv_storage: HashMap::new(),
         }
     }

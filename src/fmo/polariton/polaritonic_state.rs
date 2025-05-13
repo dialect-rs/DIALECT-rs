@@ -46,7 +46,7 @@ impl<'a> ExcitonPolaritonStates<'a> {
         let mut transition_dipoles: Vec<Vector3<f64>> = Vec::with_capacity(eig.0.len());
 
         // Iterate over all exciton states.
-        for (mut fi, (e, vs)) in f.iter_mut().zip(eig.0.iter().zip(eig.1.axis_iter(Axis(1)))) {
+        for (fi, (e, vs)) in f.iter_mut().zip(eig.0.iter().zip(eig.1.axis_iter(Axis(1)))) {
             // Initialize the transition dipole moment for the current state.
             let mut tr_dip: Vector3<f64> = Vector3::zero();
 
@@ -60,15 +60,14 @@ impl<'a> ExcitonPolaritonStates<'a> {
             {
                 match basis.get(idx).unwrap() {
                     BasisState::LE(state) => {
-                        tr_dip += state.tr_dipole.scale(*v as f64);
+                        tr_dip += state.tr_dipole.scale(*v);
                     }
                     BasisState::PairCT(state) => {
-                        tr_dip += state.tr_dipole.scale(*v as f64);
+                        tr_dip += state.tr_dipole.scale(*v);
                     }
-                    _ => {}
                 }
             }
-            let tr_dip = tr_dip.map(|val| val as f64);
+            let tr_dip = tr_dip.map(|val| val);
             let count: usize = vs.len() - config.photon_energy.len();
             for idx in 0..config.photon_energy.len() {
                 *fi += 2.0 / 3.0 * e * vs[count + idx].powi(2); // * tr_dip.dot(&tr_dip);
@@ -83,8 +82,8 @@ impl<'a> ExcitonPolaritonStates<'a> {
             basis,
             f,
             tr_dip: transition_dipoles,
-            orbs: orbs,
-            dim: dim,
+            orbs,
+            dim,
             config,
         }
     }
@@ -94,10 +93,10 @@ impl<'a> ExcitonPolaritonStates<'a> {
         // Stack the energies and osc. strengths into a 2D Array (columnwise).
         let mut data: Array2<f64> = Array2::zeros([self.f.len(), 0]);
 
-        let energies_ev: Array1<f64> = HARTREE_TO_EV as f64 * &self.energies;
+        let energies_ev: Array1<f64> = HARTREE_TO_EV * &self.energies;
         // Convert the excitation energy in eV.
-        data.push(Axis(1), energies_ev.view());
-        data.push(Axis(1), self.f.view());
+        data.push(Axis(1), energies_ev.view()).unwrap();
+        data.push(Axis(1), self.f.view()).unwrap();
 
         // Write the npy file.
         write_npy(filename, &data)
@@ -111,16 +110,16 @@ impl<'a> ExcitonPolaritonStates<'a> {
 
         // Each energy and oscillator strength is written together to a line.
         for (e, f) in self.energies.iter().zip(self.f.view().iter()) {
-            txt += &format!("{:16.14}     {:16.14}\n", e * HARTREE_TO_EV as f64, f);
+            txt += &format!("{:16.14}     {:16.14}\n", e * HARTREE_TO_EV, f);
         }
 
         // Try to create the output file.
-        let mut f =
-            File::create(filename).expect(&*format!("Unable to create file: {}", &filename));
+        let mut f = File::create(filename)
+            .unwrap_or_else(|_| panic!("Unable to create file: {}", &filename));
 
         // and write the data.
         f.write_all(txt.as_bytes())
-            .expect(&format!("Unable to write data at: {}", &filename));
+            .unwrap_or_else(|_| panic!("Unable to write data at: {}", &filename));
     }
 }
 
@@ -147,7 +146,7 @@ impl Display for ExcitonPolaritonStates<'_> {
             let abs_energy: f64 = self.total_energy + e;
 
             // Relative excitation energy in eV.
-            let rel_energy_ev: f64 = e * HARTREE_TO_EV as f64;
+            let rel_energy_ev: f64 = e * HARTREE_TO_EV;
 
             // The transition dipole moment of the current state.
             let tr_dip: Vector3<f64> = self.tr_dip[n];
@@ -162,7 +161,7 @@ impl Display for ExcitonPolaritonStates<'_> {
                 n + 1,
                 abs_energy
             );
-            txt += &format!("  Multiplicity: Singlet\n");
+            txt += "  Multiplicity: Singlet\n";
             txt += &format!(
                 "  Trans. Mom. (a.u.): {:10.6} X  {:10.6} Y  {:10.6} Z\n",
                 tr_dip.x, tr_dip.y, tr_dip.z

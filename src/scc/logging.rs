@@ -79,11 +79,39 @@ pub fn print_scc_end(
     info!("{:-<80} ", "");
     info!("{}", timer);
     if jobtype == "sp" {
-        print_orbital_information(orbe.view(), &f);
+        print_orbital_information(orbe.view(), f);
     }
 }
 
-pub fn print_orbital_information(orbe: ArrayView1<f64>, f: &[f64]) -> () {
+pub fn print_scc_end_xtb(
+    timer: Timer,
+    jobtype: &str,
+    scf_energy: f64,
+    rep_energy: f64,
+    e_disp: f64,
+    e_halogen: f64,
+    orbe: ArrayView1<f64>,
+    f: &[f64],
+) {
+    info!("{:-^62} ", "");
+    info!("{: ^62}", "SCC converged");
+    info!("{:^80} ", "");
+    info!("electronic energy: {:18.14} Hartree", scf_energy);
+    info!("halogen bond correction: {:18.14} Hartree", e_halogen);
+    info!("repulsive energy: {:18.14} Hartree", rep_energy);
+    info!("dispersion energy: {:18.14} Hartree", e_disp);
+    info!(
+        "Total energy: {:18.14} Hartree",
+        scf_energy + rep_energy + e_disp
+    );
+    info!("{:-<80} ", "");
+    info!("{}", timer);
+    if jobtype == "sp" {
+        print_orbital_information(orbe.view(), f);
+    }
+}
+
+pub fn print_orbital_information(orbe: ArrayView1<f64>, f: &[f64]) {
     info!("{:^80} ", "");
     info!(
         "{:^8} {:^6} {:>18.14} | {:^8} {:^6} {:>18.14}",
@@ -94,7 +122,7 @@ pub fn print_orbital_information(orbe: ArrayView1<f64>, f: &[f64]) -> () {
     for i in (0..n_orbs).step_by(2) {
         if i + 1 < n_orbs {
             info!(
-                "MO:{:>5} {:>6} {:>18.14} | MO:{:>5} {:>6} {:>18.14}",
+                "MO:{:>5} {:>6.2} {:>18.14} | MO:{:>5} {:>6.2} {:>18.14}",
                 i + 1,
                 f[i],
                 orbe[i],
@@ -103,7 +131,7 @@ pub fn print_orbital_information(orbe: ArrayView1<f64>, f: &[f64]) -> () {
                 orbe[i + 1]
             );
         } else {
-            info!("MO:{:>5} {:>6} {:>18.14} |", i + 1, f[i], orbe[i]);
+            info!("MO:{:>5} {:>6.2} {:>18.14} |", i + 1, f[i], orbe[i]);
         }
     }
     info!("{:-^71} ", "");

@@ -7,7 +7,9 @@ mod supersystem;
 use crate::fmo::scc::helpers::get_dispersion_energy;
 use crate::fmo::{Monomer, SuperSystem};
 use crate::initialization::Atom;
-use crate::scc::gamma_approximation::{gamma_atomwise, GammaFunction};
+use crate::scc::gamma_approximation::{
+    gamma_ao_wise_shell_resolved, gamma_atomwise, GammaFunction,
+};
 use crate::scc::h0_and_s::h0_and_s;
 use crate::scc::scc_routine::{RestrictedSCC, SCCError};
 use crate::utils::Timer;
@@ -16,40 +18,71 @@ use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefMutIterator;
 
 impl RestrictedSCC for SuperSystem<'_> {
-    ///  To run the SCC calculation of the FMO [SuperSystem] the following properties need to be set:
+    /// To run the SCC calculation of the FMO [SuperSystem] the following properties need to be set:
     /// For each [Monomer]
     /// - H0
     /// - S: overlap matrix in AO basis
     /// - Gamma matrix (and long-range corrected Gamma matrix if we use LRC)
     /// - If there are no charge differences, `dq`, from a previous calculation
-    ///  they are initialized to zeros
+    ///   they are initialized to zeros
     /// - the density matrix and reference density matrix
     fn prepare_scc(&mut self) {
         // prepare all individual monomers
         let atoms: &[Atom] = &self.atoms;
 
         self.monomers.par_iter_mut().for_each(|mol: &mut Monomer| {
-            mol.prepare_scc(&atoms[mol.slice.atom_as_range()]);
+            mol.prepare_scc(
+                &atoms[mol.slice.atom_as_range()],
+                self.config.use_shell_resolved_gamma,
+            );
         });
         if self.properties.s().is_none() {
             let skf = self.monomers[0].slako.clone();
             let norbs: usize = self.properties.n_occ().unwrap() + self.properties.n_virt().unwrap();
-            let (s, h0) = h0_and_s(norbs, &self.atoms, &skf);
+            let (s, _h0) = h0_and_s(norbs, &self.atoms, &skf);
             self.properties.set_s(s);
         }
-        if self.properties.gamma().is_none() {
+        if !self.config.use_shell_resolved_gamma {
+            if self.properties.gamma().is_none() {
+                // Initialize the unscreened Gamma function -> r_lr == 0.00
+                let gf: GammaFunction = self.monomers[0].gammafunction.clone();
+
+                // Initialize the screened gamma function only if LRC is requested
+                let gf_lc: Option<GammaFunction> = self.monomers[0].gammafunction_lc.clone();
+                // Compute the Gamma function between all atoms
+                self.properties
+                    .set_gamma(gamma_atomwise(&gf, atoms, atoms.len()));
+                // Comupate the Gamma function with long-range correction
+                if self.config.lc.long_range_correction {
+                    self.properties.set_gamma_lr(gamma_atomwise(
+                        &gf_lc.unwrap(),
+                        atoms,
+                        atoms.len(),
+                    ));
+                }
+            }
+        } else if self.properties.gamma_ao().is_none() {
             // Initialize the unscreened Gamma function -> r_lr == 0.00
             let gf: GammaFunction = self.monomers[0].gammafunction.clone();
 
             // Initialize the screened gamma function only if LRC is requested
             let gf_lc: Option<GammaFunction> = self.monomers[0].gammafunction_lc.clone();
+
+            let n_orbs: usize = Array::from(
+                self.monomers
+                    .iter()
+                    .map(|mol| mol.n_orbs)
+                    .collect::<Vec<usize>>(),
+            )
+            .sum();
+
             // Compute the Gamma function between all atoms
             self.properties
-                .set_gamma(gamma_atomwise(&gf, &atoms, atoms.len()));
+                .set_gamma_ao(gamma_ao_wise_shell_resolved(&gf, atoms, n_orbs));
             // Comupate the Gamma function with long-range correction
-            if gf_lc.is_some() {
+            if self.config.lc.long_range_correction {
                 self.properties
-                    .set_gamma_lr(gamma_atomwise(&gf_lc.unwrap(), &atoms, atoms.len()));
+                    .set_gamma_lr_ao(gamma_ao_wise_shell_resolved(&gf_lc.unwrap(), atoms, n_orbs));
             }
         }
     }

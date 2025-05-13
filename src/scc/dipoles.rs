@@ -22,8 +22,10 @@ impl System {
         // get mulliken dipole moment
         // first, calculate mulliken atomic charges
         let mut atomic_charges: Array1<f64> = Array1::zeros(self.atoms.len());
+        let mut atomic_charge_diffs: Array1<f64> = Array1::zeros(self.atoms.len());
         // get overlap matrix
         let s: ArrayView2<f64> = self.properties.s().unwrap();
+        let dp: Array2<f64> = &p - &self.properties.p_ref().unwrap();
 
         // calculate the charges
         let mut mu: usize = 0;
@@ -31,25 +33,31 @@ impl System {
             for _ in 0..z_a.n_orbs {
                 for nu in 0..self.n_orbs {
                     atomic_charges[atom_a] += p[[mu, nu]] * s[[mu, nu]];
+                    atomic_charge_diffs[atom_a] += -dp[[mu, nu]] * s[[mu, nu]];
                 }
                 mu += 1;
             }
         }
         // calculate the mulliken dipole moment
+        // println!("Charge difference: {}", &nuclear_charges - &atomic_charges);
         let mulliken_dip: Array1<f64> = (&nuclear_charges - &atomic_charges).dot(&xyz);
+        // println!("Mulliken dipole moment: {}", mulliken_dip);
 
         // calculate the dipole matrix
-        let dipole_matrix: Array3<f64> = dipole_matrix(self.n_orbs, &self.atoms, &self.slako);
+        // let dipole_matrix: Array3<f64> = dipole_matrix(self.n_orbs, &self.atoms, &self.slako);
         // calculate the dipole moment
-        let electronic_dipole_moment: Array1<f64> =
-            p.into_shape(self.n_orbs * self.n_orbs).unwrap().dot(
-                &dipole_matrix
-                    .into_shape([self.n_orbs * self.n_orbs, 3])
-                    .unwrap(),
-            );
-        let dipole_moment = &nuclear_charges.dot(&xyz) - &electronic_dipole_moment;
+        // let electronic_dipole_moment: Array1<f64> =
+        //     p.into_shape(self.n_orbs * self.n_orbs).unwrap().dot(
+        //         &dipole_matrix
+        //             .into_shape([self.n_orbs * self.n_orbs, 3])
+        //             .unwrap(),
+        //     );
+        let dipole_moment = nuclear_charges.dot(&xyz); // - &electronic_dipole_moment;
+                                                       // println!("electronic dipole moment: {}", electronic_dipole_moment);
+                                                       // println!("nuclear dipole moment: {}", nuclear_charges.dot(&xyz));
+                                                       // println!("Dipole moment {}", dipole_moment);
 
-        (mulliken_dip, dipole_moment, atomic_charges)
+        (mulliken_dip, dipole_moment, atomic_charge_diffs)
     }
 }
 
@@ -59,12 +67,12 @@ pub fn dipole_matrix(n_orbs: usize, atoms: &[Atom], skt: &SlaterKoster) -> Array
     let mut dipole_matrix: Array3<f64> = Array3::zeros((n_orbs, n_orbs, 3));
     // iterate over atoms
     let mut mu: usize = 0;
-    for (_i, atomi) in atoms.iter().enumerate() {
+    for atomi in atoms.iter() {
         // iterate over orbitals on center i
         for orbi in atomi.valorbs.iter() {
             // iterate over atoms
             let mut nu: usize = 0;
-            for (_j, atomj) in atoms.iter().enumerate() {
+            for atomj in atoms.iter() {
                 // iterate over orbitals on center j
                 for orbj in atomj.valorbs.iter() {
                     //if geometry.proximities.as_ref().unwrap()[[i, j]] {
@@ -111,13 +119,13 @@ pub fn dipole_matrix(n_orbs: usize, atoms: &[Atom], skt: &SlaterKoster) -> Array
                             dipole_matrix[[mu, nu, 2]] = dipole_matrix[[nu, mu, 2]];
                         }
                     }
-                    nu = nu + 1;
+                    nu += 1;
                 }
             }
-            mu = mu + 1;
+            mu += 1;
         }
     }
-    return dipole_matrix;
+    dipole_matrix
 }
 
 /// Computes the dipole matrix elements for a given AO combination
@@ -144,11 +152,9 @@ pub fn get_dipoles(
         // To avoid this, x and y are shifted slightly away from 0
         let mut new_x: f64 = x;
         let mut new_y: f64 = y;
-        if l1 > 1 || l2 > 1 {
-            if (x.powi(2) + y.powi(2)) < 1.0e-14 {
-                new_x = new_x + 1.0e-14;
-                new_y = new_y + 1.0e-14;
-            }
+        if (l1 > 1 || l2 > 1) && (x.powi(2) + y.powi(2)) < 1.0e-14 {
+            new_x += 1.0e-14;
+            new_y += 1.0e-14;
         }
         // calculate dipole slako transformations for each direction
         let mut dx = slako_transformations_dipole(r, new_x, new_y, z, dipole, l1, m1, l2, m2, 1, 1);

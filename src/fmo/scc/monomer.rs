@@ -2,11 +2,13 @@ use crate::fmo::Monomer;
 use crate::initialization::Atom;
 use crate::io::settings::MixConfig;
 use crate::io::SccConfig;
-use crate::scc::construct_h1;
 use crate::scc::gamma_approximation::*;
+use crate::scc::get_electronic_energy_gamma_shell_resolved;
 use crate::scc::h0_and_s::*;
-use crate::scc::mixer::{AndersonAccel, BroydenMixer, Mixer};
+use crate::scc::mixer::AndersonAccel;
+use crate::scc::mulliken::mulliken_aowise;
 use crate::scc::mulliken::mulliken_atomwise;
+use crate::scc::outer_sum;
 use crate::scc::{
     calc_exchange, density_matrix, density_matrix_ref, get_electronic_energy_new, lc_exact_exchange,
 };
@@ -17,9 +19,9 @@ use ndarray_stats::DeviationExt;
 use super::helpers::atomvec_to_aomat;
 
 impl Monomer<'_> {
-    pub fn prepare_scc(&mut self, atoms: &[Atom]) {
+    pub fn prepare_scc(&mut self, atoms: &[Atom], shell_resolved: bool) {
         // get H0 and S
-        let (s, h0): (Array2<f64>, Array2<f64>) = h0_and_s(self.n_orbs, &atoms, &self.slako);
+        let (s, h0): (Array2<f64>, Array2<f64>) = h0_and_s(self.n_orbs, atoms, self.slako);
         // convert generalized eigenvalue problem H.C = S.C.e into eigenvalue problem H'.C' = C'.e
         // by Loewdin orthogonalization, H' = X^T.H.X, where X = S^(-1/2)
         let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
@@ -30,13 +32,18 @@ impl Monomer<'_> {
         // save the atomic numbers since we need them multiple times
         let atomic_numbers: Vec<u8> = atoms.iter().map(|atom| atom.number).collect();
         self.properties.set_atomic_numbers(atomic_numbers);
-        // get the gamma matrix
 
-        let gamma: Array2<f64> = gamma_atomwise(&self.gammafunction, &atoms, self.n_atoms);
-        let gamma_ao = gamma_ao_wise_from_gamma_atomwise(gamma.view(), &atoms, self.n_orbs);
-        // and save it as a `Property`
-        self.properties.set_gamma(gamma);
-        self.properties.set_gamma_ao(gamma_ao);
+        // get the gamma matrix
+        if !shell_resolved {
+            let gamma: Array2<f64> = gamma_atomwise(&self.gammafunction, atoms, self.n_atoms);
+            let gamma_ao = gamma_ao_wise_from_gamma_atomwise(gamma.view(), atoms, self.n_orbs);
+            // and save it as a `Property`
+            self.properties.set_gamma(gamma);
+            self.properties.set_gamma_ao(gamma_ao);
+        } else {
+            let gamma_ao = gamma_ao_wise_shell_resolved(&self.gammafunction, atoms, self.n_orbs);
+            self.properties.set_gamma_ao(gamma_ao);
+        }
 
         // calculate the number of electrons
         let n_elec: usize = atoms.iter().fold(0, |n, atom| n + atom.n_elec);
@@ -52,40 +59,52 @@ impl Monomer<'_> {
 
         // if the system contains a long-range corrected Gammafunction the gamma matrix will be computed
         if self.gammafunction_lc.is_some() {
-            let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) = gamma_ao_wise(
-                self.gammafunction_lc.as_ref().unwrap(),
-                &atoms,
-                self.n_atoms,
-                self.n_orbs,
-            );
-            self.properties.set_gamma_lr(gamma_lr);
-            self.properties.set_gamma_lr_ao(gamma_lr_ao);
+            if !shell_resolved {
+                let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) = gamma_ao_wise(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    atoms,
+                    self.n_atoms,
+                    self.n_orbs,
+                );
+                self.properties.set_gamma_lr(gamma_lr);
+                self.properties.set_gamma_lr_ao(gamma_lr_ao);
+            } else {
+                let gamma_lr_ao: Array2<f64> = gamma_ao_wise_shell_resolved(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    atoms,
+                    self.n_orbs,
+                );
+                self.properties.set_gamma_lr_ao(gamma_lr_ao);
+            }
         }
-
-        self.properties.set_mixer(BroydenMixer::new(self.n_orbs));
-
         // Anderson mixer
         let mix_config: MixConfig = MixConfig::default();
-        let mut dim: usize = 0;
+        let dim: usize;
         if self.gammafunction_lc.is_some() {
             dim = self.n_orbs * self.n_orbs;
-        } else {
+        } else if !shell_resolved {
             dim = self.n_atoms;
+        } else {
+            dim = self.n_orbs;
         }
         let accel = mix_config.build_mixer(dim).unwrap();
         self.properties.set_accel(accel);
 
         // if this is the first SCC calculation the charge differences will be initialized to zeros
         if !self.properties.contains_key("dq") {
-            self.properties.set_dq(Array1::zeros(self.n_atoms));
-            // self.properties.set_dq(Array1::zeros(self.n_orbs));
-            self.properties.set_q_ao(Array1::zeros(self.n_orbs));
+            if !shell_resolved {
+                self.properties.set_dq(Array1::zeros(self.n_atoms));
+                self.properties.set_dq_ao(Array1::zeros(self.n_orbs));
+            } else {
+                self.properties.set_dq(Array1::zeros(self.n_orbs));
+                self.properties.set_dq_ao(Array1::zeros(self.n_orbs));
+            }
         }
 
         // this is also only needed in the first SCC calculation
         if !self.properties.contains_key("ref_density_matrix") {
             self.properties
-                .set_p_ref(density_matrix_ref(self.n_orbs, &atoms));
+                .set_p_ref(density_matrix_ref(self.n_orbs, atoms));
         }
 
         // in the first SCC calculation the density matrix is set to the reference density matrix
@@ -95,12 +114,17 @@ impl Monomer<'_> {
         }
     }
 
-    pub fn scc_step(&mut self, atoms: &[Atom], v_esp: Array2<f64>, config: SccConfig) -> bool {
+    pub fn scc_step(
+        &mut self,
+        atoms: &[Atom],
+        v_esp: Array2<f64>,
+        config: SccConfig,
+        shell_resolved: bool,
+    ) -> bool {
         let scf_charge_conv: f64 = config.scf_charge_conv;
         let scf_energy_conv: f64 = config.scf_energy_conv;
         let dq: Array1<f64> = self.properties.take_dq().unwrap();
         let mut accel: AndersonAccel = self.properties.take_accel().unwrap();
-        let mut p: Array2<f64> = self.properties.take_p().unwrap();
         let x: ArrayView2<f64> = self.properties.x().unwrap();
         let s: ArrayView2<f64> = self.properties.s().unwrap();
         let h0: ArrayView2<f64> = self.properties.h0().unwrap();
@@ -111,15 +135,20 @@ impl Monomer<'_> {
         // the coulomb term and the electrostatic potential term are combined into one:
         // H_mu_nu = H0_mu_nu + HCoul_mu_nu + HESP_mu_nu
         // H_mu_nu = H0_mu_nu + 1/2 S_mu_nu sum_k sum_c_on_k (gamma_ac + gamma_bc) dq_c
-        let h_coul: Array2<f64> = v_esp * &s * 0.5;
+        let h_coul: Array2<f64> = v_esp * s * 0.5;
         let mut h: Array2<f64> = &h_coul + &h0;
+
         // safe the second hamiltonian
-        let mut h_coul_2: Array2<f64> = atomvec_to_aomat(
-            self.properties.gamma().unwrap().dot(&dq).view(),
-            self.n_orbs,
-            &atoms,
-        ) * &s
-            * 0.5;
+        let h_coul_2: Array2<f64> = if !shell_resolved {
+            atomvec_to_aomat(
+                self.properties.gamma().unwrap().dot(&dq).view(),
+                self.n_orbs,
+                atoms,
+            ) * s
+                * 0.5
+        } else {
+            outer_sum(self.properties.gamma_ao().unwrap().dot(&dq).view()) * s * 0.5
+        };
 
         if self.gammafunction_lc.is_some() && self.properties.delta_p().is_some() {
             let h_x: Array2<f64> = lc_exact_exchange(
@@ -139,7 +168,7 @@ impl Monomer<'_> {
         let orbs: Array2<f64> = x.dot(&tmp.1);
 
         // calculate the density matrix
-        p = density_matrix(orbs.view(), &f[..]);
+        let mut p: Array2<f64> = density_matrix(orbs.view(), f);
 
         // Compute the difference density matrix. This will be mixed in case of long-range correction.
         let dp: Array2<f64> = &p - &p0;
@@ -166,22 +195,42 @@ impl Monomer<'_> {
                 };
                 p = &delta_p + &p0;
                 // mulliken charges
-                let dq_temp = mulliken_atomwise(delta_p.view(), s.view(), atoms, self.n_atoms);
-                (dq_temp, Some(delta_p))
+                if !shell_resolved {
+                    let dq_temp = mulliken_atomwise(delta_p.view(), s.view(), atoms, self.n_atoms);
+                    (dq_temp, Some(delta_p))
+                } else {
+                    let dq_temp = mulliken_aowise(delta_p.view(), s.view());
+                    (dq_temp, Some(delta_p))
+                }
             } else {
                 // mulliken charges
-                let dq1 = mulliken_atomwise(dp.view(), s.view(), atoms, self.n_atoms);
-                let dq_temp = accel.apply(dq.view(), dq1.view()).unwrap();
-                (dq_temp, None)
+                if !shell_resolved {
+                    let dq1 = mulliken_atomwise(dp.view(), s.view(), atoms, self.n_atoms);
+                    let dq_temp = accel.apply(dq.view(), dq1.view()).unwrap();
+                    (dq_temp, None)
+                } else {
+                    let dq1 = mulliken_aowise(dp.view(), s.view());
+                    let dq_temp = accel.apply(dq.view(), dq1.view()).unwrap();
+                    (dq_temp, None)
+                }
             };
 
         // compute electronic energy
-        let mut scf_energy = get_electronic_energy_new(
-            p.view(),
-            h0.view(),
-            dq_new.view(),
-            self.properties.gamma().unwrap(),
-        );
+        let mut scf_energy = if !shell_resolved {
+            get_electronic_energy_new(
+                p.view(),
+                h0.view(),
+                dq_new.view(),
+                self.properties.gamma().unwrap(),
+            )
+        } else {
+            get_electronic_energy_gamma_shell_resolved(
+                p.view(),
+                h0.view(),
+                dq_new.view(),
+                self.properties.gamma_ao().unwrap(),
+            )
+        };
         if self.gammafunction_lc.is_some() {
             scf_energy += calc_exchange(
                 s.view(),

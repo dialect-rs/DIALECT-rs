@@ -37,11 +37,19 @@ pub fn write_header() {
     );
     warn!(
         "{: ^80}",
+        ":: Richard Einsele       <richard.einsele@uni-wuerzburg.de>  ::"
+    );
+    warn!(
+        "{: ^80}",
         ":: Joscha Hoche             <joscha.hoche@uni-wuerzburg.de>  ::"
     );
     warn!(
         "{: ^80}",
-        ":: Richard Einsele       <richard.einsele@uni-wuerzburg.de>  ::"
+        ":: Xincheng Miao           <xincheng.miao@uni-wuerzburg.de>  ::"
+    );
+    warn!(
+        "{: ^80}",
+        ":: Luca Nils Philipp   <luca_nils.philipp@uni-wuerzburg.de>  ::"
     );
     warn!(
         "{: ^80}",
@@ -51,20 +59,22 @@ pub fn write_header() {
 }
 
 pub fn write_footer(timer: Timer) {
+    info!("{:^80}", "");
+    warn!("{:-<80} ", "");
     warn!(
         "{:>68} {:>8.2} s",
         "total elapsed time:",
         timer.time.elapsed().as_secs_f32()
     );
     warn!("{: ^80}", "");
-    warn!("{: ^80}", "::::::::::::::::::::::::::::::::::::::");
+    warn!("{: ^80}", ":::::::::::::::::::::::::::::::::::::::");
     warn!(
         "{: ^80}",
         format!(
-            "::   Thank you for using {}    ::",
+            "::    Thank you for using {}    ::",
             crate_name!().to_uppercase()
         )
     );
-    warn!("{: ^80}", "::::::::::::::::::::::::::::::::::::::");
+    warn!("{: ^80}", ":::::::::::::::::::::::::::::::::::::::");
     warn!("{: ^80}", "");
 }

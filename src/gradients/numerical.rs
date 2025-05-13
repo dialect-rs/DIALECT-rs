@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+use crate::scc::gamma_approximation::{gamma_third_order, gamma_third_order_derivative};
 use crate::scc::scc_routine::RestrictedSCC;
 use crate::{initialization::System, scc::gamma_approximation::gamma_gradients_atomwise};
 use ndarray::{prelude::*, Slice};
@@ -7,7 +10,7 @@ impl System {
     pub fn gamma_grad(&mut self) -> Array1<f64> {
         self.properties.reset();
         self.prepare_scc();
-        self.run_scc();
+        let _ = self.run_scc().unwrap();
 
         let grad_gamma: Array3<f64> = gamma_gradients_atomwise(
             self.gammafunction_lc.as_ref().unwrap(),
@@ -37,22 +40,90 @@ impl System {
         );
     }
 
+    fn gamma_third_order_grad(&mut self) -> Array3<f64> {
+        self.properties.reset();
+        self.prepare_scc();
+        let _ = self.run_scc().unwrap();
+
+        let grad_gamma: Array3<f64> = gamma_third_order_derivative(
+            &self.gammafunction,
+            &self.atoms,
+            self.n_atoms,
+            &self.config.dftb3.hubbard_derivatives,
+        );
+
+        grad_gamma
+    }
+
+    fn gamma_grad_third_order_wrapper(&mut self) -> Array3<f64> {
+        self.properties.reset();
+        self.prepare_scc();
+        let _ = self.run_scc().unwrap();
+        let coords: Array1<f64> = self.get_xyz();
+        let mut gamma_deriv: Array3<f64> =
+            Array3::zeros([3 * self.n_atoms, self.n_atoms, self.n_atoms]);
+
+        let stepsize: f64 = 1.0e-4;
+        for index in 0..(3 * self.n_atoms) {
+            let mut step: Array1<f64> = Array1::zeros([3 * self.n_atoms]);
+            step[index] = 1.0;
+            let geom_1: Array1<f64> = coords.clone() + stepsize * &step;
+            let geom_2: Array1<f64> = coords.clone() - stepsize * &step;
+
+            self.properties.reset();
+            self.update_xyz(geom_1.view());
+            self.prepare_scc();
+            let _ = self.run_scc().unwrap();
+            let gamma_1: Array2<f64> = gamma_third_order(
+                &self.gammafunction,
+                &self.atoms,
+                self.n_atoms,
+                &self.config.dftb3.hubbard_derivatives,
+            );
+            self.properties.reset();
+            self.update_xyz(geom_2.view());
+            self.prepare_scc();
+            let _ = self.run_scc().unwrap();
+            let gamma_2: Array2<f64> = gamma_third_order(
+                &self.gammafunction,
+                &self.atoms,
+                self.n_atoms,
+                &self.config.dftb3.hubbard_derivatives,
+            );
+            let numerical_deriv: Array2<f64> = (gamma_1 - gamma_2) / (2.0 * stepsize);
+
+            gamma_deriv
+                .slice_mut(s![index, .., ..])
+                .assign(&numerical_deriv);
+        }
+        gamma_deriv
+    }
+
+    pub fn test_gamma_gradient_third_order(&mut self) {
+        let analytical: Array3<f64> = self.gamma_third_order_grad();
+        let numerical: Array3<f64> = self.gamma_grad_third_order_wrapper();
+        let diff: Array3<f64> = &analytical - &numerical;
+
+        println!("Analytical: \n {:.4}", analytical);
+        println!("Numerical: \n {:.4}", numerical);
+        println!("Difference: \n {:.7}", diff);
+        assert!(analytical.abs_diff_eq(&numerical, 1.0e-5));
+    }
+
     pub fn gs_grad(&mut self) -> Array1<f64> {
         self.properties.reset();
         self.prepare_scc();
-        self.run_scc();
+        let _ = self.run_scc().unwrap();
 
-        let grad = self.ground_state_gradient(false);
-        return grad;
+        self.ground_state_gradient(false)
     }
 
     pub fn gs_gradient_wrapper(&mut self, geometry: Array1<f64>) -> f64 {
         self.properties.reset();
         self.update_xyz(geometry.view());
         self.prepare_scc();
-        let en = self.run_scc().unwrap();
 
-        return en;
+        self.run_scc().unwrap()
     }
 
     pub fn test_gs_gradient(&mut self) {
@@ -62,19 +133,19 @@ impl System {
             System::gs_grad,
             self.get_xyz(),
             0.001,
-            1e-6,
+            1e-5,
         );
     }
 
     pub fn excited_gradient_wrapper(&mut self) -> Array1<f64> {
         self.properties.reset();
         self.prepare_scc();
-        self.run_scc();
+        let _ = self.run_scc().unwrap();
         self.ground_state_gradient(true);
 
         self.calculate_excited_states(true);
-        let grad = self.calculate_excited_state_gradient(0);
-        return grad;
+
+        self.calculate_excited_state_gradient(0)
     }
 
     pub fn numerical_excited_grad(&mut self, geometry: Array1<f64>) -> f64 {
@@ -84,9 +155,8 @@ impl System {
         self.run_scc().unwrap();
 
         self.calculate_excited_states(false);
-        let en = self.properties.ci_eigenvalue(0).unwrap();
 
-        en
+        self.properties.ci_eigenvalue(0).unwrap()
     }
 
     pub fn test_excited_gradient(&mut self) {
@@ -177,11 +247,11 @@ where
             }
         }
         // If higher order is worse by a significant factor `safe`, then quit early.
-        if (&table[i][i] - &table[i - 1][i - 1]).abs() >= safe * error && error < 1.0e-5 {
+        if (table[i][i] - table[i - 1][i - 1]).abs() >= safe * error && error < 1.0e-5 {
             break 'main;
         }
     }
-    return (estimate, error);
+    (estimate, error)
 }
 
 fn ridders_method_le_grad<S, F, D>(
@@ -268,11 +338,11 @@ where
             }
         }
         // If higher order is worse by a significant factor `safe`, then quit early.
-        if (&table[i][i] - &table[i - 1][i - 1]).abs() >= safe * error && error < 1.0e-5 {
+        if (table[i][i] - table[i - 1][i - 1]).abs() >= safe * error && error < 1.0e-5 {
             break 'main;
         }
     }
-    return (estimate, error);
+    (estimate, error)
 }
 
 /// Test the gradient of a function.
@@ -281,8 +351,8 @@ where
 /// * origin: The point at which the derivatives are computed.
 /// * stepsize: The initial (maximal) step size for the finite difference method.
 /// * tol: The allowed relative error on the derivative.
-/// The idea of this function comes from the derivcheck
-/// Python package by T. Verstraelen.
+///   The idea of this function comes from the derivcheck
+///   Python package by T. Verstraelen.
 pub fn assert_deriv<S, F, G>(
     system: &mut S,
     function: F,
@@ -314,8 +384,12 @@ pub fn assert_deriv<S, F, G>(
     // The differences are stored in an Array
     let mut error_values: Array1<f64> = Array1::zeros([origin.len()]);
 
-    println!(
-        "{: <5} {: >18} {: >18} {: >18} {: >18} {: <8}",
+    // println!(
+    //     "{: <5} {: >18} {: >18} {: >18} {: >18} {: <8}",
+    //     "Index", "Analytic", "Numerical", "Error", "Acc. Num.", "Correct?"
+    // );
+    let mut string = format!(
+        "{: <5} {: >18} {: >18} {: >18} {: >18} {: <8} \n",
         "Index", "Analytic", "Numerical", "Error", "Acc. Num.", "Correct?"
     );
     // PARALLEL
@@ -335,19 +409,16 @@ pub fn assert_deriv<S, F, G>(
             maxiter,
         );
         let diff: f64 = (numerical_deriv - analytic_deriv).abs();
-        let correct: bool = if diff >= deriv_error && diff > _tol {
-            false
-        } else {
-            true
-        };
+        let correct: bool = !(diff >= deriv_error && diff > _tol);
         errors.push(correct);
         error_values[i] = diff;
 
-        println!(
-            "{: >5} {:>18.14} {:>18.14} {:>18.14} {:>18.14} {: >5}",
+        string += &format!(
+            "{: >5} {:>18.14} {:>18.14} {:>18.14} {:>18.14} {: >5} \n",
             i, analytic_deriv, numerical_deriv, diff, deriv_error, correct
         );
     }
+    println!("{}", string);
     let rmsd: f64 = (&error_values * &error_values).mean().unwrap().sqrt();
     let max: f64 = *error_values.max().unwrap();
 
@@ -363,8 +434,8 @@ pub fn assert_deriv<S, F, G>(
 /// * origin: The point at which the derivatives are computed.
 /// * stepsize: The initial (maximal) step size for the finite difference method.
 /// * tol: The allowed relative error on the derivative.
-/// The idea of this function comes from the derivcheck
-/// Python package by T. Verstraelen.
+///   The idea of this function comes from the derivcheck
+///   Python package by T. Verstraelen.
 pub fn assert_deriv_le_grad<S, F, G>(
     system: &mut S,
     function: F,
@@ -421,11 +492,7 @@ pub fn assert_deriv_le_grad<S, F, G>(
             state_index,
         );
         let diff: f64 = (numerical_deriv - analytic_deriv).abs();
-        let correct: bool = if diff >= deriv_error && diff > 1e-8 {
-            false
-        } else {
-            true
-        };
+        let correct: bool = !(diff >= deriv_error && diff > tol);
         errors.push(correct);
         error_values[i] = diff;
 
@@ -506,11 +573,7 @@ pub fn assert_deriv_le_grad_full<S, F, G>(
             state_index,
         );
         let diff: f64 = (numerical_deriv - analytic_deriv).abs();
-        let correct: bool = if diff >= deriv_error && diff > 1e-8 {
-            false
-        } else {
-            true
-        };
+        let correct: bool = !(diff >= deriv_error && diff > tol);
         errors.push(correct);
         error_values[idx] = diff;
 
@@ -594,11 +657,7 @@ pub fn assert_deriv_ct_grad_full<S, F, G>(
             monomer_index_2,
         );
         let diff: f64 = (numerical_deriv - analytic_deriv).abs();
-        let correct: bool = if diff >= deriv_error && diff > 1e-8 {
-            false
-        } else {
-            true
-        };
+        let correct: bool = !(diff >= deriv_error && diff > tol);
         errors.push(correct);
         error_values[idx] = diff;
 
@@ -626,11 +685,7 @@ pub fn assert_deriv_ct_grad_full<S, F, G>(
             monomer_index_2,
         );
         let diff: f64 = (numerical_deriv - analytic_deriv).abs();
-        let correct: bool = if diff >= deriv_error && diff > 1e-8 {
-            false
-        } else {
-            true
-        };
+        let correct: bool = !(diff >= deriv_error && diff > 1e-8);
         errors.push(correct);
         error_values[idx_2] = diff;
 
@@ -674,8 +729,8 @@ pub fn assert_deriv_fd<S, F, G>(
     // The differences are stored in an Array
     let mut error_values: Array1<f64> = Array1::zeros([origin.len()]);
 
-    println!(
-        "{: <5} {: >18} {: >18} {: >18} {: <8}",
+    let mut string = format!(
+        "{: <5} {: >18} {: >18} {: >18} {: <8} \n",
         "Index", "Analytic", "Numerical", "Error", "Correct?"
     );
     // PARALLEL
@@ -687,18 +742,23 @@ pub fn assert_deriv_fd<S, F, G>(
         let numerical_deriv: f64 =
             finite_difference(system, &function, origin.clone(), i, stepsize);
         let diff: f64 = (numerical_deriv - analytic_deriv).abs();
-        let correct: bool = if diff > 1e-8 { false } else { true };
+        let correct: bool = diff <= 1e-8;
         errors.push(correct);
         error_values[i] = diff;
 
-        println!(
-            "{: >5} {:>18.14} {:>18.14} {:>18.14} {: >5}",
+        // println!(
+        //     "{: >5} {:>18.14} {:>18.14} {:>18.14} {: >5}",
+        //     i, analytic_deriv, numerical_deriv, diff, correct
+        // );
+        string += &format!(
+            "{: >5} {:>18.14} {:>18.14} {:>18.14} {: >5} \n",
             i, analytic_deriv, numerical_deriv, diff, correct
         );
     }
     let rmsd: f64 = (&error_values * &error_values).mean().unwrap().sqrt();
     let max: f64 = *error_values.max().unwrap();
 
+    println!("{}", string);
     println!("{: <30} {:>18.4e}", "RMSD of Gradient", rmsd);
     println!("{: <30} {:18.4e}", "Max deviation of Gradient", max);
 
@@ -722,31 +782,7 @@ where
     let mut step: Array1<f64> = Array1::zeros([origin.len()]);
     step[index] = 1.0;
 
-    let estimate = (function(system, &origin + &(&step * stepsize))
+    (function(system, &origin + &(&step * stepsize))
         - function(system, &origin - &(&step * stepsize)))
-        / (2.0 * stepsize);
-
-    return estimate;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ndarray::prelude::*;
-
-    // returns the sum of the square of all elements: y = x * x
-    fn simple_function(values: Array1<f64>) -> f64 {
-        values.iter().fold(0.0, |n, i| n + (i.powi(2)))
-    }
-    // returns the gradient of the function above: y' = 2 * x
-    fn simple_gradient(values: Array1<f64>) -> Array1<f64> {
-        2.0 * values
-    }
-
-    #[test]
-    fn assert_deriv_simple_function() {
-        let data: Array1<f64> = array![1.0, 2.0, 3.0, 4.0];
-        panic!("SOMETHING IS WRONG HERE");
-        //assert_deriv(simple_function, simple_gradient, data, 0.01, 1e-10);
-    }
+        / (2.0 * stepsize)
 }

@@ -45,13 +45,14 @@ impl ProductCache {
         self.products
             .entry(key)
             .or_insert(Array2::zeros([value.nrows(), 0]))
-            .append(Axis(1), value.view());
+            .append(Axis(1), value.view())
+            .unwrap();
         // Return a view of the products.
         self.products.get(key).unwrap().view()
     }
 
     /// The HashMap is cleared.
-    pub fn reset(&mut self) -> () {
+    pub fn reset(&mut self) {
         self.products = HashMap::new();
     }
 

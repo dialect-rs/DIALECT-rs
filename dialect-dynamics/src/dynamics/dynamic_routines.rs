@@ -61,6 +61,11 @@ impl Simulation {
         new_velocities
     }
 
+    pub fn get_velocities_verlet_v2(&self) -> Array2<f64> {
+        let new_velocities: Array2<f64> = &self.velocities + &(self.stepsize * 0.5 * &self.forces);
+        new_velocities
+    }
+
     pub fn get_coordinates_langevin(&self) -> Array2<f64> {
         let n_at: usize = self.friction.len();
         let mut new_coords: Array2<f64> = Array2::zeros(self.coordinates.raw_dim());
@@ -176,7 +181,7 @@ pub fn get_center_of_mass(
         y += masses[index] * coordinates[[index, 1]] / total_mass;
         z += masses[index] * coordinates[[index, 2]] / total_mass;
     }
-    return array![x, y, z];
+    array![x, y, z]
 }
 
 pub fn get_momentum(masses: ArrayView1<f64>, velocities: ArrayView2<f64>) -> Array1<f64> {

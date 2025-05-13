@@ -147,8 +147,8 @@ impl<'a> ExcitonStates<'a> {
             basis,
             f,
             tr_dip: transition_dipoles,
-            orbs: orbs,
-            dim: dim,
+            orbs,
+            dim,
         }
     }
 
@@ -184,7 +184,7 @@ impl<'a> ExcitonStates<'a> {
             n + 1,
             abs_energy
         );
-        txt += &format!("  Multiplicity: Singlet\n");
+        txt += "  Multiplicity: Singlet\n";
         txt += &format!(
             "  Trans. Mom. (a.u.): {:10.6} X  {:10.6} Y  {:10.6} Z\n",
             tr_dip.x, tr_dip.y, tr_dip.z
@@ -236,8 +236,6 @@ impl<'a> ExcitonStates<'a> {
             let sorted_indices: Vec<usize> = argsort_abs(v.view());
 
             let mut amplitudes: Vec<f64> = Vec::new();
-            let mut squared_value: f64 = 0.0;
-
             // Reverse the Iterator to write the largest amplitude first.
             for i in sorted_indices.into_iter().rev() {
                 // Amplitude of the current transition.
@@ -247,10 +245,10 @@ impl<'a> ExcitonStates<'a> {
                 match state {
                     BasisState::LE(ref _a) => {
                         amplitudes.push(c);
-                        squared_value += c.powi(2);
+                        // squared_value += c.powi(2);
                     }
                     BasisState::PairCT(ref _a) => {
-                        squared_value += c.powi(2);
+                        // squared_value += c.powi(2);
                     }
                 }
             }
@@ -271,7 +269,7 @@ impl<'a> ExcitonStates<'a> {
             let mut tmp_string: String = String::from("transition_density_");
             tmp_string.push_str(&state.to_string());
             tmp_string.push_str(".npy");
-            write_npy(tmp_string, &tdm_ao);
+            write_npy(tmp_string, &tdm_ao).unwrap();
         }
     }
 
@@ -288,12 +286,12 @@ impl<'a> ExcitonStates<'a> {
             let mut tmp_string: String = String::from("hole_density_");
             tmp_string.push_str(&state.to_string());
             tmp_string.push_str(".npy");
-            write_npy(tmp_string, &h_mat);
+            write_npy(tmp_string, &h_mat).unwrap();
 
             let mut tmp_string: String = String::from("particle_density_");
             tmp_string.push_str(&state.to_string());
             tmp_string.push_str(".npy");
-            write_npy(tmp_string, &p_mat);
+            write_npy(tmp_string, &p_mat).unwrap();
         }
     }
 
@@ -316,7 +314,7 @@ impl<'a> ExcitonStates<'a> {
             let mut filename: String = String::from("s_");
             filename.push_str(&n.to_string());
             filename.push_str("_ntos.molden");
-            self.ntos_to_molden(&atoms, *n, &filename);
+            self.ntos_to_molden(atoms, *n, &filename);
         })
     }
 }
@@ -359,7 +357,7 @@ impl Display for ExcitonStates<'_> {
                 n + 1,
                 abs_energy
             );
-            txt += &format!("  Multiplicity: Singlet\n");
+            txt += "  Multiplicity: Singlet\n";
             txt += &format!(
                 "  Trans. Mom. (a.u.): {:10.6} X  {:10.6} Y  {:10.6} Z\n",
                 tr_dip.x, tr_dip.y, tr_dip.z

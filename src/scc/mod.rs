@@ -8,7 +8,7 @@ pub mod gamma_approximation;
 pub mod h0_and_s;
 mod helpers;
 mod level_shifting;
-mod logging;
+pub mod logging;
 pub(crate) mod mixer;
 pub(crate) mod mulliken;
 pub(crate) mod scc_routine;

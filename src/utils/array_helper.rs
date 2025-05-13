@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use ndarray::prelude::*;
 use ndarray::Data;
 use rayon::prelude::*;

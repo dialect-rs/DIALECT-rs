@@ -1,7 +1,7 @@
 use crate::fmo::gradients::*;
 use crate::fmo::scc::helpers::*;
 use crate::fmo::Pair;
-use crate::gradients::helpers::{f_lr, f_lr_par};
+use crate::gradients::helpers::f_lr;
 use crate::initialization::Atom;
 use crate::scc::gamma_approximation::{gamma_gradients_ao_wise, gamma_gradients_atomwise};
 use crate::scc::h0_and_s::h0_and_s_gradients;
@@ -16,16 +16,17 @@ impl GroundStateGradient for Pair<'_> {
         //     - Repulsive Potential
         // the first three properties are calculated here at the beginning and the gradient that
         // originates from the repulsive potential is added at the end to total gradient
-        // let timer = Instant::now();
+
         // derivative of H0 and S
-        let (grad_s, grad_h0) = h0_and_s_gradients(&atoms, self.n_orbs, &self.slako);
+        let (grad_s, grad_h0) = h0_and_s_gradients(atoms, self.n_orbs, self.slako);
+        // println!("grad s, h0: {:4}",timer.elapsed().as_secs_f32());
         // Reference to the difference of the density matrix of the pair and the corresponding monomers.
         let _dp: ArrayView2<f64> = self.properties.delta_p().unwrap();
         let p: ArrayView2<f64> = self.properties.p().unwrap();
         // the derivatives of the charge (difference)s are computed at this point, since they depend
         // on the derivative of S and this is available here at no additional cost.
         let s: ArrayView2<f64> = self.properties.s().unwrap();
-        let grad_dq: Array2<f64> = self.get_grad_dq(&atoms, s.view(), grad_s.view(), p.view());
+        let grad_dq: Array2<f64> = self.get_grad_dq(atoms, s.view(), grad_s.view(), p.view());
         self.properties.set_grad_dq(grad_dq);
 
         // and reshape them into a 2D array. the last two dimension (number of orbitals) are compressed
@@ -39,11 +40,10 @@ impl GroundStateGradient for Pair<'_> {
 
         // derivative of the gamma matrix and transform it in the same way to a 2D array
         let grad_gamma: Array2<f64> =
-            gamma_gradients_atomwise(&self.gammafunction, &atoms, self.n_atoms)
+            gamma_gradients_atomwise(&self.gammafunction, atoms, self.n_atoms)
                 .into_shape([3 * self.n_atoms, self.n_atoms * self.n_atoms])
                 .unwrap();
 
-        // println!("grad gamma: {:4}",timer.elapsed().as_secs_f32());
         // take references/views to the necessary properties from the scc calculation
         let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
         let p: ArrayView2<f64> = self.properties.p().unwrap();
@@ -54,7 +54,7 @@ impl GroundStateGradient for Pair<'_> {
         // transform the expression Sum_c_in_X (gamma_AC + gamma_aC) * dq_C
         // into matrix of the dimension (norb, norb) to do an element wise multiplication with P
         let esp_mat: Array2<f64> =
-            atomvec_to_aomat(gamma.dot(&dq).view(), self.n_orbs, &atoms) * 0.5;
+            atomvec_to_aomat(gamma.dot(&dq).view(), self.n_orbs, atoms) * 0.5;
         let esp_x_p: Array1<f64> = (&p * &esp_mat)
             .into_shape([self.n_orbs * self.n_orbs])
             .unwrap();
@@ -65,7 +65,7 @@ impl GroundStateGradient for Pair<'_> {
         // the dq's are element wise multiplied into a 2D array and reshaped into a flat one, that
         // has the length of natoms^2. this allows to do only a single matrix vector product of
         // 'grad_gamma' with 'dq_x_dq' and avoids to reshape dGamma multiple times
-        let dq_column: ArrayView2<f64> = dq.clone().insert_axis(Axis(1));
+        let dq_column: ArrayView2<f64> = dq.insert_axis(Axis(1));
         let dq_x_dq: Array1<f64> = (&dq_column.broadcast((self.n_atoms, self.n_atoms)).unwrap()
             * &dq)
             .into_shape([self.n_atoms * self.n_atoms])
@@ -76,8 +76,6 @@ impl GroundStateGradient for Pair<'_> {
             * (p.dot(&self.properties.h_coul_x().unwrap()).dot(&p))
                 .into_shape([self.n_orbs * self.n_orbs])
                 .unwrap();
-
-        // println!("before build gradient: {:4}",timer.elapsed().as_secs_f32());
 
         // calculation of the gradient
         // 1st part:  dH0 / dR . P
@@ -93,7 +91,7 @@ impl GroundStateGradient for Pair<'_> {
         gradient += &(grad_gamma.dot(&dq_x_dq));
 
         // last part: dV_rep / dR
-        gradient = gradient + gradient_v_rep(&atoms, &self.vrep);
+        gradient = gradient + gradient_v_rep(atoms, self.vrep);
         // println!("build gradient: {:4}",timer.elapsed().as_secs_f32());
 
         // long-range contribution to the gradient
@@ -121,7 +119,6 @@ impl GroundStateGradient for Pair<'_> {
                 self.n_atoms,
                 self.n_orbs,
             );
-            // println!("f_lr: {:4}",timer.elapsed().as_secs_f32());
             // -0.25 * F_lr[diff_p] * diff_p
             gradient = gradient
                 - 0.25
@@ -131,9 +128,8 @@ impl GroundStateGradient for Pair<'_> {
                         .unwrap()
                         .dot(&diff_p.into_shape(self.n_orbs * self.n_orbs).unwrap());
         }
-        // println!("build gradient with lc: {:4}",timer.elapsed().as_secs_f32());
 
-        return gradient;
+        gradient
     }
 
     /// Compute the derivative of the partial charges according to equation 24 and 26 in Ref. [1]
@@ -195,6 +191,6 @@ impl GroundStateGradient for Pair<'_> {
         }
 
         // Shape of returned Array: [f, n_atoms], f = 3 * n_atoms
-        return grad_dq;
+        grad_dq
     }
 }

@@ -1,15 +1,12 @@
 pub use atom::Atom;
 pub use geometry::*;
 pub use helpers::*;
-pub use molecular_orbital::*;
 pub use system::*;
-
-pub use crate::properties::property::*;
-pub use crate::properties::*;
 
 pub mod atom;
 pub mod geometry;
 mod helpers;
+mod input_check;
 mod molecular_orbital;
 pub mod old_system;
 pub mod parameter_handling;

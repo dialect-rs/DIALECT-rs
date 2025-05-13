@@ -1,4 +1,8 @@
 use crate::initialization::Simulation;
+// use faer::{linalg::solvers::SelfAdjointEigendecomposition, Mat, MatRef};
+// use crate::block_diag::diag::Blockc64;
+// use faer::Mat;
+// use faer_ext::*;
 use ndarray::prelude::*;
 use ndarray_linalg::{c64, Eig, Eigh, Inverse, UPLO};
 
@@ -21,7 +25,6 @@ impl Simulation {
         let (eig, eig_vec): (Array1<f64>, Array2<f64>) =
             exciton_couplings.eigh(UPLO::Lower).unwrap();
         let eig_vec_c: Array2<c64> = eig_vec.map(|val| val * c64::new(1.0, 0.0));
-        // let (eig, eig_vec): (Array1<c64>, Array2<c64>) = mat.block(0.0001);
         let diag: Array1<c64> = eig.mapv(|val| (-c64::new(0.0, 1.0) * self.stepsize * val).exp());
         let mat: Array2<c64> = eig_vec_c.dot(&Array::from_diag(&diag).dot(&eig_vec_c.t()));
 
@@ -35,7 +38,6 @@ impl Simulation {
         let mat: Array2<c64> = &exciton_couplings
             .mapv(|val| -c64::new(0.0, 1.0) * val * self.stepsize)
             - &(&self.nonadiabatic_scalar * self.stepsize);
-        //mat = mat * self.stepsize;
         let (eig, eig_vec): (Array1<c64>, Array2<c64>) = mat.eig().unwrap();
         let diag: Array1<c64> = eig.mapv(|val| val.exp());
         let mat: Array2<c64> = eig_vec.dot(&Array::from_diag(&diag).dot(&eig_vec.inv().unwrap()));
@@ -46,7 +48,6 @@ impl Simulation {
     pub fn ehrenfest_rk(&self, excitonic_couplings: ArrayView2<f64>) -> Array1<c64> {
         // set the stepsize of the RK-integration
         let n_delta: usize = self.config.ehrenfest_config.integration_steps;
-        // let delta_rk: f64 = self.stepsize / n_delta as f64;
         let delta_rk: f64 = self.stepsize / n_delta as f64;
 
         let excitonic_couplings: Array2<c64> =

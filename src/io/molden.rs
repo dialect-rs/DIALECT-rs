@@ -45,7 +45,7 @@ impl MoldenExporterBuilder<'_> {
     /// Custom implementation for the orbitals, since we only need an ArrayView and have to
     /// order the orbitals. It is necessary, that the atoms are set before the orbitals are set.
     pub fn orbs(&mut self, orbs: ArrayView2<f64>) -> &mut Self {
-        let mut new = self;
+        let new = self;
         let ordered_orbs: Array2<f64> = reorder_orbitals(orbs, new.atoms.as_ref().unwrap());
         new.orbs = Some(ordered_orbs);
         new
@@ -123,11 +123,12 @@ impl MoldenExporter<'_> {
         txt
     }
 
-    pub fn write_to(&self, path: &Path) -> () {
+    pub fn write_to(&self, path: &Path) {
         let filename: String = path.to_str().unwrap().to_owned();
-        let mut f = File::create(path).expect(&*format!("Unable to create file: {}", &filename));
+        let mut f =
+            File::create(path).unwrap_or_else(|_| panic!("Unable to create file: {}", &filename));
         f.write_all(format!("{}", self).as_bytes())
-            .expect(&format!("Unable to write data at: {}", &filename));
+            .unwrap_or_else(|_| panic!("Unable to write data at: {}", &filename));
     }
 }
 
@@ -166,7 +167,7 @@ fn reorder_orbitals(orbs: ArrayView2<f64>, atoms: &[Atom]) -> Array2<f64> {
     }
     let mut ordered_orbs: Array2<f64> = Array2::zeros([0, orbs.ncols()]);
     for idx in indices.into_iter() {
-        ordered_orbs.push(Axis(0), orbs.row(idx));
+        ordered_orbs.push(Axis(0), orbs.row(idx)).unwrap();
     }
     ordered_orbs
 }

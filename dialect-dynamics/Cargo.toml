@@ -8,7 +8,12 @@ edition = "2021"
 
 [dependencies]
 chemfiles = "0.10.3"
-ndarray = {version = "0.15.6", features = ["serde-1", "approx","rayon","blas"]}
+ndarray = { version = "0.15.6", features = [
+    "serde-1",
+    "approx",
+    "rayon",
+    "blas",
+] }
 approx = "0.5.1"
 ndarray-linalg = { version = "0.16", features = ["netlib-system"]}
 ndarray-stats = "0.5.1"
@@ -18,19 +23,16 @@ itertools = "0.10.5"
 serde_json = "1.0"
 serde_yaml = "0.9.17"
 serde_derive = "1.0"
-clap = "=3.0.0-beta.2"
 toml = "0.7.2"
 log = "0.4.17"
 env_logger = "0.10.0"
 pretty_env_logger = "0.4"
-rayon = "1.5.3"
+rayon = "1.10.0"
 hashbrown = "0.13.2"
 soa_derive = "0.12.0"
 rand_distr = "0.4.0"
 rand = "0.8.5"
-anyhow = "=1.0.59"
 ndarray-npy = "0.8.1"
-petgraph = "0.6.3"
 rawpointer = { version = "0.2" }
 
 [profile.release]

@@ -1,6 +1,9 @@
 use crate::cubes::helpers::{spherical_harmonics_yreal, spline_radial_wavefunction_v2};
 use crate::initialization::parameters::PseudoAtom;
 use crate::initialization::Atom;
+use crate::io::settings::ParameterizationConfig;
+use crate::xtb::initialization::atom::XtbAtom;
+use crate::xtb::initialization::basis::{create_basis_set_cubes, Basis, ContractedBasisfunction};
 use hashbrown::HashMap;
 use nalgebra::Vector3;
 use ndarray::prelude::*;
@@ -39,10 +42,9 @@ impl AtomicBasisFunction {
             // splined_value = splev_uniform(&self.tck, &self.c, self.k, r) / r;
         }
 
-        let val = (-1.0_f64).powi(self.l as i32)
+        (-1.0_f64).powi(self.l as i32)
             * splined_value
-            * spherical_harmonics_yreal(self.l, self.m, (dx, dy, dz));
-        return val;
+            * spherical_harmonics_yreal(self.l, self.m, (dx, dy, dz))
     }
 
     pub fn eval_full_spline(&self) {
@@ -51,8 +53,8 @@ impl AtomicBasisFunction {
         for (r, spl) in r_arr.iter().zip(spline.iter_mut()) {
             *spl = self.spline.sample(*r).unwrap();
         }
-        write_npy(format!("spline_{}_{}.npy", self.z, self.l), &spline);
-        write_npy(format!("radii_{}_{}.npy", self.z, self.l), &r_arr);
+        write_npy(format!("spline_{}_{}.npy", self.z, self.l), &spline).unwrap();
+        write_npy(format!("radii_{}_{}.npy", self.z, self.l), &r_arr).unwrap();
     }
 }
 
@@ -62,12 +64,12 @@ pub struct AtomicBasisSet {
 }
 
 impl AtomicBasisSet {
-    pub fn new(atoms: &[Atom]) -> Self {
+    pub fn new(atoms: &[Atom], config: &ParameterizationConfig) -> Self {
         let (q_numbers, radial_wavefunctions, radial_values): (
             HashMap<u8, Vec<(i8, i8, i8)>>,
             HashMap<u8, Vec<Vec<f64>>>,
             HashMap<u8, Vec<f64>>,
-        ) = load_pseudo_atoms(atoms, true);
+        ) = load_pseudo_atoms(atoms, true, config);
         let mut basis_functions: Vec<AtomicBasisFunction> = Vec::new();
 
         for (idx, atom) in atoms.iter().enumerate() {
@@ -106,6 +108,7 @@ impl AtomicBasisSet {
 pub fn load_pseudo_atoms(
     atoms: &[Atom],
     confined: bool,
+    config: &ParameterizationConfig,
 ) -> (
     HashMap<u8, Vec<(i8, i8, i8)>>,
     HashMap<u8, Vec<Vec<f64>>>,
@@ -122,7 +125,7 @@ pub fn load_pseudo_atoms(
     let mut radial_values: HashMap<u8, Vec<f64>> = HashMap::new();
     for atom in unique_atoms {
         // load pseudo atoms
-        let pseudo_atom = import_pseudo_atom(&atom, confined);
+        let pseudo_atom = import_pseudo_atom(&atom, confined, config);
         // indices of the valence orbitals
         let orbital_indices = pseudo_atom.valence_orbitals;
 
@@ -154,10 +157,75 @@ pub fn load_pseudo_atoms(
     (qnumbers, radial_wavefunctions, radial_values)
 }
 
-pub fn import_pseudo_atom(atom: &Atom, confined: bool) -> PseudoAtom {
+pub fn import_pseudo_atom(
+    atom: &Atom,
+    confined: bool,
+    config: &ParameterizationConfig,
+) -> PseudoAtom {
     if confined {
-        return PseudoAtom::confined_atom(atom.name);
+        PseudoAtom::confined_atom(atom.name, config)
     } else {
-        return PseudoAtom::free_atom(atom.name);
+        PseudoAtom::free_atom(atom.name, config)
     }
 }
+
+pub fn create_xtb_basis_from_atoms(atoms: &[Atom]) -> Basis {
+    // create xtb atoms
+    let mut xtbatom_vec: Vec<XtbAtom> = Vec::new();
+    for atom in atoms.iter() {
+        let mut xtb_atom = XtbAtom::from(atom.number);
+        xtb_atom.xyz = atom.xyz;
+        xtbatom_vec.push(xtb_atom);
+    }
+    // create xtb basis
+    let basis: Basis = create_basis_set_cubes(&xtbatom_vec);
+    basis
+}
+
+pub fn evaluate_xtb_func_on_grid(func: &ContractedBasisfunction, x: f64, y: f64, z: f64) -> f64 {
+    // define the x, y and z coordinate of the centers
+    let x0: f64 = func.center.0;
+    let y0: f64 = func.center.1;
+    let z0: f64 = func.center.2;
+    // difference between center and grid points
+    // add some offset to avoid division by zero
+    let dx = x - x0 + 1.0e-15;
+    let dy = y - y0 + 1.0e-15;
+    let dz = z - z0 + 1.0e-15;
+
+    // get the distance from the center
+    let r: f64 = ((x - x0).powi(2) + (y - y0).powi(2) + (z - z0).powi(2)).sqrt();
+
+    // Cartesian part
+    let mut sum: f64 = 0.0;
+    for prim in func.primitive_functions.iter() {
+        let coeff: f64 = prim.coeff;
+        let exp: f64 = prim.exponent;
+        let i: i32 = prim.angular_momenta.0 as i32;
+        let j: i32 = prim.angular_momenta.1 as i32;
+        let k: i32 = prim.angular_momenta.2 as i32;
+
+        sum += coeff * dx.powi(i) * dy.powi(j) * dz.powi(k) * (-exp * r.powi(2)).exp();
+    }
+    sum
+}
+
+// fn get_m_from_func(ijk: (i8, i8, i8)) -> i8 {
+//     match ijk {
+//         (0, 0, 0) => 0,
+//         (1, 0, 0) => 1,
+//         (0, 0, 1) => 0,
+//         (0, 1, 0) => -1,
+//         (1, 1, 0) => -2,
+//         (1, 0, 1) => 1,
+//         (0, 1, 1) => -1,
+//         _ => 0,
+//     }
+// }
+// fn double_factorial(i: usize) -> usize {
+//     if i == 1 || i == 0 {
+//         1
+//     } else {
+//         i * double_factorial(i - 2)
+//     }
+// }

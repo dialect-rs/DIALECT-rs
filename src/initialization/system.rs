@@ -60,11 +60,11 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
     /// the global configuration as [Configuration](crate::io::settings::Configuration).
     fn from(molecule: (Vec<u8>, Array2<f64>, Configuration)) -> Self {
         // create mutable Vectors
-        let mut unique_atoms: Vec<Atom> = Vec::new();
-        let mut num_to_atom: HashMap<u8, Atom> = HashMap::new();
+        let unique_atoms: Vec<Atom>;
+        let num_to_atom: HashMap<u8, Atom>;
         let mut skf_handlers: Vec<SkfHandler> = Vec::new();
 
-        if molecule.2.slater_koster.use_external_skf == true {
+        if molecule.2.slater_koster.use_external_skf {
             // get the unique [Atom]s and the HashMap with the mapping from the numbers to the [Atom]s
             // if use_mio is true, create a vector of homonuclear SkfHandlers and a vector
             // of heteronuclear SkfHandlers
@@ -75,7 +75,8 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
             skf_handlers = tmp.2;
         } else {
             // get the unique [Atom]s and the HashMap with the mapping from the numbers to the [Atom]s
-            let tmp: (Vec<Atom>, HashMap<u8, Atom>) = get_unique_atoms(&molecule.0);
+            let tmp: (Vec<Atom>, HashMap<u8, Atom>) =
+                get_unique_atoms(&molecule.0, &molecule.2.parameterization);
             unique_atoms = tmp.0;
             num_to_atom = tmp.1;
         }
@@ -95,13 +96,13 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
                 atoms[idx].position_from_slice(position.as_slice().unwrap())
             });
         // get the number of unpaired electrons from the input option
-        let unpaired: usize = match molecule.2.mol.multiplicity {
-            1u8 => 0,
-            _ => panic!(
-                "The specified multiplicity is not implemented. \
-            Only closed shell calculations are available."
-            ),
-        };
+        // let unpaired: usize = match molecule.2.mol.multiplicity {
+        //     1u8 => 0,
+        //     _ => panic!(
+        //         "The specified multiplicity is not implemented. \
+        //     Only closed shell calculations are available."
+        //     ),
+        // };
         // set charge of the system
         let charge: i8 = molecule.2.mol.charge;
         // calculate the number of electrons
@@ -134,7 +135,7 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
         let mut vrep: RepulsivePotential = RepulsivePotential::new();
 
         // add all unique element pairs
-        if molecule.2.slater_koster.use_external_skf == true {
+        if molecule.2.slater_koster.use_external_skf {
             for handler in skf_handlers.iter() {
                 // in the heteronuclear case, the slako tables of the element combinations "AB"
                 // and "BA" must be combined
@@ -159,19 +160,26 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
         } else {
             let element_iter = unique_atoms.iter().map(|atom| Element::from(atom.number));
             for (kind1, kind2) in element_iter.clone().cartesian_product(element_iter) {
-                slako.add(kind1, kind2);
+                slako.add(kind1, kind2, &molecule.2.parameterization);
                 vrep.add(kind1, kind2);
             }
         }
         // initialize the gamma function
-        let gf: GammaFunction =
-            initialize_gamma_function(&unique_atoms, 0.0, molecule.2.use_gaussian_gamma);
+        let gf: GammaFunction = initialize_gamma_function(
+            &unique_atoms,
+            0.0,
+            molecule.2.use_gaussian_gamma,
+            molecule.2.use_shell_resolved_gamma,
+            molecule.2.dftb3.use_gamma_damping,
+        );
         // initialize the gamma function for long-range correction if it is requested
         let gf_lc: Option<GammaFunction> = if molecule.2.lc.long_range_correction {
             Some(initialize_gamma_function(
                 &unique_atoms,
                 molecule.2.lc.long_range_radius,
                 molecule.2.use_gaussian_gamma,
+                molecule.2.use_shell_resolved_gamma,
+                molecule.2.dftb3.use_gamma_damping,
             ))
         } else {
             None
@@ -180,16 +188,16 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
         Self {
             config: molecule.2,
             n_atoms: molecule.0.len(),
-            n_orbs: n_orbs,
-            n_elec: n_elec,
-            charge: charge,
-            occ_indices: occ_indices,
-            virt_indices: virt_indices,
-            atoms: atoms,
+            n_orbs,
+            n_elec,
+            charge,
+            occ_indices,
+            virt_indices,
+            atoms,
             geometry: geom,
-            properties: properties,
-            vrep: vrep,
-            slako: slako,
+            properties,
+            vrep,
+            slako,
             gammafunction: gf,
             gammafunction_lc: gf_lc,
         }

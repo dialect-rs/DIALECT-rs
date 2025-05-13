@@ -1,23 +1,23 @@
 use crate::initialization::{Atom, System};
 use crate::param::slako_transformations::{directional_cosines, slako_transformation};
 use ndarray::prelude::*;
-use ndarray_linalg::{Determinant, Scalar};
+use ndarray_linalg::Determinant;
 use ndarray_stats::QuantileExt;
 
 impl System {
     pub fn overlap_between_timesteps(&self, old_atoms: &[Atom]) -> Array2<f64> {
-        /// compute overlap matrix elements between two sets of atoms using
-        /// Slater-Koster rules
+        // compute overlap matrix elements between two sets of atoms using
+        // Slater-Koster rules
         let mut s: Array2<f64> = Array2::zeros([self.n_orbs, self.n_orbs]);
 
         let mut mu: usize = 0;
         // iterate over the atoms of the system
-        for (_i, atom_i) in old_atoms.iter().enumerate() {
+        for atom_i in old_atoms.iter() {
             // iterate over the orbitals on atom I
             for orbi in atom_i.valorbs.iter() {
                 // iterate over the atoms of the old geometry
                 let mut nu: usize = 0;
-                for (_j, atom_j) in self.atoms.iter().enumerate() {
+                for atom_j in self.atoms.iter() {
                     // iterate over the orbitals on atom J
                     for orbj in atom_j.valorbs.iter() {
                         if atom_i <= atom_j {
@@ -55,22 +55,22 @@ impl System {
                 mu += 1;
             }
         }
-        return s;
+        s
     }
 
     pub fn overlap_between_timesteps_ba(&self, old_atoms: &[Atom]) -> Array2<f64> {
-        /// compute overlap matrix elements between two sets of atoms using
-        /// Slater-Koster rules
+        // compute overlap matrix elements between two sets of atoms using
+        // Slater-Koster rules
         let mut s: Array2<f64> = Array2::zeros([self.n_orbs, self.n_orbs]);
 
         let mut mu: usize = 0;
         // iterate over the atoms of the system
-        for (_i, atom_i) in self.atoms.iter().enumerate() {
+        for atom_i in self.atoms.iter() {
             // iterate over the orbitals on atom I
             for orbi in atom_i.valorbs.iter() {
                 // iterate over the atoms of the old geometry
                 let mut nu: usize = 0;
-                for (_j, atom_j) in old_atoms.iter().enumerate() {
+                for atom_j in old_atoms.iter() {
                     // iterate over the orbitals on atom J
                     for orbj in atom_j.valorbs.iter() {
                         if atom_i <= atom_j {
@@ -108,20 +108,20 @@ impl System {
                 mu += 1;
             }
         }
-        return s;
+        s
     }
 
     pub fn ci_overlap_system(
-        &mut self,
+        &self,
         old_atoms: &[Atom],
         old_orbs: ArrayView2<f64>,
         old_ci_coeff: ArrayView2<f64>,
         n_states: usize,
-        step: usize,
+        _step: usize,
     ) -> Array2<f64> {
-        /// Compute CI overlap between TD-DFT 'wavefunctions'
-        /// Excitations i->a with coefficients |C_ia| < threshold will be neglected
-        /// n_states: Includes the ground state
+        // Compute CI overlap between TD-DFT 'wavefunctions'
+        // Excitations i->a with coefficients |C_ia| < threshold will be neglected
+        // n_states: Includes the ground state
         let threshold: f64 = 0.001;
 
         // calculate the overlap between the new and old geometry
@@ -130,6 +130,23 @@ impl System {
         let orbs_i: ArrayView2<f64> = self.properties.orbs().unwrap();
         // calculate the overlap between the molecular orbitals
         let s_mo: Array2<f64> = old_orbs.t().dot(&s_ao.dot(&orbs_i));
+
+        // // align the phase of the MO coefficients
+        // let s_mo_diag:ArrayView1<f64> = s_mo.diag();
+        // let sign:Array1<f64> = get_sign_of_array(s_mo_diag);
+        // println!("signs: {:.3}",sign);
+        // let mut aligned_orbs:Array2<f64> = Array2::zeros(orbs_i.raw_dim());
+        // for (idx, sign) in sign.iter().enumerate(){
+        //     aligned_orbs.slice_mut(s![..,idx]).assign(&(*sign * &orbs_i.slice(s![..,idx])));
+        // }
+
+        // // calculate the overlap between the molecular orbitals with the newly aligned current orbs
+        // let s_mo: Array2<f64> = old_orbs.t().dot(&s_ao.dot(&aligned_orbs));
+        // let s_mo_diag:ArrayView1<f64> = s_mo.diag();
+        // let sign:Array1<f64> = get_sign_of_array(s_mo_diag);
+        // println!("signs: {:.3}",sign);
+        // let filename: String = format!("s_dt_{}.npy", step);
+        // write_npy(filename, &s_mo).unwrap();
 
         // get occupied and virtual orbitals
         let occ_indices = self.properties.occ_indices().unwrap();
@@ -149,6 +166,11 @@ impl System {
         let ci_coeff: ArrayView3<f64> = ci_coeff.into_shape([n_occ, n_virt, n_roots]).unwrap();
         let old_ci_coeff: ArrayView3<f64> =
             old_ci_coeff.into_shape([n_occ, n_virt, n_roots]).unwrap();
+
+        // let filename: String = format!("ci_coeff_{}.npy", step);
+        // write_npy(filename, &ci_coeff).unwrap();
+        // let filename: String = format!("old_ci_coeff_{}.npy", step);
+        // write_npy(filename, &old_ci_coeff).unwrap();
 
         // overlap between ground states <Psi0|Psi0'>
         s_ci[[0, 0]] = det_ij;
@@ -239,7 +261,7 @@ impl System {
             }
         }
 
-        return s_ci;
+        s_ci
     }
 
     pub fn check_sign_ci_overlap_same_state(&self, state: usize, n_roots: usize) -> f64 {
@@ -251,9 +273,9 @@ impl System {
     }
 
     pub fn ci_overlap_system_states(&self, state_i: usize, state_j: usize, n_roots: usize) -> f64 {
-        /// Compute CI overlap between TD-DFT 'wavefunctions'
-        /// Excitations i->a with coefficients |C_ia| < threshold will be neglected
-        /// n_states: Includes the ground state
+        // Compute CI overlap between TD-DFT 'wavefunctions'
+        // Excitations i->a with coefficients |C_ia| < threshold will be neglected
+        // n_states: Includes the ground state
         let threshold: f64 = 0.00001;
 
         // get the old system
@@ -268,6 +290,7 @@ impl System {
         let orbs_i: ArrayView2<f64> = self.properties.orbs().unwrap();
         // calculate the overlap between the molecular orbitals
         let s_mo: Array2<f64> = old_orbs.t().dot(&s_ao.dot(&orbs_i));
+        // println!("S in MO basis: \n {:.4}",s_mo);
 
         // get occupied and virtual orbitals
         let occ_indices = self.properties.occ_indices().unwrap();
@@ -281,9 +304,9 @@ impl System {
 
         // check the signs of the states
         let sci_1: f64 = self.ci_overlap_system_states_2(state_i, state_i, n_roots);
-        let sci_2: f64 = self.ci_overlap_system_states_2(state_j, state_j, n_roots);
-        let mut prefac_i: f64 = if sci_1 > 0.0 { 1.0 } else { -1.0 };
-        let mut prefac_j: f64 = if sci_2 > 0.0 { 1.0 } else { -1.0 };
+        // let sci_2: f64 = self.ci_overlap_system_states_2(state_j, state_j, n_roots);
+        let prefac_i: f64 = if sci_1 > 0.0 { 1.0 } else { -1.0 };
+        // let prefac_j: f64 = if sci_2 > 0.0 { 1.0 } else { -1.0 };
 
         // scalar coupling value
         let mut s_ci: f64 = 0.0;
@@ -348,7 +371,7 @@ impl System {
             }
         }
 
-        return s_ci * prefac_i;
+        s_ci * prefac_i
     }
 
     pub fn ci_overlap_system_states_2(
@@ -357,9 +380,9 @@ impl System {
         state_j: usize,
         n_roots: usize,
     ) -> f64 {
-        /// Compute CI overlap between TD-DFT 'wavefunctions'
-        /// Excitations i->a with coefficients |C_ia| < threshold will be neglected
-        /// n_states: Includes the ground state
+        // Compute CI overlap between TD-DFT 'wavefunctions'
+        // Excitations i->a with coefficients |C_ia| < threshold will be neglected
+        // n_states: Includes the ground state
         let threshold: f64 = 0.00001;
 
         // get the old system
@@ -374,6 +397,7 @@ impl System {
         let orbs_i: ArrayView2<f64> = self.properties.orbs().unwrap();
         // calculate the overlap between the molecular orbitals
         let s_mo: Array2<f64> = old_orbs.t().dot(&s_ao.dot(&orbs_i));
+        // println!("S in MO basis: \n {:.4}",s_mo);
 
         // get occupied and virtual orbitals
         let occ_indices = self.properties.occ_indices().unwrap();
@@ -450,7 +474,7 @@ impl System {
             }
         }
 
-        return s_ci;
+        s_ci
     }
 }
 
@@ -463,5 +487,5 @@ pub fn get_sign_of_array(arr: ArrayView1<f64>) -> Array1<f64> {
             sign[idx] = -1.0;
         }
     });
-    return sign;
+    sign
 }

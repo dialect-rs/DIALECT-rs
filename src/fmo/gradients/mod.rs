@@ -2,20 +2,22 @@ use crate::fmo::*;
 use crate::initialization::*;
 use nalgebra::Vector3;
 use ndarray::prelude::*;
+use ndarray_npy::write_npy;
 use std::ops::AddAssign;
-use std::time::Instant;
+
 mod ct_state;
 mod embedding;
 mod es_dimer;
 mod le_state;
 mod monomer;
 mod pair;
+mod response;
 
+// mod numerical;
 use crate::fmo::gradients::embedding::diag_of_last_dimensions;
 use crate::fmo::helpers::get_pair_slice;
 use crate::gradients::dispersion::gradient_disp;
 use rayon::prelude::*;
-
 
 pub trait GroundStateGradient {
     fn get_grad_dq(
@@ -38,16 +40,24 @@ impl SuperSystem<'_> {
         let mut grad: Array1<f64> = Array1::zeros(3 * atoms.len());
 
         if self.config.dispersion.use_dispersion {
-            grad = grad + gradient_disp(&atoms, &self.config.dispersion);
+            grad = grad + gradient_disp(atoms, &self.config.dispersion);
         }
         let monomer_gradient: Array1<f64> = self.monomer_gradients();
+
         let pair_gradient: Array1<f64> = self.pair_gradients(monomer_gradient.view());
+
         let embedding_gradient: Array1<f64> = self.embedding_gradient();
+
         let esd_gradient: Array1<f64> = self.es_dimer_gradient();
 
         grad = grad + monomer_gradient + pair_gradient + embedding_gradient + esd_gradient;
 
-        return grad;
+        // save the gradient
+        if self.config.jobtype == "grad" {
+            // save the gradient
+            write_npy("gs_gradient.npy", &grad).unwrap();
+        }
+        grad
     }
 
     fn monomer_gradients(&mut self) -> Array1<f64> {
@@ -78,12 +88,12 @@ impl SuperSystem<'_> {
                 .slice_mut(s![mol.slice.grad])
                 .assign(&diag_of_last_dimensions(mol_grad_dq));
 
-            gradient.slice_mut(s![mol.slice.grad]).assign(&vector);
+            gradient.slice_mut(s![mol.slice.grad]).assign(vector);
         }
 
         self.properties.set_grad_dq_diag(grad_dq);
 
-        return gradient;
+        gradient
     }
 
     fn pair_gradients(&mut self, monomer_gradient: ArrayView1<f64>) -> Array1<f64> {
@@ -91,7 +101,6 @@ impl SuperSystem<'_> {
         let atoms: &[Atom] = &self.atoms[..];
         let monomers: &Vec<Monomer> = &self.monomers;
 
-        let timer = Instant::now();
         // Parallelization
         let gradient_vec: Vec<Array1<f64>> = self
             .pairs
@@ -102,16 +111,12 @@ impl SuperSystem<'_> {
                 let m_j: &Monomer = &monomers[pair.j];
 
                 let pair_atoms: Vec<Atom> =
-                    get_pair_slice(&atoms, m_i.slice.atom_as_range(), m_j.slice.atom_as_range());
+                    get_pair_slice(atoms, m_i.slice.atom_as_range(), m_j.slice.atom_as_range());
                 // compute the gradient of the pair
                 pair.scc_gradient(&pair_atoms[..])
             })
             .collect();
 
-        println!(
-            "Time pair gradient routines: {:.4}",
-            timer.elapsed().as_secs_f32()
-        );
         for (pair, pair_grad) in self.pairs.iter().zip(gradient_vec.iter()) {
             // get references to the corresponding monomers
             let m_i: &Monomer = &monomers[pair.i];
@@ -127,12 +132,8 @@ impl SuperSystem<'_> {
                     - &monomer_gradient.slice(s![m_j.slice.grad])),
             );
         }
-        println!(
-            "Time slice pair gradient: {:.4}",
-            timer.elapsed().as_secs_f32()
-        );
 
-        return gradient;
+        gradient
     }
 
     pub fn pair_gradients_for_testing(&mut self) -> Array1<f64> {
@@ -145,7 +146,7 @@ impl SuperSystem<'_> {
             let m_j: &Monomer = &self.monomers[pair.j];
 
             let pair_atoms: Vec<Atom> =
-                get_pair_slice(&atoms, m_i.slice.atom_as_range(), m_j.slice.atom_as_range());
+                get_pair_slice(atoms, m_i.slice.atom_as_range(), m_j.slice.atom_as_range());
             // compute the gradient of the pair
             let pair_grad: Array1<f64> = pair.scc_gradient(&pair_atoms[..]);
             // subtract the monomer contributions and assemble it into the gradient
@@ -158,7 +159,7 @@ impl SuperSystem<'_> {
                     - &monomer_gradient.slice(s![m_j.slice.grad])),
             );
         }
-        return gradient;
+        gradient
     }
 }
 
@@ -191,5 +192,5 @@ fn gradient_v_rep(atoms: &[Atom], v_rep: &RepulsivePotential) -> Array1<f64> {
         }
         grad.slice_mut(s![i * 3..i * 3 + 3]).assign(&grad_i);
     }
-    return grad;
+    grad
 }

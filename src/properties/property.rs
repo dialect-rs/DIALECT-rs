@@ -108,6 +108,12 @@ impl From<HashMap<(usize, usize), PairType>> for Property {
     }
 }
 
+impl From<HashMap<(usize, usize), usize>> for Property {
+    fn from(value: HashMap<(usize, usize), usize>) -> Self {
+        Property::PairIndexMap(value)
+    }
+}
+
 impl From<Vec<u8>> for Property {
     fn from(value: Vec<u8>) -> Self {
         Property::VecU8(value)
@@ -131,7 +137,7 @@ impl From<Vec<ReducedBasisState>> for Property {
     }
 }
 
-impl<'a> From<&'_ str> for Property {
+impl From<&'_ str> for Property {
     fn from(value: &'_ str) -> Self {
         Property::String(value.into())
     }

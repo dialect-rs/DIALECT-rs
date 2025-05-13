@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use crate::defaults;
 use crate::initialization::Atom;
 use ndarray::prelude::*;

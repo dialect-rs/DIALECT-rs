@@ -30,7 +30,7 @@ impl LevelShifter {
         LevelShifter {
             shift_value: defaults::HOMO_LUMO_SHIFT,
             weight: 1.0,
-            vv_block: vv_block,
+            vv_block,
             is_on: true,
         }
     }

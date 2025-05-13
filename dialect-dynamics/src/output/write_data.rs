@@ -101,6 +101,8 @@ pub struct RestartOutput {
     pub velocities: Array2<f64>,
     pub nonadiabatic_scalar: Array2<f64>,
     pub coefficients: Array1<c64>,
+    pub state: usize,
+    pub step: usize,
 }
 
 impl RestartOutput {
@@ -110,6 +112,8 @@ impl RestartOutput {
         velocities: ArrayView2<f64>,
         nonadiabatic_scalar: ArrayView2<f64>,
         coefficients: ArrayView1<c64>,
+        state: usize,
+        step: usize,
     ) -> RestartOutput {
         RestartOutput {
             n_atoms,
@@ -117,6 +121,8 @@ impl RestartOutput {
             velocities: velocities.to_owned(),
             nonadiabatic_scalar: nonadiabatic_scalar.to_owned(),
             coefficients: coefficients.to_owned(),
+            state,
+            step,
         }
     }
 }
@@ -321,8 +327,6 @@ pub fn write_energies(energies: ArrayView1<f64>, first_call: bool) {
     let file_path: &Path = Path::new("energies.dat");
     let mut string: String = String::from("");
     for (ind, energy) in energies.iter().enumerate() {
-        // string.push_str(&energy.to_string());
-        // string.push_str(&String::from("\t"));
         if ind == 0 {
             string.push_str(&energy.to_string());
             string.push_str(&String::from("\t"));
@@ -331,6 +335,35 @@ pub fn write_energies(energies: ArrayView1<f64>, first_call: bool) {
             string.push_str(&String::from("\t"));
         }
     }
+    string.push('\n');
+
+    if file_path.exists() {
+        let file = if first_call {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(file_path)
+                .unwrap()
+        } else {
+            OpenOptions::new().append(true).open(file_path).unwrap()
+        };
+        let mut stream = BufWriter::new(file);
+        stream.write_fmt(format_args!("{}", string)).unwrap();
+        stream.flush().unwrap();
+    } else {
+        fs::write(file_path, string).expect("Unable to write to energies.dat file");
+    }
+}
+
+/// Print the energies of the system to the file "energies.dat"
+pub fn write_kinetic_and_total_energy(kinetic: f64, total: f64, first_call: bool) {
+    let file_path: &Path = Path::new("kinetic_and_total_energies.dat");
+    let mut string: String = String::from("");
+    // fill string
+    string.push_str(&kinetic.to_string());
+    string.push_str(&String::from("\t"));
+    string.push_str(&total.to_string());
+    string.push_str(&String::from("\t"));
     string.push('\n');
 
     if file_path.exists() {

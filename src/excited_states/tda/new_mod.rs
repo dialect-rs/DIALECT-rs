@@ -86,7 +86,7 @@ impl Display for ExcitedStates {
             );
 
             // Multiplicity is at the moment always Singlet. This will be advanced in the future.
-            txt += &format!("  Multiplicity: Singlet\n");
+            txt += "  Multiplicity: Singlet\n";
 
             // Write the transition dipole moment and the oscillator strength.
             txt += &format!(
@@ -98,13 +98,13 @@ impl Display for ExcitedStates {
             // All orbital transition which coefficients is higher than a threshold are printed.
             for (h, row) in tdm.axis_iter(Axis(0)).rev().enumerate() {
                 let occ_label: String = if h == 0 {
-                    format!("H")
+                    "H".to_string()
                 } else {
                     format!("H-{}", h)
                 };
                 for (l, value) in row.iter().enumerate() {
                     let virt_label: String = if l == 0 {
-                        format!("L")
+                        "L".to_string()
                     } else {
                         format!("L+{}", l)
                     };

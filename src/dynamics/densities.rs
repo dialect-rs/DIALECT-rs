@@ -1,44 +1,47 @@
 use crate::{
-    fmo::{build_graph, fragmentation, old_supersystem::OldSupersystem, Graph, SuperSystem},
+    fmo::{build_graph, fragmentation, Graph, SuperSystem},
     initialization::{parameter_handling::generate_parameters, Atom},
-    io::frame_to_atoms,
     scc::scc_routine::RestrictedSCC,
 };
 use chemfiles::{Frame, Trajectory};
 use ndarray::prelude::*;
 use ndarray_npy::NpzReader;
-use rayon::current_num_threads;
 use rayon::prelude::*;
 use std::fs::File;
 
 impl SuperSystem<'_> {
     pub fn get_ehrenfest_densities(&mut self) {
-        // load the geometries
-        let mut trajectory = Trajectory::open("dynamics.xyz", 'r').unwrap();
-        let mut frame = Frame::new();
-        let mut count: usize = 0;
-        let mut step_vec: Vec<usize> = Vec::new();
+        // normal calc for first geometry
+        // self.prepare_scc();
+        // let _ = self.run_scc().unwrap();
+        // self.get_excitonic_matrix();
 
-        for step in 0..self.config.tdm_config.total_steps {
+        // println!("atoms length {}", self.atoms.len());
+
+        // // create the OldSupersystem and store it
+        // let old_system = OldSupersystem::new(&self);
+        // self.properties.set_ref_supersystem(old_system);
+
+        // load the geometries
+        // let trajectory = Trajectory::open("dynamics.xyz", 'r').unwrap();
+        // let frame = Frame::new();
+        let mut step_vec: Vec<usize> = Vec::new();
+        for (count, step) in (0..self.config.tdm_config.total_steps).enumerate() {
             if count.rem_euclid(self.config.tdm_config.calculate_nth_step) == 0 {
                 step_vec.push(step);
             }
-            count += 1;
         }
-
         // reset old data
         for monomer in self.monomers.iter_mut() {
-            monomer.properties.reset();
+            monomer.properties.reset_reduced();
         }
         for pair in self.pairs.iter_mut() {
-            pair.properties.reset();
+            pair.properties.reset_reduced();
         }
         for esd_pair in self.esd_pairs.iter_mut() {
-            esd_pair.properties.reset();
+            esd_pair.properties.reset_reduced();
         }
-        self.properties.reset();
-
-        println!("Number of threads: {}", current_num_threads());
+        self.properties.reset_reduced();
 
         if self.config.tdm_config.use_parallelization {
             step_vec.par_iter().enumerate().for_each(|(idx, step)| {
@@ -46,7 +49,7 @@ impl SuperSystem<'_> {
                 let mut trajectory = Trajectory::open("dynamics.xyz", 'r').unwrap();
                 let mut frame = Frame::new();
                 trajectory.read_step(*step, &mut frame).unwrap();
-                let (slako, vrep, atoms, unique_atoms) =
+                let (_slako, _vrep, atoms, _unique_atoms) =
                     generate_parameters(frame.clone(), self.config.clone());
 
                 // Get all [Atom]s of the SuperSystem in a sorted order that corresponds to the order of
@@ -58,7 +61,7 @@ impl SuperSystem<'_> {
                 // Here does the fragmentation happens
                 let monomer_indices: Vec<Vec<usize>> = fragmentation(&graph);
 
-                for (idx, indices) in monomer_indices.into_iter().enumerate() {
+                for indices in monomer_indices.into_iter() {
                     // Clone the atoms that belong to this monomer, they will be stored in the sorted list
                     let mut monomer_atoms: Vec<Atom> =
                         indices.into_iter().map(|i| atoms[i].clone()).collect();
@@ -68,7 +71,7 @@ impl SuperSystem<'_> {
                 let mut system_clone: SuperSystem = self.clone();
                 system_clone.atoms = sorted_atoms;
                 system_clone.prepare_scc();
-                system_clone.run_scc();
+                system_clone.run_scc().unwrap();
 
                 // load the coefficients
                 let mut coefficients =
@@ -95,7 +98,7 @@ impl SuperSystem<'_> {
             for (idx, step) in step_vec.iter().enumerate() {
                 // get new geometry
                 trajectory.read_step(*step, &mut frame).unwrap();
-                let (slako, vrep, atoms, unique_atoms) =
+                let (_slako, _vrep, atoms, _unique_atoms) =
                     generate_parameters(frame.clone(), self.config.clone());
 
                 // Get all [Atom]s of the SuperSystem in a sorted order that corresponds to the order of
@@ -107,7 +110,7 @@ impl SuperSystem<'_> {
                 // Here does the fragmentation happens
                 let monomer_indices: Vec<Vec<usize>> = fragmentation(&graph);
 
-                for (idx, indices) in monomer_indices.into_iter().enumerate() {
+                for indices in monomer_indices.into_iter() {
                     // Clone the atoms that belong to this monomer, they will be stored in the sorted list
                     let mut monomer_atoms: Vec<Atom> =
                         indices.into_iter().map(|i| atoms[i].clone()).collect();
@@ -116,7 +119,7 @@ impl SuperSystem<'_> {
                 }
                 self.atoms = sorted_atoms;
                 self.prepare_scc();
-                self.run_scc();
+                let _ = self.run_scc().unwrap();
 
                 let coeff: Array1<f64> = coefficients.by_name(&step.to_string()).unwrap();
                 let (tdm, h_mat, p_mat): (Array2<f64>, Array2<f64>, Array2<f64>) =

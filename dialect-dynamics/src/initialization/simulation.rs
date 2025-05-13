@@ -1,7 +1,5 @@
 use crate::constants;
-use crate::dynamics::thermostat::BerendsenThermostat;
-use crate::dynamics::thermostat::NullThermostat;
-use crate::dynamics::thermostat::Thermostat;
+use crate::dynamics::thermostat::{BerendsenThermostat, NullThermostat, Thermostat};
 use crate::initialization::system::SystemData;
 use crate::initialization::velocities::*;
 use crate::initialization::DynamicConfiguration;
@@ -9,6 +7,7 @@ use ndarray::prelude::*;
 use ndarray_linalg::c64;
 use ndarray_npy::read_npy;
 use ndarray_npy::NpzWriter;
+use rand::prelude::*;
 use std::fs::File;
 
 /// Struct that holds the [DynamicConfiguration] and the other necessary
@@ -29,6 +28,7 @@ pub struct Simulation {
     pub last_forces: Array3<f64>,
     pub friction: Array1<f64>,
     pub forces: Array2<f64>,
+    pub force_array: Array2<f64>,
     pub energies: Array1<f64>,
     pub nonadiabatic_scalar: Array2<f64>,
     pub nonadiabatic_vectors: Vec<Array1<f64>>,
@@ -40,6 +40,8 @@ pub struct Simulation {
     pub hdiab: Array2<f64>,
     pub thermostat: Box<dyn Thermostat>,
     pub coeff_writer: NpzWriter<File>,
+    pub alpha_values: Option<Array1<f64>>,
+    pub rng: StdRng,
 }
 
 impl Simulation {
@@ -67,6 +69,7 @@ impl Simulation {
         let last_forces: Array3<f64> = Array3::zeros((3, system.n_atoms, 3));
         let forces: Array2<f64> = Array2::zeros((system.n_atoms, 3));
         let energies: Array1<f64> = Array1::zeros(config.nstates);
+        let force_array: Array2<f64> = Array2::zeros([3 * system.n_atoms, config.nstates]);
         let nonad_scalar: Array2<f64> = Array2::zeros((config.nstates, config.nstates));
         let nacvs: Vec<Array1<f64>> = Vec::new();
         let s_mat: Array2<f64> = Array2::zeros((config.nstates, config.nstates));
@@ -97,9 +100,25 @@ impl Simulation {
                 config.thermostat_config.temperature,
             ))
         };
-
         // create Npz writer
         let npz_writer = NpzWriter::new_compressed(File::create("coeff_abs.npz").unwrap());
+
+        // get the standard rng
+        // let rng: StdRng = StdRng::seed_from_u64(1);
+        let rng: StdRng = StdRng::from_entropy();
+
+        // create the alpha value array
+        // Gaussian widths for the calculation of the decoherence time constant for TAB
+        // Source: https://doi.org/10.1016/j.chemphys.2010.03.020
+        let alpha_array: Option<Array1<f64>> = if config.ehrenfest_config.use_tab_decoherence {
+            let mut alphas: Array1<f64> = Array1::zeros(system.n_atoms);
+            for (idx, atom) in system.atomic_numbers.iter().enumerate() {
+                alphas[idx] = constants::ALPHA_GAUSSIAN_WIDTHS[atom];
+            }
+            Some(alphas)
+        } else {
+            None
+        };
 
         Simulation {
             state: config.initial_state[0],
@@ -119,15 +138,18 @@ impl Simulation {
             friction,
             forces,
             energies,
+            force_array,
             nonadiabatic_scalar: nonad_scalar,
             nonadiabatic_vectors: nacvs,
             s_mat,
             saved_efactor: efactor,
             saved_p_rand,
             t_tot_last: None,
-            hdiab: hdiab,
+            hdiab,
             thermostat,
             coeff_writer: npz_writer,
+            rng,
+            alpha_values: alpha_array,
         }
     }
 }

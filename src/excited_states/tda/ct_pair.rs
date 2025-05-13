@@ -1,9 +1,8 @@
+use super::moments::mulliken_dipoles_from_ao;
 use crate::excited_states::tda::moments::{mulliken_dipoles, oscillator_strength};
-use crate::excited_states::{
-    orbe_differences, trans_oo_restricted, trans_vv_restricted, ProductCache,
-};
+use crate::excited_states::{orbe_differences, ProductCache};
 use crate::fmo::helpers::get_pair_slice;
-use crate::fmo::{ChargeTransferPreparation, PairType};
+use crate::fmo::ChargeTransferPreparation;
 use crate::initialization::Atom;
 use crate::io::Configuration;
 use crate::{initial_subspace, Davidson};
@@ -13,8 +12,10 @@ impl ChargeTransferPreparation<'_> {
     // Prepare the TDA-LC-TD-DFTB calculation.
     pub fn prepare_ct_tda(
         &mut self,
-        g0: ArrayView2<f64>,
-        g0_lr: ArrayView2<f64>,
+        g0: Option<ArrayView2<f64>>,
+        g0_lr: Option<ArrayView2<f64>>,
+        g0_ao: Option<ArrayView2<f64>>,
+        g0_lr_ao: Option<ArrayView2<f64>>,
         s_full: ArrayView2<f64>,
         atoms: &[Atom],
         config: &Configuration,
@@ -27,46 +28,86 @@ impl ChargeTransferPreparation<'_> {
         let natoms_h: usize = self.m_h.n_atoms;
         let natoms_l: usize = self.m_l.n_atoms;
         let n_atoms: usize = natoms_h + natoms_l;
-
-        // set the gamma matrix
-        let mut gamma: Array2<f64> = Array2::zeros([n_atoms, n_atoms]);
-        gamma
-            .slice_mut(s![..natoms_h, ..natoms_h])
-            .assign(&self.m_h.properties.gamma().unwrap());
-        gamma
-            .slice_mut(s![natoms_h.., natoms_h..])
-            .assign(&self.m_l.properties.gamma().unwrap());
-        let gamma_ab: ArrayView2<f64> = g0.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
-        gamma
-            .slice_mut(s![..natoms_h, natoms_h..])
-            .assign(&gamma_ab);
-        gamma
-            .slice_mut(s![natoms_h.., ..natoms_h])
-            .assign(&gamma_ab.t());
+        // number of orbs
+        let norbs_h: usize = self.m_h.n_orbs;
+        let norbs_l: usize = self.m_l.n_orbs;
+        let n_orbs: usize = norbs_h + norbs_l;
 
         // get the overlap matrix
         let s: ArrayView2<f64> = s_full.slice(s![self.m_h.slice.orb, self.m_l.slice.orb]);
         self.properties.set_s(s.to_owned());
-        self.properties.set_gamma(gamma);
 
-        // set the gamma lr matrix
-        let mut gamma_lr_full: Array2<f64> = Array2::zeros([n_atoms, n_atoms]);
-        gamma_lr_full
-            .slice_mut(s![..natoms_h, ..natoms_h])
-            .assign(&self.m_h.properties.gamma_lr().unwrap());
-        gamma_lr_full
-            .slice_mut(s![natoms_h.., natoms_h..])
-            .assign(&self.m_l.properties.gamma_lr().unwrap());
-        let gamma_ab: ArrayView2<f64> = g0_lr.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
-        gamma_lr_full
-            .slice_mut(s![..natoms_h, natoms_h..])
-            .assign(&gamma_ab);
-        gamma_lr_full
-            .slice_mut(s![natoms_h.., ..natoms_h])
-            .assign(&gamma_ab.t());
-        let gamma_lr: ArrayView2<f64> = g0_lr.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
-        self.properties.set_gamma_lr(gamma_lr.to_owned());
-        self.properties.set_gamma_lr_ao(gamma_lr_full);
+        if !config.use_shell_resolved_gamma {
+            // unwrap gamma
+            let g0: ArrayView2<f64> = g0.unwrap();
+            // set the gamma matrix
+            let mut gamma: Array2<f64> = Array2::zeros([n_atoms, n_atoms]);
+            gamma
+                .slice_mut(s![..natoms_h, ..natoms_h])
+                .assign(&self.m_h.properties.gamma().unwrap());
+            gamma
+                .slice_mut(s![natoms_h.., natoms_h..])
+                .assign(&self.m_l.properties.gamma().unwrap());
+            let gamma_ab: ArrayView2<f64> = g0.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
+            gamma
+                .slice_mut(s![..natoms_h, natoms_h..])
+                .assign(&gamma_ab);
+            gamma
+                .slice_mut(s![natoms_h.., ..natoms_h])
+                .assign(&gamma_ab.t());
+
+            self.properties.set_gamma(gamma);
+
+            if g0_lr.is_some() {
+                let g0_lr: ArrayView2<f64> = g0_lr.unwrap();
+                // set the gamma lr matrix
+                let mut gamma_lr_full: Array2<f64> = Array2::zeros([n_atoms, n_atoms]);
+                gamma_lr_full
+                    .slice_mut(s![..natoms_h, ..natoms_h])
+                    .assign(&self.m_h.properties.gamma_lr().unwrap());
+                gamma_lr_full
+                    .slice_mut(s![natoms_h.., natoms_h..])
+                    .assign(&self.m_l.properties.gamma_lr().unwrap());
+                let gamma_ab: ArrayView2<f64> =
+                    g0_lr.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
+                gamma_lr_full
+                    .slice_mut(s![..natoms_h, natoms_h..])
+                    .assign(&gamma_ab);
+                gamma_lr_full
+                    .slice_mut(s![natoms_h.., ..natoms_h])
+                    .assign(&gamma_ab.t());
+                let gamma_lr: ArrayView2<f64> =
+                    g0_lr.slice(s![self.m_h.slice.atom, self.m_l.slice.atom]);
+                self.properties.set_gamma_lr(gamma_lr.to_owned());
+                self.properties.set_gamma_lr_ao(gamma_lr_full);
+            }
+        } else {
+            // unwrap gamma
+            let g0: ArrayView2<f64> = g0_ao.unwrap();
+            // set the gamma matrix
+            let mut gamma: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
+            gamma
+                .slice_mut(s![..norbs_h, ..norbs_h])
+                .assign(&self.m_h.properties.gamma_ao().unwrap());
+            gamma
+                .slice_mut(s![norbs_h.., norbs_h..])
+                .assign(&self.m_l.properties.gamma_ao().unwrap());
+            let gamma_ab: ArrayView2<f64> = g0.slice(s![self.m_h.slice.orb, self.m_l.slice.orb]);
+            gamma.slice_mut(s![..norbs_h, norbs_h..]).assign(&gamma_ab);
+            gamma
+                .slice_mut(s![norbs_h.., ..norbs_h])
+                .assign(&gamma_ab.t());
+
+            self.properties.set_gamma_ao(gamma);
+
+            if g0_lr.is_some() {
+                // set the gamma lr matrix
+                let g0_lr: ArrayView2<f64> = g0_lr_ao.unwrap();
+                let gamma_lr: ArrayView2<f64> =
+                    g0_lr.slice(s![self.m_h.slice.orb, self.m_l.slice.orb]);
+                self.properties.set_gamma_lr_ao(gamma_lr.to_owned());
+            }
+        }
 
         // The index of the HOMO (zero based).
         let homo: usize = occ_indices[occ_indices.len() - 1];
@@ -105,7 +146,11 @@ impl ChargeTransferPreparation<'_> {
         let atoms_l: &[Atom] = &atoms[self.m_l.slice.atom_as_range()];
 
         // calculate the transition charges q_ov
-        let q_ov: Array2<f64> = self.calculate_q_ov(s, atoms_h, atoms_l, config);
+        let q_ov: Array2<f64> = if !config.use_shell_resolved_gamma {
+            self.calculate_q_ov(s, atoms_h, atoms_l, config)
+        } else {
+            self.calculate_q_ov_ao(s)
+        };
         // store the transition charges
         self.properties.set_q_ov(q_ov);
         if config.tddftb.restrict_active_orbitals {
@@ -207,6 +252,56 @@ impl ChargeTransferPreparation<'_> {
         q_trans.into_shape([n_atoms, dim_h * dim_l]).unwrap()
     }
 
+    pub fn calculate_q_ov_ao(&self, s: ArrayView2<f64>) -> Array2<f64> {
+        let homo = self.properties.homo().unwrap();
+        let occs = self.m_h.properties.orbs_slice(0, Some(homo + 1)).unwrap();
+        let lumo = self.properties.lumo().unwrap();
+        let virts = self.m_l.properties.orbs_slice(lumo, None).unwrap();
+
+        // Matrix product of overlap matrix with the orbitals on L.
+        let s_c_l: Array2<f64> = s.dot(&virts);
+        // Matrix product of overlap matrix with the orbitals on H.
+        let s_c_h: Array2<f64> = s.t().dot(&occs);
+        // Number of molecular orbitals on monomer I.
+        let dim_h: usize = occs.ncols();
+        // Number of molecular orbitals on monomer J.
+        let dim_l: usize = virts.ncols();
+        // get the number of orbs
+        let n_orbs_h: usize = self.m_h.n_orbs;
+        let n_orbs_l: usize = self.m_l.n_orbs;
+        let n_orbs: usize = n_orbs_h + n_orbs_l;
+
+        // The transition charges between the two sets of MOs  are initialized.
+        let mut q_trans: Array3<f64> = Array3::zeros([n_orbs, dim_h, dim_l]);
+
+        for (idx, mut q_tr) in q_trans
+            .slice_mut(s![..n_orbs_h, .., ..])
+            .axis_iter_mut(Axis(0))
+            .enumerate()
+        {
+            for (orb_h, mut q_h) in occs.row(idx).iter().zip(q_tr.axis_iter_mut(Axis(0))) {
+                for (sc, q) in s_c_l.row(idx).iter().zip(q_h.iter_mut()) {
+                    *q += orb_h * sc;
+                }
+            }
+        }
+
+        for (idx, mut q_tr) in q_trans
+            .slice_mut(s![n_orbs_h.., .., ..])
+            .axis_iter_mut(Axis(0))
+            .enumerate()
+        {
+            for (sc, mut q_l) in s_c_h.row(idx).iter().zip(q_tr.axis_iter_mut(Axis(0))) {
+                for (orb_l, q) in virts.row(idx).iter().zip(q_l.iter_mut()) {
+                    *q += orb_l * sc;
+                }
+            }
+        }
+
+        q_trans = 0.5 * q_trans;
+        q_trans.into_shape([n_orbs, dim_h * dim_l]).unwrap()
+    }
+
     // Do the TDA-LC-TD-DFTB calculation
     pub fn run_ct_tda(
         &mut self,
@@ -235,6 +330,7 @@ impl ChargeTransferPreparation<'_> {
             max_iter,
             false,
             subspace_multiplier,
+            config.use_shell_resolved_gamma,
         )
         .unwrap();
 
@@ -262,7 +358,11 @@ impl ChargeTransferPreparation<'_> {
         );
 
         // The Mulliken transition dipole moments are computed.
-        let tr_dipoles: Array2<f64> = mulliken_dipoles(q_trans.view(), &pair_atoms);
+        let tr_dipoles: Array2<f64> = if !config.use_shell_resolved_gamma {
+            mulliken_dipoles(q_trans.view(), &pair_atoms)
+        } else {
+            mulliken_dipoles_from_ao(q_trans.view(), &pair_atoms)
+        };
 
         // The oscillator strengths are computed.
         let f: Array1<f64> = oscillator_strength(davidson.eigenvalues.view(), tr_dipoles.view());

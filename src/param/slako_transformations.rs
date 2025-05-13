@@ -50,7 +50,7 @@ pub fn directional_cosines(pos1: &Vector3<f64>, pos2: &Vector3<f64>) -> (f64, f6
         y = 0.0;
         z = 1.0;
     }
-    return (r, x, y, z);
+    (r, x, y, z)
 }
 
 /// transformation rules for matrix elements
@@ -80,7 +80,8 @@ pub fn slako_transformation(
 
     //transformation rules for matrix elements
     //# x,y,z are directional cosines, r is the distance between the two centers
-    let value = match (l1, m1, l2, m2) {
+
+    match (l1, m1, l2, m2) {
         (0, 0, 0, 0) => splev_uniform(&s_or_h[&0].0, &s_or_h[&0].1, s_or_h[&0].2, r),
         (0, 0, 1, -1) => y * splev_uniform(&s_or_h[&2].0, &s_or_h[&2].1, s_or_h[&2].2, r),
         (0, 0, 1, 0) => z * splev_uniform(&s_or_h[&2].0, &s_or_h[&2].1, s_or_h[&2].2, r),
@@ -674,8 +675,7 @@ pub fn slako_transformation(
                 / 4.
         }
         _ => panic!("No combination of l1, m1, l2, m2 found!"),
-    };
-    return value;
+    }
 }
 
 /// transformation rules for matrix elements
@@ -6401,7 +6401,7 @@ pub fn slako_transformation_gradients(
         }
         _ => panic!("No combination of l1, m1, l2, m2 found!"),
     };
-    return array![grad0, grad1, grad2];
+    array![grad0, grad1, grad2]
 }
 
 /// transformation rules for dipole matrix elements
@@ -6419,7 +6419,7 @@ pub fn slako_transformations_dipole(
     d1: i8,
     d2: i8,
 ) -> f64 {
-    let value = match (l1, m1, d1, d2, l2, m2) {
+    match (l1, m1, d1, d2, l2, m2) {
         (0, 0, 1, -1, 0, 0) => y * splev_uniform(&dipole[&3].0, &dipole[&3].1, dipole[&3].2, r),
         (0, 0, 1, -1, 1, -1) => {
             (x.powi(2) + z.powi(2)) * splev_uniform(&dipole[&1].0, &dipole[&1].1, dipole[&1].2, r)
@@ -16535,7 +16535,5 @@ pub fn slako_transformations_dipole(
                 / (4. * (x.powi(2) + y.powi(2)).powi(2))
         }
         _ => panic!("No combination of l1, m1, l2, m2 found!"),
-    };
-
-    return value;
+    }
 }

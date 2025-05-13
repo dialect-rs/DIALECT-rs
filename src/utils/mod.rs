@@ -1,5 +1,5 @@
 pub(crate) mod array_helper;
-mod tests;
+pub mod tests;
 mod zbrent;
 
 pub use array_helper::ToOwnedF;
@@ -8,7 +8,6 @@ use std::{env, fmt};
 pub use zbrent::zbrent;
 
 use crate::defaults;
-pub use tests::*;
 
 pub enum Calculation {
     Converged,

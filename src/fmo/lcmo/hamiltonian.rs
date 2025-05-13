@@ -1,10 +1,8 @@
-use crate::fmo::helpers::get_pair_slice;
 use crate::fmo::{Monomer, SuperSystem};
 use crate::initialization::Atom;
 use crate::utils::array_helper::parallel_matrix_multiply;
 use ndarray::prelude::*;
 use ndarray_linalg::{Inverse, SymmetricSqrt, UPLO};
-use rayon::prelude::*;
 use std::ops::AddAssign;
 
 impl SuperSystem<'_> {
@@ -21,7 +19,7 @@ impl SuperSystem<'_> {
         let mut s_total: Array2<f64> = Array2::eye(dim);
 
         // The diagonal elements are set.
-        for (_i, mol) in self.monomers.iter().enumerate() {
+        for mol in self.monomers.iter() {
             // The diagonal Fock matrix of the monomer.
             let f_i: Array2<f64> = Array2::from_diag(&mol.properties.orbe().unwrap());
             // Fill the diagonal block of the Fock matrix.

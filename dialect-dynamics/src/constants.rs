@@ -59,3 +59,10 @@ pub static ATOMIC_MASSES: phf::Map<u8, f64> = phf_map! {
     83u8 => 3.80947947601296E+05, 84u8 => 3.82806562785150E+05,
     85u8 => 3.82806562785150E+05, 86u8 => 4.01035446727300E+05
 };
+
+pub static ALPHA_GAUSSIAN_WIDTHS: phf::Map<u8, f64> = phf_map! {
+    1u8  => 4.7,
+    6u8 => 22.7,
+    7u8 => 19.0,
+    8u8 => 12.2,
+};

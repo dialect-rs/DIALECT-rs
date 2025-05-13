@@ -1,3 +1,3 @@
 mod basisfunctions;
-mod cubes;
+mod cube;
 mod helpers;

@@ -1,4 +1,5 @@
 use crate::constants;
+use crate::io::settings::ParameterizationConfig;
 use crate::param::Element;
 use crate::utils::get_path_prefix;
 use ndarray::prelude::*;
@@ -13,8 +14,24 @@ fn get_nan_vec() -> Vec<f64> {
     vec![f64::NAN]
 }
 
+fn get_default_u8() -> u8 {
+    0
+}
+
+fn get_nan_vec_vec() -> Vec<Vec<f64>> {
+    vec![vec![f64::NAN]]
+}
+
 fn get_nan_value() -> f64 {
     f64::NAN
+}
+
+fn get_occupation_vec() -> Vec<(u8, u8, u8)> {
+    vec![(0, 0, 0)]
+}
+
+fn get_string_vec() -> Vec<String> {
+    vec![String::from("")]
 }
 
 fn init_none() -> Option<(Vec<f64>, Vec<f64>, usize)> {
@@ -29,21 +46,90 @@ fn init_hashmap() -> HashMap<u8, (Vec<f64>, Vec<f64>, usize)> {
     HashMap::new()
 }
 
+fn init_hashmap_2() -> HashMap<(u8, u8, u8), Vec<f64>> {
+    HashMap::new()
+}
+
+fn init_hashmap_3() -> HashMap<u8, String> {
+    HashMap::new()
+}
+
 /// A type that contains the atom-wise parameters for the DFTB calculation. The same `PseudoAtom`
 /// type is used for the free and the confined atoms. The data will be serialized from the Ron files.
+// #[derive(Serialize, Deserialize)]
+// pub struct PseudoAtom {
+//     z: u8,
+//     pub hubbard_u: f64,
+//     n_elec: u8,
+//     #[serde(default = "get_inf_value")]
+//     r0: f64,
+//     pub r: Vec<f64>,
+//     radial_density: Vec<f64>,
+//     pub occupation: Vec<(u8, u8, u8)>,
+//     effective_potential: Vec<f64>,
+//     orbital_names: Vec<String>,
+//     pub energies: Vec<f64>,
+//     pub radial_wavefunctions: Vec<Vec<f64>>,
+//     pub angular_momenta: Vec<i8>,
+//     pub valence_orbitals: Vec<u8>,
+//     pub nshell: Vec<i8>,
+//     pub orbital_occupation: Vec<i8>,
+//     #[serde(default = "get_nan_value")]
+//     pub spin_coupling_constant: f64,
+//     #[serde(default = "get_nan_value")]
+//     energy_1s: f64,
+//     #[serde(default = "get_nan_value")]
+//     energy_2s: f64,
+//     #[serde(default = "get_nan_value")]
+//     energy_3s: f64,
+//     #[serde(default = "get_nan_value")]
+//     energy_4s: f64,
+//     #[serde(default = "get_nan_value")]
+//     energy_2p: f64,
+//     #[serde(default = "get_nan_value")]
+//     energy_3p: f64,
+//     #[serde(default = "get_nan_value")]
+//     energy_4p: f64,
+//     #[serde(default = "get_nan_value")]
+//     energy_3d: f64,
+//     #[serde(default = "get_nan_vec")]
+//     orbital_1s: Vec<f64>,
+//     #[serde(default = "get_nan_vec")]
+//     orbital_2s: Vec<f64>,
+//     #[serde(default = "get_nan_vec")]
+//     orbital_3s: Vec<f64>,
+//     #[serde(default = "get_nan_vec")]
+//     orbital_4s: Vec<f64>,
+//     #[serde(default = "get_nan_vec")]
+//     orbital_2p: Vec<f64>,
+//     #[serde(default = "get_nan_vec")]
+//     orbital_3p: Vec<f64>,
+//     #[serde(default = "get_nan_vec")]
+//     orbital_4p: Vec<f64>,
+//     #[serde(default = "get_nan_vec")]
+//     orbital_3d: Vec<f64>,
+// }
+
 #[derive(Serialize, Deserialize)]
 pub struct PseudoAtom {
     z: u8,
     pub hubbard_u: f64,
+    #[serde(default = "get_default_u8")]
     n_elec: u8,
     #[serde(default = "get_inf_value")]
     r0: f64,
+    #[serde(default = "get_nan_vec")]
     pub r: Vec<f64>,
+    #[serde(default = "get_nan_vec")]
     radial_density: Vec<f64>,
+    #[serde(default = "get_occupation_vec")]
     pub occupation: Vec<(u8, u8, u8)>,
+    #[serde(default = "get_nan_vec")]
     effective_potential: Vec<f64>,
+    #[serde(default = "get_string_vec")]
     orbital_names: Vec<String>,
     pub energies: Vec<f64>,
+    #[serde(default = "get_nan_vec_vec")]
     pub radial_wavefunctions: Vec<Vec<f64>>,
     pub angular_momenta: Vec<i8>,
     pub valence_orbitals: Vec<u8>,
@@ -85,26 +171,78 @@ pub struct PseudoAtom {
     orbital_3d: Vec<f64>,
 }
 
+// impl PseudoAtom {
+//     pub fn free_atom(element: &str) -> PseudoAtom {
+//         let path_prefix: String = get_path_prefix();
+//         let filename: String = format!(
+//             "{}/src/param/slaterkoster/free_pseudo_atom/{}.ron",
+//             path_prefix,
+//             element.to_lowercase()
+//         );
+//         let path: &Path = Path::new(&filename);
+//         let data: String = fs::read_to_string(path).expect("Unable to read file");
+//         from_str(&data).expect("RON file was not well-formatted")
+//     }
+//
+//     pub fn confined_atom(element: &str) -> PseudoAtom {
+//         let path_prefix: String = get_path_prefix();
+//         let filename: String = format!(
+//             "{}/src/param/slaterkoster/confined_pseudo_atom/{}.ron",
+//             path_prefix,
+//             element.to_lowercase()
+//         );
+//         let path: &Path = Path::new(&filename);
+//         let data: String = fs::read_to_string(path).expect("Unable to read file");
+//         from_str(&data).expect("RON file was not well-formatted")
+//     }
+// }
+
 impl PseudoAtom {
-    pub fn free_atom(element: &str) -> PseudoAtom {
-        let path_prefix: String = get_path_prefix();
-        let filename: String = format!(
-            "{}/src/param/slaterkoster/free_pseudo_atom/{}.ron",
-            path_prefix,
-            element.to_lowercase()
-        );
+    pub fn free_atom(element: &str, config: &ParameterizationConfig) -> PseudoAtom {
+        let filename: String = if config.use_external_path {
+            let filename: String = format!(
+                "{}/free_pseudo_atom/{}.ron",
+                config.skf_directory,
+                element.to_lowercase()
+            );
+
+            filename
+        } else {
+            let path_prefix: String = get_path_prefix();
+            let filename: String = format!(
+                "{}/src/param/slaterkoster/free_pseudo_atom/{}.ron",
+                path_prefix,
+                element.to_lowercase()
+            );
+
+            filename
+        };
+
         let path: &Path = Path::new(&filename);
         let data: String = fs::read_to_string(path).expect("Unable to read file");
         from_str(&data).expect("RON file was not well-formatted")
     }
 
-    pub fn confined_atom(element: &str) -> PseudoAtom {
-        let path_prefix: String = get_path_prefix();
-        let filename: String = format!(
-            "{}/src/param/slaterkoster/confined_pseudo_atom/{}.ron",
-            path_prefix,
-            element.to_lowercase()
-        );
+    pub fn confined_atom(element: &str, config: &ParameterizationConfig) -> PseudoAtom {
+        let filename: String = if config.use_external_path {
+            let filename: String = format!(
+                "{}/confined_pseudo_atom/{}.ron",
+                config.skf_directory,
+                element.to_lowercase()
+            );
+
+            filename
+        } else {
+            let path_prefix: String = get_path_prefix();
+            let filename: String = format!(
+                "{}/src/param/slaterkoster/confined_pseudo_atom/{}.ron",
+                path_prefix,
+                element.to_lowercase()
+            );
+
+            filename
+        };
+
         let path: &Path = Path::new(&filename);
         let data: String = fs::read_to_string(path).expect("Unable to read file");
         from_str(&data).expect("RON file was not well-formatted")
@@ -113,7 +251,7 @@ impl PseudoAtom {
 
 pub struct PseudoAtomSkf {
     z: u8,
-    pub hubbard_u: f64,
+    pub hubbard_u: Vec<f64>,
     n_elec: u8,
     pub energies: Vec<f64>,
     pub angular_momenta: Vec<i8>,
@@ -139,9 +277,9 @@ impl SlaterKoster {
     }
 
     /// Add a new [SlaterKosterTable] from a tuple of two [Element]s. THe
-    pub fn add(&mut self, kind1: Element, kind2: Element) {
+    pub fn add(&mut self, kind1: Element, kind2: Element, config: &ParameterizationConfig) {
         self.map
-            .insert((kind1, kind2), SlaterKosterTable::new(kind1, kind2));
+            .insert((kind1, kind2), SlaterKosterTable::new(kind1, kind2, config));
     }
 
     pub fn add_from_handler(
@@ -168,6 +306,7 @@ impl SlaterKoster {
 /// Type that holds the pairwise atomic parameters for the Slater-Koster matrix elements
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SlaterKosterTable {
+    #[serde(default = "init_hashmap_2")]
     dipole: HashMap<(u8, u8, u8), Vec<f64>>,
     h: HashMap<(u8, u8, u8), Vec<f64>>,
     s: HashMap<(u8, u8, u8), Vec<f64>>,
@@ -183,6 +322,7 @@ pub struct SlaterKosterTable {
     /// [get_h0_and_s_mu_nu](crate::param::slako_transformations::get_h0_and_s_mu_nu)
     #[serde(default = "get_nan_value")]
     pub dmax: f64,
+    #[serde(default = "init_hashmap_3")]
     index_to_symbol: HashMap<u8, String>,
     #[serde(default = "init_hashmap")]
     /// Spline representation for the overlap matrix elements
@@ -197,22 +337,40 @@ pub struct SlaterKosterTable {
 impl SlaterKosterTable {
     /// Creates a new [SlaterKosterTable] from two elements and splines the H0 and overlap
     /// matrix elements
-    pub fn new(kind1: Element, kind2: Element) -> Self {
-        let path_prefix: String = get_path_prefix();
-        let (kind1, kind2) = if kind1 > kind2 {
-            (kind2, kind1)
+    pub fn new(kind1: Element, kind2: Element, config: &ParameterizationConfig) -> Self {
+        let filename: String = if config.use_external_path {
+            let (kind1, kind2) = if kind1 > kind2 {
+                (kind2, kind1)
+            } else {
+                (kind1, kind2)
+            };
+            let filename: String = format!(
+                "{}/slako_tables/{}_{}.ron",
+                config.skf_directory,
+                kind1.symbol().to_lowercase(),
+                kind2.symbol().to_lowercase()
+            );
+
+            filename
         } else {
-            (kind1, kind2)
+            let path_prefix: String = get_path_prefix();
+            let (kind1, kind2) = if kind1 > kind2 {
+                (kind2, kind1)
+            } else {
+                (kind1, kind2)
+            };
+            let filename: String = format!(
+                "{}/src/param/slaterkoster/slako_tables/{}_{}.ron",
+                path_prefix,
+                kind1.symbol().to_lowercase(),
+                kind2.symbol().to_lowercase()
+            );
+
+            filename
         };
-        let filename: String = format!(
-            "{}/src/param/slaterkoster/slako_tables/{}_{}.ron",
-            path_prefix,
-            kind1.symbol().to_lowercase(),
-            kind2.symbol().to_lowercase()
-        );
         let path: &Path = Path::new(&filename);
-        let data: String =
-            fs::read_to_string(path).expect(&*format! {"Unable to read file {}", &filename});
+        let data: String = fs::read_to_string(path)
+            .unwrap_or_else(|_| panic!("Unable to read file {}", &filename));
         let mut slako_table: SlaterKosterTable =
             from_str(&data).expect("RON file was not well-formatted");
         slako_table.dmax = slako_table.d[slako_table.d.len() - 1];
@@ -342,7 +500,7 @@ impl RepulsivePotentialTable {
             from_str(&data).expect("RON file was not well-formatted");
         reppot_table.spline_rep();
         reppot_table.dmax = reppot_table.d[reppot_table.d.len() - 1];
-        return reppot_table;
+        reppot_table
     }
 
     /// Create the spline representation by calling the [splrep](rusty_fitpack::splrep) Routine.
@@ -454,11 +612,11 @@ impl From<&SkfHandler> for PseudoAtomSkf {
         // create PseudoAtom
         let pseudo_atom: PseudoAtomSkf = PseudoAtomSkf {
             z: skf_handler.element_a.number(),
-            hubbard_u: hubbard_u[0],
+            hubbard_u: hubbard_u.to_vec(),
             energies: energies.to_vec(),
-            angular_momenta: angular_momenta,
-            valence_orbitals: valence_orbitals,
-            nshell: nshell,
+            angular_momenta,
+            valence_orbitals,
+            nshell,
             orbital_occupation: occupations_numbers.to_vec(),
             n_elec: skf_handler.element_a.number(),
         };
@@ -496,7 +654,7 @@ impl From<&SkfHandler> for RepulsivePotentialTable {
         let mut cs: Array2<f64> = Array2::zeros((4, n_int));
         let mut last_coeffs: Array1<f64> = Array1::zeros(6);
         // start from the 4th line after "Spline"
-        count = count + 3;
+        count += 3;
         let mut end: f64 = 0.0;
         let mut iteration_count: usize = 0;
         for it in count..(n_int + count) {
@@ -566,7 +724,7 @@ impl From<&SkfHandler> for RepulsivePotentialTable {
         let dmax: f64 = d_arr[d_arr.len() - 1];
 
         let mut rep_table: RepulsivePotentialTable = RepulsivePotentialTable {
-            dmax: dmax,
+            dmax,
             z1: skf_handler.element_a.number(),
             z2: skf_handler.element_b.number(),
             vrep: v_rep.to_vec(),
@@ -600,8 +758,7 @@ impl From<(&SkfHandler, Option<SlaterKosterTable>, &str)> for SlaterKosterTable 
         lines.remove(0);
 
         // create grid
-        let d_arr: Array1<f64> =
-            Array1::linspace(0.02, grid_dist * ((npoints - 1) as f64), npoints);
+        let d_arr: Array1<f64> = Array1::linspace(grid_dist, grid_dist * (npoints as f64), npoints);
 
         let next_line: Vec<f64> = process_slako_line(lines[0]);
         let length: usize = next_line.len() / 2;
@@ -647,12 +804,11 @@ impl From<(&SkfHandler, Option<SlaterKosterTable>, &str)> for SlaterKosterTable 
                 let l1: u8 = symbol.0;
                 let l2: u8 = symbol.2;
 
-                let mut orbital_parity: f64 = 0.0;
-                if skf.2 == "ba" {
-                    orbital_parity = -1.0_f64.powi((l1 + l2) as i32);
+                let orbital_parity: f64 = if skf.2 == "ba" {
+                    -1.0_f64.powi((l1 + l2) as i32)
                 } else {
-                    orbital_parity = 1.0;
-                }
+                    1.0
+                };
                 vec_h_arrays[pos][it] = orbital_parity * next_line[pos];
                 vec_s_arrays[pos][it] = orbital_parity * next_line[length_tau + pos];
             }
@@ -662,23 +818,21 @@ impl From<(&SkfHandler, Option<SlaterKosterTable>, &str)> for SlaterKosterTable 
         for (pos, tausymbol) in tausymbols.slice(s![-10..]).iter().enumerate() {
             let symbol: (u8, i32, u8, i32) = constants::SYMBOL_2_TAU[*tausymbol];
             let index: u8 = get_tau_2_index(symbol);
-            if !h.contains_key(&(symbol.0, symbol.2, index)) {
-                h.insert((symbol.0, symbol.2, index), vec_h_arrays[pos].to_vec());
-            }
-            if !s.contains_key(&(symbol.0, symbol.2, index)) {
-                s.insert((symbol.0, symbol.2, index), vec_s_arrays[pos].to_vec());
-            }
+            h.entry((symbol.0, symbol.2, index))
+                .or_insert_with(|| vec_h_arrays[pos].to_vec());
+            s.entry((symbol.0, symbol.2, index))
+                .or_insert_with(|| vec_s_arrays[pos].to_vec());
             dipole.insert((symbol.0, symbol.2, index), temp_vec.clone());
         }
 
         //create Slako table
         let dmax: f64 = d_arr[d_arr.len() - 1];
         let mut slako: SlaterKosterTable = SlaterKosterTable {
-            dipole: dipole,
-            s: s,
-            h: h,
+            dipole,
+            s,
+            h,
             d: d_arr.to_vec(),
-            dmax: dmax,
+            dmax,
             z1: skf.0.element_a.number(),
             z2: skf.0.element_b.number(),
             h_spline: init_hashmap(),
@@ -710,8 +864,8 @@ impl SkfHandler {
         let data: String = fs::read_to_string(path).expect("Unable to read file");
 
         SkfHandler {
-            element_a: element_a,
-            element_b: element_b,
+            element_a,
+            element_b,
             data_string: data,
         }
     }
@@ -736,15 +890,13 @@ pub fn process_slako_line(line: &str) -> Vec<f64> {
             for _it in 0..count {
                 float_vec.push(value);
             }
-        } else {
-            if string.len() > 0 && string.contains("\t") == false {
-                // println!("string {:?}",string);
-                let value: f64 = string.trim().parse::<f64>().unwrap();
-                float_vec.push(value);
-            }
+        } else if !string.is_empty() && !string.contains("\t") {
+            // println!("string {:?}",string);
+            let value: f64 = string.trim().parse::<f64>().unwrap();
+            float_vec.push(value);
         }
     }
-    return float_vec;
+    float_vec
 }
 
 fn get_tau_2_index(tuple: (u8, i32, u8, i32)) -> u8 {
@@ -774,7 +926,7 @@ fn get_tau_2_index(tuple: (u8, i32, u8, i32)) -> u8 {
         (2, 2, 2, 2) => 12,
         _ => panic!("false combination for tau_2_index!"),
     };
-    return value;
+    value
 }
 
 fn get_index_to_symbol() -> HashMap<u8, String> {

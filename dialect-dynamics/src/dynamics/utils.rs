@@ -4,7 +4,7 @@ use ndarray::Array1;
 use ndarray_npy::write_npy;
 
 impl Simulation {
-    pub fn print_data(&mut self, old_energy: Option<f64>, first_call: bool) {
+    pub fn print_data(&mut self, old_energy: Option<f64>, first_call: bool, step: usize) {
         if self.config.print_config.print_restart {
             // Write Output in each step
             let restart: RestartOutput = RestartOutput::new(
@@ -13,6 +13,8 @@ impl Simulation {
                 self.velocities.view(),
                 self.nonadiabatic_scalar.view(),
                 self.coefficients.view(),
+                self.state,
+                step,
             );
             write_restart(&restart);
         }
@@ -28,11 +30,7 @@ impl Simulation {
 
         if self.config.print_config.print_standard {
             let total_energy: f64 = self.kinetic_energy + self.energies[self.state];
-            let old_energy: f64 = if let Some(old_energy) = old_energy {
-                old_energy
-            } else {
-                0.0
-            };
+            let old_energy: f64 = old_energy.unwrap_or(0.0);
             let energy_diff: f64 = total_energy - old_energy;
 
             let full: StandardOutput = StandardOutput::new(
@@ -50,6 +48,8 @@ impl Simulation {
         }
         if self.config.print_config.print_energies {
             write_energies(self.energies.view(), first_call);
+            let total_energy: f64 = self.kinetic_energy + self.energies[self.state];
+            write_kinetic_and_total_energy(self.kinetic_energy, total_energy, first_call);
         }
         if self.config.print_config.print_state {
             write_state(self.state, first_call);
@@ -59,13 +59,19 @@ impl Simulation {
             write_temperature(temperature, first_call);
         }
 
-        if self.config.hopping_config.use_state_coupling && self.config.print_config.print_hopping {
+        if self.config.use_surface_hopping && self.config.print_config.print_hopping {
             let hopping_out: HoppingOutput = HoppingOutput::new(
                 self.actual_time,
                 self.coefficients.view(),
                 self.nonadiabatic_scalar.view(),
             );
             write_hopping(&hopping_out, first_call);
+        }
+        if self.config.use_surface_hopping {
+            let coeff_abs = self.coefficients.map(|val| val.norm_sqr());
+            self.coeff_writer
+                .add_array(step.to_string(), &coeff_abs)
+                .unwrap();
         }
     }
 
@@ -78,6 +84,8 @@ impl Simulation {
                 self.velocities.view(),
                 self.nonadiabatic_scalar.view(),
                 self.coefficients.view(),
+                self.state,
+                step,
             );
             write_restart(&restart);
         }
@@ -93,11 +101,7 @@ impl Simulation {
 
         if self.config.print_config.print_standard {
             let total_energy: f64 = self.kinetic_energy + self.energies[self.state];
-            let old_energy: f64 = if let Some(old_energy) = old_energy {
-                old_energy
-            } else {
-                0.0
-            };
+            let old_energy: f64 = old_energy.unwrap_or(0.0);
             let energy_diff: f64 = total_energy - old_energy;
 
             let full: StandardOutput = StandardOutput::new(
@@ -115,13 +119,15 @@ impl Simulation {
         }
         if self.config.print_config.print_energies {
             write_energies(self.energies.view(), first_call);
+            // let total_energy: f64 = self.kinetic_energy + self.energies[self.state];
+            // write_kinetic_and_total_energy(self.kinetic_energy, total_energy, first_call);
         }
         if self.config.print_config.print_temperature {
             let temperature: f64 = self.thermostat.get_temperature(self.kinetic_energy);
             write_temperature(temperature, first_call);
         }
 
-        if self.config.ehrenfest_config.use_ehrenfest {
+        if self.config.use_ehrenfest {
             let out: EhrenfestOutput = EhrenfestOutput::new(self.coefficients.view());
             self.coeff_writer
                 .add_array(step.to_string(), &out.coefficients_abs)

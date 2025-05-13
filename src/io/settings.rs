@@ -1,31 +1,29 @@
 #![allow(dead_code)]
 #![allow(warnings)]
 #[macro_use]
-use clap::crate_version;
-use crate::constants;
-use crate::constants::BOHR_TO_ANGS;
 use crate::defaults::*;
 use crate::scc::mixer::anderson::*;
 use crate::scc::mixer::{AAType, AndersonAccel, AndersonAccelBuilder};
 use anyhow::{Context, Result};
-use chemfiles::{Frame, Trajectory};
-use clap::App;
-use log::{debug, error, info, trace, warn};
 use ndarray::*;
-use ndarray_linalg::*;
 use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
-use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::fs;
 use std::path::Path;
-use std::ptr::eq;
-use std::{env, fs};
 
 fn default_charge() -> i8 {
     CHARGE
 }
 fn default_use_gaussian_gamma() -> bool {
     true
+}
+fn default_use_xtb1() -> bool {
+    false
+}
+fn default_use_shell_resolved_gamma() -> bool {
+    false
+}
+fn default_use_gamma_damping() -> bool {
+    false
 }
 fn default_multiplicity() -> u8 {
     MULTIPLICITY
@@ -90,6 +88,12 @@ fn default_geom_opt_tol_energy() -> f64 {
 fn default_state_to_optimize() -> usize {
     GEOM_OPT_STATE
 }
+fn default_use_bfgs() -> bool {
+    true
+}
+fn default_use_line_search() -> bool {
+    true
+}
 fn default_n_le() -> usize {
     NUM_LE_STATES
 }
@@ -97,6 +101,9 @@ fn default_n_ct() -> usize {
     NUM_HOLES
 }
 fn default_use_external_skf() -> bool {
+    USE_EXTERNAL
+}
+fn default_use_external_path() -> bool {
     USE_EXTERNAL
 }
 fn default_skf_directory() -> String {
@@ -133,6 +140,9 @@ fn default_restrict_active_space() -> bool {
     true
 }
 fn default_use_casida() -> bool {
+    false
+}
+fn default_save_natural_transition_orbitals() -> bool {
     false
 }
 fn default_restrict_active_orbitals() -> bool {
@@ -284,21 +294,35 @@ fn default_save_in_other_path() -> bool {
 fn default_wigner_path() -> String {
     String::from(EXTERNAL_DIR)
 }
+fn default_n_cut() -> usize {
+    6
+}
+fn default_write_velocities() -> bool {
+    true
+}
 fn default_wigner_config() -> WignerConfig {
     let wigner_config: WignerConfig = toml::from_str("").unwrap();
-    return wigner_config;
+    wigner_config
 }
 fn default_dftb3_config() -> Dftb3Config {
     let dftb_config: Dftb3Config = toml::from_str("").unwrap();
     dftb_config
+}
+fn default_parameterization_config() -> ParameterizationConfig {
+    let config: ParameterizationConfig = toml::from_str("").unwrap();
+    config
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Configuration {
     #[serde(default = "default_jobtype")]
     pub jobtype: String,
+    #[serde(default = "default_use_xtb1")]
+    pub use_xtb1: bool,
     #[serde(default = "default_use_gaussian_gamma")]
     pub use_gaussian_gamma: bool,
+    #[serde(default = "default_use_shell_resolved_gamma")]
+    pub use_shell_resolved_gamma: bool,
     #[serde(default = "default_use_fmo")]
     pub fmo: bool,
     #[serde(default = "default_vdw_scaling")]
@@ -337,6 +361,10 @@ pub struct Configuration {
     pub wigner_config: WignerConfig,
     #[serde(default = "default_polariton_config")]
     pub polariton: PolaritonConfig,
+    #[serde(default = "default_parameterization_config")]
+    pub parameterization: ParameterizationConfig,
+    #[serde(default)]
+    pub mix_config: MixConfig,
 }
 
 impl Configuration {
@@ -391,6 +419,8 @@ pub struct LCConfig {
 pub struct Dftb3Config {
     #[serde(default = "default_use_dftb3")]
     pub use_dftb3: bool,
+    #[serde(default = "default_use_gamma_damping")]
+    pub use_gamma_damping: bool,
     #[serde(default = "default_hubbard_derivatives")]
     pub hubbard_derivatives: Vec<f64>,
 }
@@ -421,6 +451,8 @@ pub struct TdaDftbConfig {
     pub active_orbital_threshold: f64,
     #[serde(default = "default_save_transition_densities")]
     pub save_transition_densities: bool,
+    #[serde(default = "default_save_natural_transition_orbitals")]
+    pub save_natural_transition_orbitals: bool,
     #[serde(default = "default_states_to_analyse")]
     pub states_to_analyse: Vec<usize>,
 }
@@ -477,6 +509,10 @@ pub struct OptConfig {
     pub geom_opt_tol_gradient: f64,
     #[serde(default = "default_geom_opt_tol_energy")]
     pub geom_opt_tol_energy: f64,
+    #[serde(default = "default_use_bfgs")]
+    pub use_bfgs: bool,
+    #[serde(default = "default_use_line_search")]
+    pub use_line_search: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -596,8 +632,20 @@ pub struct WignerConfig {
     pub n_samples: usize,
     #[serde(default = "default_temperature")]
     pub temperature: f64,
+    #[serde(default = "default_n_cut")]
+    pub n_cut: usize,
     #[serde(default = "default_save_in_other_path")]
     pub save_in_other_path: bool,
     #[serde(default = "default_wigner_path")]
     pub wigner_path: String,
+    #[serde(default = "default_write_velocities")]
+    pub write_velocities: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ParameterizationConfig {
+    #[serde(default = "default_use_external_path")]
+    pub use_external_path: bool,
+    #[serde(default = "default_skf_directory")]
+    pub skf_directory: String,
 }

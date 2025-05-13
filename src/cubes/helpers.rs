@@ -3,21 +3,38 @@ use ndarray_linalg::{c64, Scalar};
 use rusty_fitpack::splrep;
 use sphrs::*;
 use splines::{Interpolation, Key, Spline};
+use std::cmp::Ordering;
 
 pub fn spherical_harmonics_yreal(l: i8, m: i8, r: (f64, f64, f64)) -> f64 {
-    let mut yreal: c64 = c64::complex(0.0, 0.0);
-    if m > 0 {
-        yreal = 1.0 / 2.0_f64.sqrt()
-            * (evaluate_spherical_harmonics(l, m, r)
-                + (-1.0_f64).powi(m as i32) * evaluate_spherical_harmonics(l, -m, r));
-    } else if m == 0 {
-        yreal = evaluate_spherical_harmonics(l, m, r);
-    } else {
-        yreal = -c64::complex(0.0, 1.0) / 2.0_f64.sqrt()
-            * (evaluate_spherical_harmonics(l, -m, r)
-                - (-1.0_f64).powi(m as i32) * evaluate_spherical_harmonics(l, m, r));
+    let mut yreal: c64;
+
+    match m.cmp(&0) {
+        Ordering::Greater => {
+            yreal = 1.0 / 2.0_f64.sqrt()
+                * (evaluate_spherical_harmonics(l, m, r)
+                    + (-1.0_f64).powi(m as i32) * evaluate_spherical_harmonics(l, -m, r));
+        }
+        Ordering::Equal => {
+            yreal = evaluate_spherical_harmonics(l, m, r);
+        }
+        Ordering::Less => {
+            yreal = -c64::complex(0.0, 1.0) / 2.0_f64.sqrt()
+                * (evaluate_spherical_harmonics(l, -m, r)
+                    - (-1.0_f64).powi(m as i32) * evaluate_spherical_harmonics(l, m, r));
+        }
     }
-    yreal = yreal * (-1.0_f64).powi(m as i32);
+    // if m > 0 {
+    //     yreal = 1.0 / 2.0_f64.sqrt()
+    //         * (evaluate_spherical_harmonics(l, m, r)
+    //             + (-1.0_f64).powi(m as i32) * evaluate_spherical_harmonics(l, -m, r));
+    // } else if m == 0 {
+    //     yreal = evaluate_spherical_harmonics(l, m, r);
+    // } else {
+    //     yreal = -c64::complex(0.0, 1.0) / 2.0_f64.sqrt()
+    //         * (evaluate_spherical_harmonics(l, -m, r)
+    //             - (-1.0_f64).powi(m as i32) * evaluate_spherical_harmonics(l, m, r));
+    // }
+    yreal *= (-1.0_f64).powi(m as i32);
     yreal.re()
 }
 

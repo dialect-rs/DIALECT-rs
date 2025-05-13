@@ -18,13 +18,13 @@ impl GroundStateGradient for Monomer<'_> {
         // originates from the repulsive potential is added at the end to total gradient
 
         // derivative of H0 and S
-        let (grad_s, grad_h0) = h0_and_s_gradients(&atoms, self.n_orbs, &self.slako);
+        let (grad_s, grad_h0) = h0_and_s_gradients(atoms, self.n_orbs, self.slako);
 
         // the derivatives of the charge (difference)s are computed at this point, since they depend
         // on the derivative of S and this is available here at no additional cost.
         let p: ArrayView2<f64> = self.properties.p().unwrap();
         let s: ArrayView2<f64> = self.properties.s().unwrap();
-        let grad_dq: Array2<f64> = self.get_grad_dq(&atoms, s.view(), grad_s.view(), p.view());
+        let grad_dq: Array2<f64> = self.get_grad_dq(atoms, s.view(), grad_s.view(), p.view());
 
         // and reshape them into a 2D array. the last two dimension (number of orbitals) are compressed
         // into one dimension to be able to just matrix-matrix products for the computation of the gradient
@@ -37,9 +37,10 @@ impl GroundStateGradient for Monomer<'_> {
 
         // derivative of the gamma matrix and transform it in the same way to a 2D array
         let grad_gamma: Array2<f64> =
-            gamma_gradients_atomwise(&self.gammafunction, &atoms, self.n_atoms)
+            gamma_gradients_atomwise(&self.gammafunction, atoms, self.n_atoms)
                 .into_shape([3 * self.n_atoms, self.n_atoms * self.n_atoms])
                 .unwrap();
+        // write_npy("grad_gamma_mol.npy", &grad_gamma);
 
         // take references/views to the necessary properties from the scc calculation
         let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
@@ -50,10 +51,10 @@ impl GroundStateGradient for Monomer<'_> {
         // transform the expression Sum_c_in_X (gamma_AC + gamma_aC) * dq_C
         // into matrix of the dimension (norb, norb) to do an element wise multiplication with P
         let coulomb_mat: Array2<f64> =
-            atomvec_to_aomat(gamma.dot(&dq).view(), self.n_orbs, &atoms) * 0.5;
+            atomvec_to_aomat(gamma.dot(&dq).view(), self.n_orbs, atoms) * 0.5;
         // Transform the Equation sum_K sum_c_in_K (gamma_ac + gamma_Ac) * dq_c into the dimension
         // of the AOs.
-        let mut esp_mat: Array2<f64> = atomvec_to_aomat(esp_q.view(), self.n_orbs, &atoms) * 0.5;
+        let mut esp_mat: Array2<f64> = atomvec_to_aomat(esp_q.view(), self.n_orbs, atoms) * 0.5;
         esp_mat += &coulomb_mat;
 
         // The product of the Coulomb interaction matrix and the density matrix flattened as vector.
@@ -69,7 +70,7 @@ impl GroundStateGradient for Monomer<'_> {
         // the dq's are element wise multiplied into a 2D array and reshaped into a flat one, that
         // has the length of natoms^2. this allows to do only a single matrix vector product of
         // 'grad_gamma' with 'dq_x_dq' and avoids to reshape dGamma multiple times
-        let dq_column: ArrayView2<f64> = dq.clone().insert_axis(Axis(1));
+        let dq_column: ArrayView2<f64> = dq.insert_axis(Axis(1));
         let dq_x_dq: Array1<f64> = (&dq_column.broadcast((self.n_atoms, self.n_atoms)).unwrap()
             * &dq)
             .into_shape([self.n_atoms * self.n_atoms])
@@ -95,10 +96,9 @@ impl GroundStateGradient for Monomer<'_> {
         gradient += &(grad_gamma.dot(&dq_x_dq));
 
         // last part: dV_rep / dR
-        gradient = gradient + gradient_v_rep(&atoms, &self.vrep);
+        gradient = gradient + gradient_v_rep(atoms, self.vrep);
 
-        let calc_response = true;
-
+        // let calc_response = true;
         // long-range contribution to the gradient
         if self.gammafunction_lc.is_some() {
             // reshape gradS
@@ -133,42 +133,41 @@ impl GroundStateGradient for Monomer<'_> {
                         .unwrap()
                         .dot(&diff_p.into_shape(self.n_orbs * self.n_orbs).unwrap());
 
-            if calc_response {
-                self.properties.set_grad_s(grad_s);
-            }
-        } else {
-            if calc_response {
-                self.properties.set_grad_s(
-                    grad_s
-                        .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
-                        .unwrap(),
-                );
-            }
+            // if calc_response {
+            //     self.properties.set_grad_s(grad_s);
+            // }
         }
         self.properties.set_grad_dq(grad_dq);
+        // else if calc_response {
+        //     self.properties.set_grad_s(
+        //         grad_s
+        //             .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
+        //             .unwrap(),
+        //     );
+        // }
+        //
+        // if calc_response {
+        //     let (_g1, g1_ao): (Array3<f64>, Array3<f64>) =
+        //         gamma_gradients_ao_wise(&self.gammafunction, atoms, self.n_atoms, self.n_orbs);
+        //     self.properties.set_grad_gamma_ao(g1_ao);
+        //     self.properties.set_grad_h0(
+        //         grad_h0
+        //             .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
+        //             .unwrap(),
+        //     );
+        //
+        //     if self.gammafunction_lc.is_some() {
+        //         let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
+        //             self.gammafunction_lc.as_ref().unwrap(),
+        //             atoms,
+        //             self.n_atoms,
+        //             self.n_orbs,
+        //         );
+        //         self.properties.set_grad_gamma_lr_ao(g1_lr_ao);
+        //     }
+        // }
 
-        if calc_response {
-            let (g1, g1_ao): (Array3<f64>, Array3<f64>) =
-                gamma_gradients_ao_wise(&self.gammafunction, atoms, self.n_atoms, self.n_orbs);
-            self.properties.set_grad_gamma_ao(g1_ao);
-            self.properties.set_grad_h0(
-                grad_h0
-                    .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
-                    .unwrap(),
-            );
-
-            if self.gammafunction_lc.is_some() {
-                let (g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
-                    self.gammafunction_lc.as_ref().unwrap(),
-                    atoms,
-                    self.n_atoms,
-                    self.n_orbs,
-                );
-                self.properties.set_grad_gamma_lr_ao(g1_lr_ao);
-            }
-        }
-
-        return gradient;
+        gradient
     }
 
     /// Compute the derivative of the partial charges according to equation 24 and 26 in Ref. [1]
@@ -230,6 +229,6 @@ impl GroundStateGradient for Monomer<'_> {
         }
 
         // Shape of returned Array: [f, n_atoms], f = 3 * n_atoms
-        return grad_dq;
+        grad_dq
     }
 }

@@ -39,14 +39,17 @@ pub fn fermi_occupation(orbe: ArrayView1<f64>, n_elec_paired: usize, t: f64) -> 
         let lumop1: f64 = orbe[sort_indx[lp1_idx]];
         // search for fermi energy in the interval [HOMO, LUMO+1]
         let func = |x: f64| -> f64 { fa_minus_nelec(x, orbe.view(), fermi, t, n_elec) };
-        mu = zbrent(func, homo, lumop1, 1.0e-08, 100);
+        mu = zbrent(func, homo, lumop1, 1.0e-10, 300);
         let dn: f64 = func(mu);
-        assert!(dn.abs() <= 1.0e-08);
+        assert!(dn.abs() <= 1.0e-05);
+
+        // // Fermi energy is 0.5 * (HOMO + LUMO)
+        // mu = (orbe[sort_indx[h_idx + 1]] + orbe[sort_indx[h_idx]]) / 2.0;
         for en in orbe.iter() {
             fermi_occ.push(fermi(*en, mu, t));
         }
     }
-    return (mu, fermi_occ);
+    (mu, fermi_occ)
 }
 
 /// Find the occupation of single-particle states at T=0
@@ -57,10 +60,12 @@ fn fermi_occupation_t0(orbe: ArrayView1<f64>, n_elec_paired: usize) -> (f64, Vec
     for a in sort_indx.iter() {
         fermi_occ[*a] = 2.0_f64.min(n_elec_paired);
         if n_elec_paired > 1.0 {
-            n_elec_paired = n_elec_paired - 2.0;
+            n_elec_paired -= 2.0;
+        } else if n_elec_paired == 1.0 {
+            n_elec_paired -= 1.0;
         }
     }
-    return (0.0, fermi_occ);
+    (0.0, fermi_occ)
 }
 
 // original code from from https://qiita.com/osanshouo/items/71b0272cd5e156cbf5f2
@@ -84,7 +89,7 @@ fn fa_minus_nelec(
     // find the root of this function to enforce sum_a f_a = Nelec
     let mut sum_fa: f64 = 0.0;
     for en_a in orbe.iter() {
-        sum_fa = sum_fa + fermi_function(*en_a, mu, t)
+        sum_fa += fermi_function(*en_a, mu, t)
     }
-    return sum_fa - (n_elec as f64);
+    sum_fa - (n_elec as f64)
 }

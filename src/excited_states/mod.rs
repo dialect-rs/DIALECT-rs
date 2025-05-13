@@ -13,8 +13,7 @@ pub use utils::*;
 use crate::constants::HARTREE_TO_EV;
 use crate::excited_states::ntos::natural_transition_orbitals;
 use crate::initialization::Atom;
-use crate::io::MoldenExporter;
-use crate::io::MoldenExporterBuilder;
+use crate::io::{MoldenExporter, MoldenExporterBuilder};
 
 pub mod casida;
 pub mod ntos;
@@ -51,8 +50,8 @@ pub trait ExcitedState {
 
         let energies_ev: Array1<f64> = HARTREE_TO_EV * &self.get_energies();
         // Convert the excitation energy in eV.
-        data.push(Axis(1), energies_ev.view());
-        data.push(Axis(1), self.get_oscillator_strengths());
+        data.push(Axis(1), energies_ev.view()).unwrap();
+        data.push(Axis(1), self.get_oscillator_strengths()).unwrap();
 
         // Write the npy file.
         write_npy(filename, &data)
@@ -74,12 +73,12 @@ pub trait ExcitedState {
         }
 
         // Try to create the output file.
-        let mut f =
-            File::create(filename).expect(&*format!("Unable to create file: {}", &filename));
+        let mut f = File::create(filename)
+            .unwrap_or_else(|_| panic!("Unable to create file: {}", &filename));
 
         // and write the data.
         f.write_all(txt.as_bytes())
-            .expect(&format!("Unable to write data at: {}", &filename));
+            .unwrap_or_else(|_| panic!("Unable to write data at: {}", &filename));
     }
 
     /// Compute the Natural Transition Orbitals (NTOs) of an excited state and write these orbitals
@@ -103,7 +102,7 @@ pub trait ExcitedState {
 
         // The singular values are used as occupation numbers.
         let molden_exporter: MoldenExporter = MoldenExporterBuilder::default()
-            .atoms(&atoms)
+            .atoms(atoms)
             .orbs(ntos.view())
             .orbe(dummy_energies.view())
             .f(lambdas.to_vec())

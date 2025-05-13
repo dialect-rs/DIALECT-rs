@@ -1,4 +1,6 @@
-use crate::excited_states::{orbe_differences, trans_charges, trans_charges_restricted};
+use crate::excited_states::{
+    orbe_differences, trans_charges, trans_charges_ao, trans_charges_restricted,
+};
 use crate::fmo::Monomer;
 use crate::initialization::Atom;
 use crate::Configuration;
@@ -25,8 +27,8 @@ impl Monomer<'_> {
                         atoms,
                         self.properties.orbs().unwrap(),
                         self.properties.s().unwrap(),
-                        &occ_indices,
-                        &virt_indices,
+                        occ_indices,
+                        virt_indices,
                         config.tddftb.active_orbital_threshold,
                     );
                 // And stored in the properties HashMap.
@@ -41,18 +43,13 @@ impl Monomer<'_> {
                 // Reference to the orbital energies.
                 // Check if the orbital energy differences were already computed.
                 let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-
-                // Energies of the occupied orbitals.
-                let mut orbe_occ: ArrayView1<f64> = orbe.slice(s![0..homo + 1]);
-
-                // Energies of the virtual orbitals.
-                let mut orbe_virt: ArrayView1<f64> = orbe.slice(s![lumo..]);
-
                 let dim_o: usize = (nocc as f64 * config.tddftb.active_orbital_threshold) as usize;
                 let dim_v: usize = (nvirt as f64 * config.tddftb.active_orbital_threshold) as usize;
 
-                orbe_occ = orbe.slice(s![homo + 1 - dim_o..homo + 1]);
-                orbe_virt = orbe.slice(s![lumo..lumo + dim_v]);
+                // Energies of the occupied orbitals.
+                let orbe_occ = orbe.slice(s![homo + 1 - dim_o..homo + 1]);
+                // Energies of the virtual orbitals.
+                let orbe_virt = orbe.slice(s![lumo..lumo + dim_v]);
 
                 // Energy differences between virtual and occupied orbitals.
                 let omega: Array1<f64> = orbe_differences(orbe_occ, orbe_virt);
@@ -64,19 +61,33 @@ impl Monomer<'_> {
                 self.properties.set_lumo(lumo);
             }
         } else {
-            if self.properties.q_ov().is_none() {
-                let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
-                    self.n_atoms,
-                    atoms,
-                    self.properties.orbs().unwrap(),
-                    self.properties.s().unwrap(),
-                    &occ_indices,
-                    &virt_indices,
-                );
-                // And stored in the properties HashMap.
-                self.properties.set_q_oo(qoo);
-                self.properties.set_q_ov(qov);
-                self.properties.set_q_vv(qvv);
+            if self.properties.q_ov().is_none() && self.properties.q_ov().is_none() {
+                if config.use_shell_resolved_gamma {
+                    let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges_ao(
+                        self.n_orbs,
+                        self.properties.orbs().unwrap(),
+                        self.properties.s().unwrap(),
+                        occ_indices,
+                        virt_indices,
+                    );
+                    // And stored in the properties HashMap.
+                    self.properties.set_q_oo(qoo);
+                    self.properties.set_q_ov(qov);
+                    self.properties.set_q_vv(qvv);
+                } else {
+                    let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges(
+                        self.n_atoms,
+                        atoms,
+                        self.properties.orbs().unwrap(),
+                        self.properties.s().unwrap(),
+                        occ_indices,
+                        virt_indices,
+                    );
+                    // And stored in the properties HashMap.
+                    self.properties.set_q_oo(qoo);
+                    self.properties.set_q_ov(qov);
+                    self.properties.set_q_vv(qvv);
+                }
             }
 
             if self.properties.omega().is_none() {

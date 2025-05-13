@@ -1,3 +1,5 @@
+#![allow(warnings)]
+#![warn(clippy::approx_constant)]
 use phf::phf_map;
 
 // ALL THE VALUES SHOULD BE CHANGED TO THE CURRENT CODATA VALUES!!!!

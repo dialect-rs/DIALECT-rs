@@ -1,8 +1,8 @@
 use crate::constants::{ATOMIC_MASSES, BOHR_TO_ANGS, HARTREE_TO_WAVENUMBERS};
 use crate::initial_conditions::wigner_distribution::WignerEnsemble;
 use crate::initialization::System;
-use crate::optimization::helpers::{write_xyz_custom, write_xyz_wigner, XYZ_Output};
-use log::{debug, info, log_enabled, trace, warn, Level};
+use crate::optimization::helpers::{write_xyz_wigner, XYZOutput};
+use log::{log_enabled, warn, Level};
 use ndarray::prelude::*;
 use ndarray_linalg::{c64, into_col, into_row, Eigh, UPLO};
 use ndarray_npy::write_npy;
@@ -12,7 +12,7 @@ impl System {
     // create the initial geometries and velocities for the trajectories of a dynamics simulation
     pub fn create_initial_conditions(&mut self) {
         // at first, the geometry of the molecules must be optimized in the electronic ground state
-        self.optimize_cartesian(0);
+        self.optimize_cartesian(0, &self.config.clone());
 
         // next, the hessian of the electronic ground state is calculated
         let hessian: Array2<f64> = self.calculate_num_hessian();
@@ -21,14 +21,14 @@ impl System {
         let mut masses: Vec<f64> = Vec::new();
         // get the masses to the corresponding atomic numbers
         self.atoms.iter().for_each(|atom| {
-            for i in 0..3 {
+            for _i in 0..3 {
                 masses.push(ATOMIC_MASSES[&atom.number]);
             }
         });
         let masses: Array1<f64> = Array::from(masses);
 
         // get the vibrations and the modes from the mass weighted hessian
-        let (omega2, freqs, modes): (Array1<f64>, Array1<c64>, Array2<f64>) =
+        let (omega2, _freqs, modes): (Array1<f64>, Array1<c64>, Array2<f64>) =
             calculate_vibrations_and_modes(hessian.view(), masses.view());
 
         // get the coordinates
@@ -36,7 +36,7 @@ impl System {
 
         // create wigner ensemble
         let mut wigner_ensemble: WignerEnsemble =
-            WignerEnsemble::new(self, omega2, modes.view(), 50, masses.view(), coords.view());
+            WignerEnsemble::new(self, omega2, modes.view(), masses.view(), coords.view());
 
         // sample the distribution and generate ensemble
         let (coord_vec, velocity_vec): (Vec<Array1<f64>>, Vec<Array1<f64>>) =
@@ -69,7 +69,7 @@ impl System {
         // loop over the vectors
         for (idx, (coords, velocities)) in coord_vec.iter().zip(velocity_vec.iter()).enumerate() {
             // set the path
-            let mut dir_name: String = if self.config.wigner_config.save_in_other_path {
+            let dir_name: String = if self.config.wigner_config.save_in_other_path {
                 path.clone() + &format!("/traj_{idx}")
             } else {
                 format!("traj_{idx}")
@@ -80,19 +80,23 @@ impl System {
             }
 
             // create the xyz file
-            let geom_name: String = dir_name.clone() + &format!("/geom.xyz");
+            let geom_name: String = dir_name.clone() + "/geom.xyz";
 
             let new_coords: Array2<f64> =
                 BOHR_TO_ANGS * &coords.view().into_shape((self.n_atoms, 3)).unwrap();
-            let xyz_out: XYZ_Output = XYZ_Output::new(
+            let xyz_out: XYZOutput = XYZOutput::new(
                 atom_names.clone(),
                 new_coords.clone().into_shape([self.n_atoms, 3]).unwrap(),
             );
             write_xyz_wigner(&xyz_out, geom_name);
 
-            // create the velocity file
-            let velocities_name: String = dir_name + &format!("/velocities.npy");
-            write_npy(velocities_name, velocities);
+            if self.config.wigner_config.write_velocities {
+                // create the velocity file
+                let velocities_name: String = dir_name + "/velocities.npy";
+                let velocities_2d: Array2<f64> =
+                    velocities.clone().into_shape([self.n_atoms, 3]).unwrap();
+                write_npy(velocities_name, &velocities_2d).unwrap();
+            }
         }
     }
 }
@@ -102,7 +106,7 @@ fn calculate_vibrations_and_modes(
     masses: ArrayView1<f64>,
 ) -> (Array1<f64>, Array1<c64>, Array2<f64>) {
     // calculate the outer product of the masses and take the square root
-    let masses_matrix: Array2<f64> = into_col(masses.clone())
+    let masses_matrix: Array2<f64> = into_col(masses)
         .dot(&into_row(masses))
         .map(|val| val.sqrt());
     // get the mass weighted hessian

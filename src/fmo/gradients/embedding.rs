@@ -1,6 +1,5 @@
-use crate::fmo::{helpers::get_pair_slice, *};
-use crate::initialization::Atom;
-use crate::scc::gamma_approximation::{gamma_gradients_atomwise, gamma_gradients_atomwise_2d};
+use crate::fmo::*;
+use crate::scc::gamma_approximation::gamma_gradients_atomwise_2d;
 use ndarray::prelude::*;
 use rayon::prelude::*;
 use std::ops::{AddAssign, SubAssign};
@@ -186,8 +185,175 @@ impl SuperSystem<'_> {
                         .unwrap());
             });
 
-        return gradient_array.sum_axis(Axis(1));
+        gradient_array.sum_axis(Axis(1))
     }
+
+    // pub fn embedding_gradient_2(&mut self) -> Array1<f64> {
+    //     // The gradient of the embedding energy is initialized as an array with zeros.
+    //     let mut gradient_array: Array2<f64> =
+    //         Array2::zeros([3 * self.atoms.len(), self.pairs.len()]);
+    //
+    //     // A reference to the charge differences and gamma matrix for all atoms is created.
+    //     let dq: ArrayView1<f64> = self.properties.dq().unwrap();
+    //     let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
+    //
+    //     // TODO: it is not neccessary to calculate the derivative of gamma two times. this should be
+    //     // improved! it is already computed in the gradient of the monomer/pair
+    //     let grad_gamma_sparse: Array2<f64> =
+    //         gamma_gradients_atomwise_2d(&self.gammafunction, &self.atoms, self.atoms.len());
+    //     let grad_gamma_dot_dq: Array1<f64> = grad_gamma_sparse.dot(&dq);
+    //
+    //     // Begin of the loop to compute the gradient of the embedding energy for each pair.
+    //     self.pairs
+    //         .iter()
+    //         .zip(gradient_array.axis_iter_mut(Axis(1)))
+    //         .for_each(|(pair, mut gradient)| {
+    //             // References to the corresponding monomers.
+    //             let m_i: &Monomer = &self.monomers[pair.i];
+    //             let m_j: &Monomer = &self.monomers[pair.j];
+    //             // Reference to the DDq_a^IJ (difference of charge difference between pair and monomer)
+    //             let delta_dq: ArrayView1<f64> = pair.properties.delta_dq().unwrap();
+    //
+    //             // grad dqs
+    //             // let grad_dq_i: ArrayView2<f64> = m_i.properties.grad_dq().unwrap();
+    //             // let grad_dq_j: ArrayView2<f64> = m_j.properties.grad_dq().unwrap();
+    //             let grad_delta_dq: Array2<f64> = get_grad_delta_dq_2(pair, m_i, m_j);
+    //
+    //             let gamma_i: Array1<f64> = gamma
+    //                 .slice(s![m_i.slice.atom, m_j.slice.atom])
+    //                 .dot(&dq.slice(s![m_j.slice.atom]));
+    //             let gamma_j: Array1<f64> = gamma
+    //                 .slice(s![m_j.slice.atom, m_i.slice.atom])
+    //                 .dot(&dq.slice(s![m_i.slice.atom]));
+    //             let dq_i: ArrayView1<f64> = dq.slice(s![m_i.slice.atom]);
+    //             let dq_j: ArrayView1<f64> = dq.slice(s![m_j.slice.atom]);
+    //
+    //             // self interactions
+    //             let self_interaction_i: Array1<f64> = &grad_gamma_sparse
+    //                 .slice(s![m_i.slice.grad, m_i.slice.atom])
+    //                 .dot(&dq.slice(s![m_i.slice.atom]))
+    //                 + &grad_gamma_sparse
+    //                     .slice(s![m_i.slice.grad, m_j.slice.atom])
+    //                     .dot(&dq.slice(s![m_j.slice.atom]));
+    //
+    //             let self_interaction_j: Array1<f64> = &grad_gamma_sparse
+    //                 .slice(s![m_j.slice.grad, m_i.slice.atom])
+    //                 .dot(&dq.slice(s![m_i.slice.atom]))
+    //                 + &grad_gamma_sparse
+    //                     .slice(s![m_j.slice.grad, m_j.slice.atom])
+    //                     .dot(&dq.slice(s![m_j.slice.atom]));
+    //
+    //             let grad_gamma_dq_i: Array1<f64> =
+    //                 &grad_gamma_dot_dq.slice(s![m_i.slice.grad]) - &self_interaction_i;
+    //             let grad_gamma_dq_j: Array1<f64> =
+    //                 &grad_gamma_dot_dq.slice(s![m_j.slice.grad]) - &self_interaction_j;
+    //
+    //             // The electrostatic potential (ESP) is collected from the corresponding monomers.
+    //             let mut esp_ij: Array1<f64> = Array1::zeros([pair.n_atoms]);
+    //             esp_ij.slice_mut(s![..m_i.n_atoms]).assign(
+    //                 &(&m_i.properties.esp_q().unwrap()
+    //                     - &gamma
+    //                         .slice(s![m_i.slice.atom, m_j.slice.atom])
+    //                         .dot(&dq.slice(s![m_j.slice.atom]))),
+    //             );
+    //             esp_ij.slice_mut(s![m_i.n_atoms..]).assign(
+    //                 &(&m_j.properties.esp_q().unwrap()
+    //                     - &gamma
+    //                         .slice(s![m_j.slice.atom, m_i.slice.atom])
+    //                         .dot(&dq.slice(s![m_i.slice.atom]))),
+    //             );
+    //
+    //             // a in IJ
+    //             for nc in 0..3 {
+    //                 for na in 0..pair.n_atoms {
+    //                     let grad_idx: usize = na * 3 + nc;
+    //                     // a in I
+    //                     if na < m_i.n_atoms {
+    //                         let mut gradient_slice: ArrayViewMut1<f64> =
+    //                             gradient.slice_mut(s![m_i.slice.grad]);
+    //                         // first term
+    //                         let tmp_1: f64 = delta_dq[na] * grad_gamma_dq_i[[grad_idx]];
+    //                         // second term
+    //                         let tmp_2: f64 = grad_delta_dq[[grad_idx, na]] * esp_ij[na];
+    //                         // add to gradient
+    //                         gradient_slice[grad_idx] += &(tmp_1 + tmp_2);
+    //                     }
+    //                     // a in J
+    //                     else {
+    //                         let mut gradient_slice: ArrayViewMut1<f64> =
+    //                             gradient.slice_mut(s![m_j.slice.grad]);
+    //                         let nat: usize = na - m_i.n_atoms;
+    //                         let grad_idx_2: usize = grad_idx - 3 * m_i.n_atoms;
+    //                         // first term
+    //                         let tmp_1: f64 = delta_dq[na] * grad_gamma_dq_j[[grad_idx_2]];
+    //                         // second term
+    //                         let tmp_2: f64 = grad_delta_dq[[grad_idx, na]] * esp_ij[na];
+    //                         // add to gradient
+    //                         gradient_slice[grad_idx_2] += &(tmp_1 + tmp_2);
+    //                     }
+    //                 }
+    //             }
+    //
+    //             let mut dg_ddq: Array1<f64> = grad_gamma_sparse
+    //                 .slice(s![0.., m_i.slice.atom])
+    //                 .dot(&delta_dq.slice(s![..m_i.n_atoms]));
+    //
+    //             // and for a in J.
+    //             dg_ddq += &grad_gamma_sparse
+    //                 .slice(s![0.., m_j.slice.atom])
+    //                 .dot(&delta_dq.slice(s![m_i.n_atoms..]));
+    //
+    //             // Since K != I,J => the elements where K = I,J are set to zero.
+    //             dg_ddq
+    //                 .slice_mut(s![m_i.slice.grad])
+    //                 .assign(&Array1::zeros([3 * m_i.n_atoms]));
+    //             dg_ddq
+    //                 .slice_mut(s![m_j.slice.grad])
+    //                 .assign(&Array1::zeros([3 * m_j.n_atoms]));
+    //
+    //             let mut ddq_gamma: Array1<f64> = delta_dq
+    //                 .slice(s![..m_i.n_atoms])
+    //                 .dot(&gamma.slice(s![m_i.slice.atom, 0..]));
+    //
+    //             // A in monomer J
+    //             ddq_gamma += &delta_dq
+    //                 .slice(s![m_i.n_atoms..])
+    //                 .dot(&gamma.slice(s![m_j.slice.atom, 0..]));
+    //
+    //             // Since K != I,J => the elements were K = I,J are set to zero.
+    //             ddq_gamma
+    //                 .slice_mut(s![m_i.slice.atom])
+    //                 .assign(&Array1::zeros([m_i.n_atoms]));
+    //             ddq_gamma
+    //                 .slice_mut(s![m_j.slice.atom])
+    //                 .assign(&Array1::zeros([m_j.n_atoms]));
+    //
+    //             // a in K
+    //             for (idx, mol) in self.monomers.iter().enumerate() {
+    //                 if idx != m_i.index && idx != m_j.index {
+    //                     let mut gradient_slice: ArrayViewMut1<f64> =
+    //                         gradient.slice_mut(s![mol.slice.grad]);
+    //                     let dq_mol: ArrayView1<f64> = dq.slice(s![mol.slice.atom]);
+    //                     let grad_gamma_ddq: ArrayView1<f64> = dg_ddq.slice(s![mol.slice.grad]);
+    //                     let grad_dq: ArrayView2<f64> = mol.properties.grad_dq().unwrap();
+    //                     let ddq_gamma_slice: ArrayView1<f64> = ddq_gamma.slice(s![mol.slice.atom]);
+    //
+    //                     for nc in 0..3 {
+    //                         for na in 0..mol.n_atoms {
+    //                             let grad_idx: usize = na * 3 + nc;
+    //                             // first term
+    //                             let tmp_1: f64 = dq_mol[na] * grad_gamma_ddq[[grad_idx]];
+    //                             // second term
+    //                             let tmp_2: f64 = grad_dq[[grad_idx, na]] * ddq_gamma_slice[na];
+    //                             gradient_slice[grad_idx] += &(tmp_1 + tmp_2);
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         });
+    //
+    //     return gradient_array.sum_axis(Axis(1));
+    // }
 }
 
 fn get_grad_delta_dq(pair: &Pair, m_i: &Monomer, m_j: &Monomer) -> Array1<f64> {

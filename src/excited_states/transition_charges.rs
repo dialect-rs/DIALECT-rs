@@ -108,12 +108,12 @@ pub fn trans_charges_reduced(
     virt_indices: &[usize],
 ) -> (Array2<f64>, Array2<f64>, Array2<f64>) {
     // Number of occupied orbitals.
-    let mut dim_o: usize = occ_indices.len();
+    let dim_o: usize = occ_indices.len();
     // Number of virtual orbitals.
-    let mut dim_v: usize = virt_indices.len();
+    let dim_v: usize = virt_indices.len();
 
-    let active_occupied_orbs = occ_indices.clone();
-    let active_virtual_orbs = virt_indices.clone();
+    let active_occupied_orbs = occ_indices;
+    let active_virtual_orbs = virt_indices;
 
     // transition charges between occupied and virutal orbitals
     let mut q_trans_ov: Array3<f64> = Array3::zeros([n_atoms, dim_o, dim_v]);
@@ -160,7 +160,7 @@ pub fn trans_charges_reduced(
     let q_ov = q_trans_ov.into_shape([n_atoms, dim_o * dim_v]).unwrap();
     let q_oo = q_trans_oo.into_shape([n_atoms, dim_o * dim_o]).unwrap();
     let q_vv = q_trans_vv.into_shape([n_atoms, dim_v * dim_v]).unwrap();
-    return (q_ov, q_oo, q_vv);
+    (q_ov, q_oo, q_vv)
 }
 
 pub fn trans_charges_restricted(
@@ -177,8 +177,8 @@ pub fn trans_charges_restricted(
     // Number of virtual orbitals.
     let mut dim_v: usize = virt_indices.len();
 
-    let mut active_occupied_orbs = occ_indices.clone();
-    let mut active_virtual_orbs = virt_indices.clone();
+    let mut active_occupied_orbs = occ_indices;
+    let mut active_virtual_orbs = virt_indices;
 
     dim_o = (dim_o as f64 * threshold) as usize;
     dim_v = (dim_v as f64 * threshold) as usize;
@@ -231,7 +231,7 @@ pub fn trans_charges_restricted(
     let q_ov = q_trans_ov.into_shape([n_atoms, dim_o * dim_v]).unwrap();
     let q_oo = q_trans_oo.into_shape([n_atoms, dim_o * dim_o]).unwrap();
     let q_vv = q_trans_vv.into_shape([n_atoms, dim_v * dim_v]).unwrap();
-    return (q_ov, q_oo, q_vv);
+    (q_ov, q_oo, q_vv)
 }
 
 pub fn trans_oo_restricted(
@@ -240,12 +240,12 @@ pub fn trans_oo_restricted(
     orbs: ArrayView2<f64>,
     s: ArrayView2<f64>,
     occ_indices: &[usize],
-    virt_indices: &[usize],
+    _virt_indices: &[usize],
     threshold: f64,
 ) -> Array2<f64> {
     // Number of occupied orbitals.
     let mut dim_o: usize = occ_indices.len();
-    let mut active_occupied_orbs = occ_indices.clone();
+    let mut active_occupied_orbs = occ_indices;
     dim_o = (dim_o as f64 * threshold) as usize;
 
     active_occupied_orbs = &active_occupied_orbs[occ_indices.len() - dim_o..occ_indices.len()];
@@ -269,8 +269,8 @@ pub fn trans_oo_restricted(
             mu += 1;
         }
     }
-    let q_oo = q_trans_oo.into_shape([n_atoms, dim_o * dim_o]).unwrap();
-    return q_oo;
+
+    q_trans_oo.into_shape([n_atoms, dim_o * dim_o]).unwrap()
 }
 
 pub fn trans_vv_restricted(
@@ -278,13 +278,13 @@ pub fn trans_vv_restricted(
     atoms: &[Atom],
     orbs: ArrayView2<f64>,
     s: ArrayView2<f64>,
-    occ_indices: &[usize],
+    _occ_indices: &[usize],
     virt_indices: &[usize],
     threshold: f64,
 ) -> Array2<f64> {
     // Number of virtual orbitals.
     let mut dim_v: usize = virt_indices.len();
-    let mut active_virtual_orbs = virt_indices.clone();
+    let mut active_virtual_orbs = virt_indices;
     dim_v = (dim_v as f64 * threshold) as usize;
     active_virtual_orbs = &active_virtual_orbs[0..dim_v];
 
@@ -308,8 +308,67 @@ pub fn trans_vv_restricted(
             mu += 1;
         }
     }
-    let q_vv = q_trans_vv.into_shape([n_atoms, dim_v * dim_v]).unwrap();
-    return q_vv;
+
+    q_trans_vv.into_shape([n_atoms, dim_v * dim_v]).unwrap()
+}
+
+pub fn trans_charges_ao(
+    n_orbs: usize,
+    orbs: ArrayView2<f64>,
+    s: ArrayView2<f64>,
+    occ_indices: &[usize],
+    virt_indices: &[usize],
+) -> (Array2<f64>, Array2<f64>, Array2<f64>) {
+    // Number of occupied orbitals.
+    let dim_o: usize = occ_indices.len();
+    // Number of virtual orbitals.
+    let dim_v: usize = virt_indices.len();
+
+    let active_occupied_orbs = occ_indices;
+    let active_virtual_orbs = virt_indices;
+
+    // transition charges between occupied and virutal orbitals
+    let mut q_trans_ov: Array3<f64> = Array3::zeros([n_orbs, dim_o, dim_v]);
+    // transition charges between occupied and occupied orbitals
+    let mut q_trans_oo: Array3<f64> = Array3::zeros([n_orbs, dim_o, dim_o]);
+    // transition charges between virtual and virtual orbitals
+    let mut q_trans_vv: Array3<f64> = Array3::zeros([n_orbs, dim_v, dim_v]);
+
+    let s_c: Array2<f64> = s.dot(&orbs);
+
+    for (mu, orb) in (0..n_orbs).enumerate() {
+        // occupied - virtuals
+        for (i, occi) in active_occupied_orbs.iter().enumerate() {
+            for (a, virta) in active_virtual_orbs.iter().enumerate() {
+                q_trans_ov.slice_mut(s![orb, i, a]).add_assign(
+                    0.5 * (orbs[[mu, *occi]] * s_c[[mu, *virta]]
+                        + orbs[[mu, *virta]] * s_c[[mu, *occi]]),
+                );
+            }
+        }
+        // occupied - occupied
+        for (i, occi) in active_occupied_orbs.iter().enumerate() {
+            for (j, occj) in active_occupied_orbs.iter().enumerate() {
+                q_trans_oo.slice_mut(s![orb, i, j]).add_assign(
+                    0.5 * (orbs[[mu, *occi]] * s_c[[mu, *occj]]
+                        + orbs[[mu, *occj]] * s_c[[mu, *occi]]),
+                );
+            }
+        }
+        // virtual - virtual
+        for (a, virta) in active_virtual_orbs.iter().enumerate() {
+            for (b, virtb) in active_virtual_orbs.iter().enumerate() {
+                q_trans_vv.slice_mut(s![orb, a, b]).add_assign(
+                    0.5 * (orbs[[mu, *virta]] * s_c[[mu, *virtb]]
+                        + orbs[[mu, *virtb]] * s_c[[mu, *virta]]),
+                );
+            }
+        }
+    }
+    let q_ov = q_trans_ov.into_shape([n_orbs, dim_o * dim_v]).unwrap();
+    let q_oo = q_trans_oo.into_shape([n_orbs, dim_o * dim_o]).unwrap();
+    let q_vv = q_trans_vv.into_shape([n_orbs, dim_v * dim_v]).unwrap();
+    (q_ov, q_oo, q_vv)
 }
 
 impl System {
@@ -366,6 +425,6 @@ impl System {
             }
         }
 
-        return charges;
+        charges
     }
 }

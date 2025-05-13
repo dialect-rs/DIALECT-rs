@@ -22,6 +22,10 @@ impl Properties {
         self.set("old_ci_coeffs", Property::Array3(ci_coeffs))
     }
 
+    pub fn set_gw_screened_eris(&mut self, eris: Array3<f64>) {
+        self.set("gw_eris", Property::Array3(eris))
+    }
+
     /// Set the HashMap that maps to monomers to the type of pair they form.
     pub fn set_pair_types(&mut self, map: HashMap<(usize, usize), PairType>) {
         self.set("pair_types", Property::PairMap(map))
@@ -147,6 +151,15 @@ impl Properties {
         self.set("orbe", Property::from(orbe));
     }
 
+    /// Set the MO energies from the GW calculation.
+    pub fn set_gw_orbe(&mut self, orbe: Array1<f64>) {
+        self.set("gw_orbe", Property::from(orbe));
+    }
+
+    pub fn set_gw_rpa_energies(&mut self, rpa_energies: Array1<f64>) {
+        self.set("gw_rpa_energies", Property::from(rpa_energies));
+    }
+
     /// Set the S^-1/2 in AO basis.
     pub fn set_x(&mut self, x: Array2<f64>) {
         self.set("X", Property::from(x));
@@ -165,6 +178,11 @@ impl Properties {
     /// Set the charge differences per atom.
     pub fn set_dq(&mut self, dq: Array1<f64>) {
         self.set("dq", Property::from(dq));
+    }
+
+    /// Set the charge differences per atom.
+    pub fn set_dq_ao(&mut self, dq: Array1<f64>) {
+        self.set("dq_ao", Property::from(dq));
     }
 
     /// Set the charge differences per atom.

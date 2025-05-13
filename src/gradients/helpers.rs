@@ -1,9 +1,7 @@
 use crate::initialization::parameters::RepulsivePotential;
 use crate::initialization::Atom;
 use nalgebra::Vector3;
-use ndarray::{
-    s, Array, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, ArrayViewMut2, Axis,
-};
+use ndarray::{s, Array, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, Axis};
 use rayon::iter::*;
 
 pub fn get_outer_product(v1: &ArrayView1<f64>, v2: &ArrayView1<f64>) -> Array2<f64> {
@@ -13,7 +11,7 @@ pub fn get_outer_product(v1: &ArrayView1<f64>, v2: &ArrayView1<f64>) -> Array2<f
             matrix[[i, j]] = (&i_value * &j_value).into_scalar();
         }
     }
-    return matrix;
+    matrix
 }
 
 pub fn f_v(
@@ -45,11 +43,11 @@ pub fn f_v(
                     + s[[a, b]] * (dgsv[a] + gdsv[a] + dgsv[b] + gdsv[b]);
             }
         }
-        d_f = d_f * 0.25;
+        d_f *= 0.25;
         f_return.slice_mut(s![nc, .., ..]).assign(&d_f);
     }
 
-    return f_return;
+    f_return
 }
 
 pub fn f_v_par(
@@ -97,7 +95,7 @@ pub fn f_v_par(
         .into_shape((3 * n_atoms, n_orb, n_orb))
         .unwrap();
 
-    return f_return;
+    f_return
 }
 
 pub fn f_lr(
@@ -153,11 +151,11 @@ pub fn f_lr(
         d_f = d_f + s.dot(&(&sv * &d_g).t());
         // 12th term
         d_f = d_f + s.dot(&(s.dot(&d_gv)).t());
-        d_f = d_f * 0.25;
+        d_f *= 0.25;
 
         f_return.slice_mut(s![nc, .., ..]).assign(&d_f);
     }
-    return f_return;
+    f_return
 }
 
 pub fn f_lr_par(
@@ -213,7 +211,7 @@ pub fn f_lr_par(
             d_f = d_f + s.dot(&(&sv * &d_g).t());
             // 12th term
             d_f = d_f + s.dot(&(s.dot(&d_gv)).t());
-            d_f = d_f * 0.25;
+            d_f *= 0.25;
 
             d_f.into_shape(n_orb * n_orb).unwrap().to_vec()
         })
@@ -229,7 +227,7 @@ pub fn f_lr_par(
         .into_shape((3 * n_atoms, n_orb, n_orb))
         .unwrap();
 
-    return f_return;
+    f_return
 }
 
 pub fn h_minus(
@@ -295,7 +293,7 @@ pub fn h_minus(
         .unwrap()
         .to_owned();
     h_minus_pq = h_minus_pq - q_pr_swapped.dot(&tmp2_swapped);
-    return h_minus_pq;
+    h_minus_pq
 }
 
 pub fn h_plus_no_lr(
@@ -321,7 +319,7 @@ pub fn h_plus_no_lr(
             .dot(&q_pq.into_shape((n_at, q_pq_dim_1 * q_pq_dim_2)).unwrap())
             .into_shape((q_pq_dim_1, q_pq_dim_2))
             .unwrap();
-    return hplus_pq;
+    hplus_pq
 }
 
 pub fn h_a_nolr(
@@ -347,7 +345,7 @@ pub fn h_a_nolr(
             .dot(&q_pq.into_shape((n_at, q_pq_dim_1 * q_pq_dim_2)).unwrap())
             .into_shape((q_pq_dim_1, q_pq_dim_2))
             .unwrap();
-    return hplus_pq;
+    hplus_pq
 }
 
 pub struct Hplus<'a> {
@@ -372,13 +370,13 @@ impl Hplus<'_> {
         let n_virt: usize = qtrans_ov.dim().2;
 
         Hplus {
-            qtrans_ov: qtrans_ov,
-            qtrans_vv: qtrans_vv,
-            qtrans_oo: qtrans_oo,
-            qtrans_vo: qtrans_vo,
-            n_occ: n_occ,
-            n_virt: n_virt,
-            n_at: n_at,
+            qtrans_ov,
+            qtrans_vv,
+            qtrans_oo,
+            qtrans_vo,
+            n_occ,
+            n_virt,
+            n_at,
         }
     }
 
@@ -398,7 +396,7 @@ impl Hplus<'_> {
             HplusType::Qai => self.hplus_qai_or_wij(g0, g0_lr, v),
             HplusType::Wij => self.hplus_qai_or_wij(g0, g0_lr, v),
         };
-        return result;
+        result
     }
 
     fn hplus_tab(
@@ -478,7 +476,7 @@ impl Hplus<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hplus_tij(
@@ -550,7 +548,7 @@ impl Hplus<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hplus_qia_xpy(
@@ -630,7 +628,7 @@ impl Hplus<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hplus_qia_tab(
@@ -703,7 +701,7 @@ impl Hplus<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hplus_qia_tij(
@@ -776,7 +774,7 @@ impl Hplus<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hplus_qai_or_wij(
@@ -856,7 +854,7 @@ impl Hplus<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 }
 
@@ -892,13 +890,13 @@ impl Hav<'_> {
         let n_virt: usize = qtrans_ov.dim().2;
 
         Hav {
-            qtrans_ov: qtrans_ov,
-            qtrans_vv: qtrans_vv,
-            qtrans_oo: qtrans_oo,
-            qtrans_vo: qtrans_vo,
-            n_occ: n_occ,
-            n_virt: n_virt,
-            n_at: n_at,
+            qtrans_ov,
+            qtrans_vv,
+            qtrans_oo,
+            qtrans_vo,
+            n_occ,
+            n_virt,
+            n_at,
         }
     }
 
@@ -918,7 +916,7 @@ impl Hav<'_> {
             HplusType::Qai => 2.0 * self.hav_qai_or_wij(g0, g0_lr, v),
             HplusType::Wij => 2.0 * self.hav_qai_or_wij(g0, g0_lr, v),
         };
-        return result;
+        result
     }
 
     fn hav_tab(
@@ -971,7 +969,7 @@ impl Hav<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hav_tij(
@@ -1023,7 +1021,7 @@ impl Hav<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hav_qia_x(
@@ -1076,7 +1074,7 @@ impl Hav<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hav_qia_tab(
@@ -1129,7 +1127,7 @@ impl Hav<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hav_qia_tij(
@@ -1182,7 +1180,7 @@ impl Hav<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 
     fn hav_qai_or_wij(
@@ -1235,7 +1233,7 @@ impl Hav<'_> {
             .to_owned();
         hplus_pq = hplus_pq - q_swapped.dot(&tmp2_swapped);
 
-        return hplus_pq;
+        hplus_pq
     }
 }
 
@@ -1268,7 +1266,7 @@ pub fn gradient_v_rep(atoms: &[Atom], v_rep: &RepulsivePotential) -> Array1<f64>
         }
         grad.slice_mut(s![i * 3..i * 3 + 3]).assign(&grad_i);
     }
-    return grad;
+    grad
 }
 
 pub fn zvector_lc(
@@ -1296,10 +1294,6 @@ pub fn zvector_lc(
     // bs are expansion vectors
     let a_inv: Array2<f64> = 1.0 / &a_diag.to_owned();
     let bs: Array2<f64> = &a_inv * &r_matrix;
-
-    let mut rhs_2: Array1<f64> = Array::zeros(kmax);
-    let mut rkm1: Array1<f64> = Array::zeros(kmax);
-    let mut pkm1: Array1<f64> = Array::zeros(kmax);
     let rhs: Array1<f64> = r_matrix.into_shape(kmax).unwrap().to_owned();
 
     // create new arrays for transition charges of specific shapes,
@@ -1333,10 +1327,10 @@ pub fn zvector_lc(
         n_virt,
     );
 
-    rkm1 = apbv.into_shape(kmax).unwrap();
-    rhs_2 = bs.into_shape(kmax).unwrap();
-    rkm1 = rhs - rkm1;
-    pkm1 = rkm1.clone();
+    let rkm1 = apbv.into_shape(kmax).unwrap();
+    let mut rhs_2 = bs.into_shape(kmax).unwrap();
+    let mut rkm1 = rhs - rkm1;
+    let mut pkm1 = rkm1.clone();
 
     for _it in 0..maxiter {
         let apbv: Array2<f64> = mult_apb_v(
@@ -1369,7 +1363,7 @@ pub fn zvector_lc(
     }
 
     let out: Array2<f64> = rhs_2.into_shape((n_occ, n_virt)).unwrap();
-    return out;
+    out
 }
 
 pub fn zvector_no_lc(
@@ -1389,18 +1383,13 @@ pub fn zvector_no_lc(
     // bs are expansion vectors
     let a_inv: Array2<f64> = 1.0 / &a_diag.to_owned();
     let bs: Array2<f64> = &a_inv * &r_matrix;
-
-    let mut rhs_2: Array1<f64> = Array::zeros(kmax);
-    let mut rkm1: Array1<f64> = Array::zeros(kmax);
-    let mut pkm1: Array1<f64> = Array::zeros(kmax);
     let rhs: Array1<f64> = r_matrix.into_shape(kmax).unwrap().to_owned();
-
     let apbv: Array2<f64> = mult_apb_v_no_lc(g0, qtrans_ov, a_diag, bs.view(), n_occ, n_virt);
 
-    rkm1 = apbv.into_shape(kmax).unwrap();
-    rhs_2 = bs.into_shape(kmax).unwrap();
-    rkm1 = rhs - rkm1;
-    pkm1 = rkm1.clone();
+    let rkm1 = apbv.into_shape(kmax).unwrap();
+    let mut rhs_2 = bs.into_shape(kmax).unwrap();
+    let mut rkm1 = rhs - rkm1;
+    let mut pkm1 = rkm1.clone();
 
     for _it in 0..maxiter {
         let apbv: Array2<f64> = mult_apb_v_no_lc(
@@ -1428,7 +1417,7 @@ pub fn zvector_no_lc(
     }
 
     let out: Array2<f64> = rhs_2.into_shape((n_occ, n_virt)).unwrap();
-    return out;
+    out
 }
 
 pub fn tda_zvector_no_lc(
@@ -1449,17 +1438,12 @@ pub fn tda_zvector_no_lc(
     let a_inv: Array2<f64> = 1.0 / &a_diag.to_owned();
     let bs: Array2<f64> = &a_inv * &r_matrix;
 
-    let mut rhs_2: Array1<f64> = Array::zeros(kmax);
-    let mut rkm1: Array1<f64> = Array::zeros(kmax);
-    let mut pkm1: Array1<f64> = Array::zeros(kmax);
     let rhs: Array1<f64> = r_matrix.into_shape(kmax).unwrap().to_owned();
-
     let apbv: Array2<f64> = mult_av_nolc(g0, qtrans_ov, a_diag, bs.view(), n_occ, n_virt);
-
-    rkm1 = apbv.into_shape(kmax).unwrap();
-    rhs_2 = bs.into_shape(kmax).unwrap();
+    let mut rkm1: Array1<f64> = apbv.into_shape(kmax).unwrap();
+    let mut rhs_2: Array1<f64> = bs.into_shape(kmax).unwrap();
     rkm1 = rhs - rkm1;
-    pkm1 = rkm1.clone();
+    let mut pkm1: Array1<f64> = rkm1.clone();
 
     for _it in 0..maxiter {
         let apbv: Array2<f64> = mult_av_nolc(
@@ -1487,7 +1471,7 @@ pub fn tda_zvector_no_lc(
     }
 
     let out: Array2<f64> = rhs_2.into_shape((n_occ, n_virt)).unwrap();
-    return out;
+    out
 }
 
 pub fn tda_zvector_lc(
@@ -1510,10 +1494,6 @@ pub fn tda_zvector_lc(
     // bs are expansion vectors
     let a_inv: Array2<f64> = 1.0 / &a_diag.to_owned();
     let bs: Array2<f64> = &a_inv * &r_matrix;
-
-    let mut rhs_2: Array1<f64> = Array::zeros(kmax);
-    let mut rkm1: Array1<f64> = Array::zeros(kmax);
-    let mut pkm1: Array1<f64> = Array::zeros(kmax);
     let rhs: Array1<f64> = r_matrix.into_shape(kmax).unwrap().to_owned();
 
     // create new arrays for transition charges of specific shapes,
@@ -1532,11 +1512,10 @@ pub fn tda_zvector_lc(
         n_occ,
         n_virt,
     );
-
-    rkm1 = apbv.into_shape(kmax).unwrap();
-    rhs_2 = bs.into_shape(kmax).unwrap();
+    let mut rkm1: Array1<f64> = apbv.into_shape(kmax).unwrap();
+    let mut rhs_2: Array1<f64> = bs.into_shape(kmax).unwrap();
     rkm1 = rhs - rkm1;
-    pkm1 = rkm1.clone();
+    let mut pkm1: Array1<f64> = rkm1.clone();
 
     for _it in 0..maxiter {
         let apbv: Array2<f64> = mult_av_lc(
@@ -1567,7 +1546,7 @@ pub fn tda_zvector_lc(
     }
 
     let out: Array2<f64> = rhs_2.into_shape((n_occ, n_virt)).unwrap();
-    return out;
+    out
 }
 
 fn mult_apb_v(
@@ -1639,7 +1618,7 @@ fn mult_apb_v(
         qtrans_ov_reshaped_2.dot(&tmp42.into_shape((n_at * n_virt, n_virt)).unwrap());
     u_l = u_l - tmp43;
 
-    return u_l;
+    u_l
 }
 
 fn mult_apb_v_no_lc(
@@ -1670,7 +1649,7 @@ fn mult_apb_v_no_lc(
                 .into_shape([n_occ, n_virt])
                 .unwrap();
 
-    return u_l;
+    u_l
 }
 
 fn mult_av_nolc(
@@ -1701,7 +1680,7 @@ fn mult_av_nolc(
                 .into_shape([n_occ, n_virt])
                 .unwrap();
 
-    return u_l;
+    u_l
 }
 
 fn mult_av_lc(
@@ -1754,5 +1733,5 @@ fn mult_av_lc(
         .dot(&tmp32.into_shape((n_at * n_occ, n_virt)).unwrap());
     u_l = u_l - tmp33;
 
-    return u_l;
+    u_l
 }

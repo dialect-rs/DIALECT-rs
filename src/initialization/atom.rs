@@ -1,5 +1,5 @@
-use crate::constants;
 use crate::initialization::parameters::{PseudoAtom, PseudoAtomSkf, SkfHandler};
+use crate::io::settings::ParameterizationConfig;
 use crate::param::elements::Element;
 use crate::utils::array_helper::argsort_usize;
 use nalgebra::Vector3;
@@ -36,7 +36,7 @@ pub struct Atom {
     /// Element as an enum
     pub kind: Element,
     /// Hubbard parameter
-    pub hubbard: f64,
+    pub hubbard: Vec<f64>,
     /// Vector of the valence orbitals for this atom
     pub valorbs: Vec<AtomicOrbital>,
     /// Number of valence orbitals. This is the length of valorbs
@@ -49,25 +49,23 @@ pub struct Atom {
     pub xyz: Vector3<f64>,
 }
 
-impl From<Element> for Atom {
+impl From<(Element, &ParameterizationConfig)> for Atom {
     /// Create a new [Atom] from the chemical [Element](crate::initialization::elements::Element).
     /// The parameterization from the parameter files is loaded and the Hubbard parameter
     /// and the valence orbitals are stored in this type.
-    fn from(element: Element) -> Self {
+    fn from(data: (Element, &ParameterizationConfig)) -> Self {
+        let element: Element = data.0;
+        let config = data.1;
+
         let symbol: &'static str = element.symbol();
-        let confined_atom: PseudoAtom = PseudoAtom::confined_atom(symbol);
-        let free_atom: PseudoAtom = PseudoAtom::free_atom(symbol);
+        let confined_atom: PseudoAtom = PseudoAtom::confined_atom(symbol, config);
         let mut valorbs: Vec<AtomicOrbital> = Vec::new();
         let mut occupation: Vec<f64> = Vec::new();
         let mut n_elec: usize = 0;
-        for (i, j) in confined_atom
-            .valence_orbitals
-            .iter()
-            .zip(free_atom.valence_orbitals.iter())
-        {
+        for i in confined_atom.valence_orbitals.iter() {
             let n: i8 = confined_atom.nshell[*i as usize];
             let l: i8 = confined_atom.angular_momenta[*i as usize];
-            let energy: f64 = free_atom.energies[*j as usize];
+            let energy: f64 = confined_atom.energies[*i as usize];
             for m in l.neg()..(l + 1) {
                 valorbs.push(AtomicOrbital::from(((n - 1, l, m), energy)));
                 occupation.push(
@@ -82,14 +80,60 @@ impl From<Element> for Atom {
             name: symbol,
             number: element.number(),
             kind: element,
-            hubbard: confined_atom.hubbard_u,
-            valorbs: valorbs,
-            n_orbs: n_orbs,
+            hubbard: vec![
+                confined_atom.hubbard_u,
+                confined_atom.hubbard_u,
+                confined_atom.hubbard_u,
+            ],
+            valorbs,
+            n_orbs,
             valorbs_occupation: occupation,
-            n_elec: n_elec,
+            n_elec,
             xyz: Vector3::<f64>::zeros(),
         }
     }
+
+    // fn from(element: Element) -> Self {
+    //     let symbol: &'static str = element.symbol();
+    //     let confined_atom: PseudoAtom = PseudoAtom::confined_atom(symbol);
+    //     let free_atom: PseudoAtom = PseudoAtom::free_atom(symbol);
+    //     let mut valorbs: Vec<AtomicOrbital> = Vec::new();
+    //     let mut occupation: Vec<f64> = Vec::new();
+    //     let mut n_elec: usize = 0;
+    //     for (i, j) in confined_atom
+    //         .valence_orbitals
+    //         .iter()
+    //         .zip(free_atom.valence_orbitals.iter())
+    //     {
+    //         let n: i8 = confined_atom.nshell[*i as usize];
+    //         let l: i8 = confined_atom.angular_momenta[*i as usize];
+    //         let energy: f64 = free_atom.energies[*j as usize];
+    //         for m in l.neg()..(l + 1) {
+    //             valorbs.push(AtomicOrbital::from(((n - 1, l, m), energy)));
+    //             occupation.push(
+    //                 confined_atom.orbital_occupation[*i as usize] as f64 / (2 * l + 1) as f64,
+    //             );
+    //         }
+    //         n_elec += confined_atom.orbital_occupation[*i as usize] as usize;
+    //     }
+    //     let n_orbs: usize = valorbs.len();
+
+    //     Atom {
+    //         name: symbol,
+    //         number: element.number(),
+    //         kind: element,
+    //         hubbard: vec![
+    //             confined_atom.hubbard_u,
+    //             confined_atom.hubbard_u,
+    //             confined_atom.hubbard_u,
+    //         ],
+    //         valorbs: valorbs,
+    //         n_orbs: n_orbs,
+    //         valorbs_occupation: occupation,
+    //         n_elec: n_elec,
+    //         xyz: Vector3::<f64>::zeros(),
+    //     }
+    // }
 }
 
 impl From<(Element, &SkfHandler)> for Atom {
@@ -122,10 +166,10 @@ impl From<(Element, &SkfHandler)> for Atom {
             number: element.number(),
             kind: element,
             hubbard: pseudo_atom.hubbard_u,
-            valorbs: valorbs,
-            n_orbs: n_orbs,
+            valorbs,
+            n_orbs,
             valorbs_occupation: occupation,
-            n_elec: n_elec,
+            n_elec,
             xyz: Vector3::<f64>::zeros(),
         }
     }
@@ -151,12 +195,15 @@ impl Atom {
     }
 }
 
-impl From<&str> for Atom {
+impl From<(&str, &ParameterizationConfig)> for Atom {
     /// Create a new [Atom] from the atomic symbol (case insensitive). The parameterization from the
     /// parameter files is loaded and the Hubbard parameter and the valence orbitals are stored in
     /// this type.
-    fn from(symbol: &str) -> Self {
-        Self::from(Element::from(symbol))
+    fn from(data: (&str, &ParameterizationConfig)) -> Self {
+        let symbol: &str = data.0;
+        let config = data.1;
+
+        Self::from((Element::from(symbol), config))
     }
 }
 
@@ -167,12 +214,15 @@ impl From<&Atom> for Atom {
     }
 }
 
-impl From<u8> for Atom {
+impl From<(u8, &ParameterizationConfig)> for Atom {
     /// Create a new [Atom] from the atomic number. The parameterization from the
     /// parameter files is loaded and the Hubbard parameter and the valence orbitals are stored in
     /// this type.
-    fn from(number: u8) -> Self {
-        Self::from(Element::from(number))
+    fn from(data: (u8, &ParameterizationConfig)) -> Self {
+        let number: u8 = data.0;
+        let config = data.1;
+
+        Self::from((Element::from(number), config))
     }
 }
 impl PartialEq for Atom {

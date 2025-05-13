@@ -15,7 +15,7 @@ pub fn build_graph(n_atoms: usize, atoms: &[Atom]) -> Graph {
         for (j, atomj) in ((i + 1)..n_atoms).zip(atoms[(i + 1)..].iter()) {
             if (atomi - atomj).norm() < BOND_THRESHOLD[atomi.number as usize][atomj.number as usize]
             {
-                edges.push((i as usize, j as usize));
+                edges.push((i, j));
             }
         }
     }

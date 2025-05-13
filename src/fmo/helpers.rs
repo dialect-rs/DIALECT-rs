@@ -12,8 +12,8 @@ use std::path::Path;
 pub fn get_pair_slice(atoms: &[Atom], mi_range: Range<usize>, mj_range: Range<usize>) -> Vec<Atom> {
     atoms[mi_range]
         .iter()
-        .map(|x| x.clone())
-        .chain(atoms[mj_range].iter().map(|x| x.clone()))
+        .cloned()
+        .chain(atoms[mj_range].iter().cloned())
         .collect()
 }
 
@@ -113,10 +113,10 @@ pub fn remove_duplicate_atoms(atoms: &[Atom]) -> Vec<Atom> {
         }
         // get string of all atoms
         let mut string: String = new_atoms.len().to_string();
-        string += &format!("\n\n");
+        string += "\n\n";
 
         // iterate over the atoms
-        for (idx_i, atom_i) in new_atoms.iter().enumerate() {
+        for atom_i in new_atoms.iter() {
             string += &format!(
                 "{}   {}   {}   {} \n",
                 constants::ATOM_NAMES_UPPER[atom_i.number as usize],
@@ -133,12 +133,17 @@ pub fn remove_duplicate_atoms(atoms: &[Atom]) -> Vec<Atom> {
     new_atoms
 }
 
-pub fn monomer_identification(config: &IdentificationConfig, atoms: &[Atom], monomers: &[Monomer]) {
+pub fn monomer_identification(
+    config: &IdentificationConfig,
+    atoms: &[Atom],
+    monomers: &[Monomer],
+) -> Vec<usize> {
+    let mut monomer_indices: Vec<usize> = Vec::new();
     for coords in config.atom_coordinates.iter() {
-        for (m_idx, mol) in monomers.iter().enumerate() {
+        for mol in monomers.iter() {
             let monomer_atoms = &atoms[mol.slice.atom_as_range()];
 
-            for (idx, atom) in monomer_atoms.iter().enumerate() {
+            for atom in monomer_atoms.iter() {
                 let x = coords[0] / constants::BOHR_TO_ANGS;
                 let y = coords[1] / constants::BOHR_TO_ANGS;
                 let z = coords[2] / constants::BOHR_TO_ANGS;
@@ -149,9 +154,11 @@ pub fn monomer_identification(config: &IdentificationConfig, atoms: &[Atom], mon
                 .sqrt();
 
                 if diff_norm < 5.0e-3 {
-                    println!("Monomer index: {}", mol.index)
+                    println!("Monomer index: {}", mol.index);
+                    monomer_indices.push(mol.index);
                 }
             }
         }
     }
+    monomer_indices
 }

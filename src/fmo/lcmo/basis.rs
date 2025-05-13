@@ -1,6 +1,5 @@
-use crate::excited_states::{trans_charges, ExcitedState};
-use crate::fmo::helpers::get_pair_slice;
-use crate::fmo::{ESDPair, ExcitonStates, Monomer, Pair, PairType, SuperSystem};
+use crate::excited_states::ExcitedState;
+use crate::fmo::{ExcitonStates, Monomer, PairType, SuperSystem};
 use crate::initialization::Atom;
 use crate::io::settings::LcmoConfig;
 use crate::properties::Properties;
@@ -8,11 +7,10 @@ use crate::{initial_subspace, Davidson};
 use nalgebra::Vector3;
 use ndarray::prelude::*;
 use ndarray::{concatenate, Slice};
-use ndarray_linalg::{Eigh, SymmetricSqrt, UPLO};
+use ndarray_linalg::{Eigh, UPLO};
 use ndarray_npy::write_npy;
 use rayon::prelude::*;
 use std::fmt::{Display, Formatter};
-use std::time::Instant;
 
 impl SuperSystem<'_> {
     pub fn create_diabatic_basis(&self, n_ct: usize) -> Vec<BasisState> {
@@ -56,12 +54,12 @@ impl SuperSystem<'_> {
 
                     let le_state = LocallyExcited {
                         monomer: mol,
-                        n: n,
+                        n,
                         atoms: &atoms[mol.slice.atom_as_range()],
                         q_trans: q_ov.dot(&tdm),
                         occs: mol.properties.orbs_slice(0, Some(homo + 1)).unwrap(),
                         virts: mol.properties.orbs_slice(homo + 1, None).unwrap(),
-                        tdm: tdm,
+                        tdm,
                         tr_dipole: mol.properties.tr_dipole(n).unwrap(),
                         occ_indices,
                         virt_indices,
@@ -113,15 +111,19 @@ impl SuperSystem<'_> {
 
                     // prepare the TDA calculation of both states
                     state_1.prepare_ct_tda(
-                        self.properties.gamma().unwrap(),
-                        self.properties.gamma_lr().unwrap(),
+                        self.properties.gamma(),
+                        self.properties.gamma_lr(),
+                        self.properties.gamma_ao(),
+                        self.properties.gamma_lr_ao(),
                         self.properties.s().unwrap(),
                         atoms,
                         &self.config,
                     );
                     state_2.prepare_ct_tda(
-                        self.properties.gamma().unwrap(),
-                        self.properties.gamma_lr().unwrap(),
+                        self.properties.gamma(),
+                        self.properties.gamma_lr(),
+                        self.properties.gamma_ao(),
+                        self.properties.gamma_lr_ao(),
                         self.properties.s().unwrap(),
                         atoms,
                         &self.config,
@@ -177,8 +179,8 @@ impl SuperSystem<'_> {
                             eigenvectors: state_1.properties.tdm(n).unwrap().to_owned(),
                             q_tr: q_ov_1.dot(&tdm_1),
                             tr_dipole: state_1.properties.tr_dipole(n).unwrap(),
-                            occ_orb: m_i.slice.occ_orb.clone(),
-                            virt_orb: m_j.slice.virt_orb.clone(),
+                            occ_orb: m_i.slice.occ_orb,
+                            virt_orb: m_j.slice.virt_orb,
                             occ_indices,
                             virt_indices,
                         };
@@ -211,8 +213,8 @@ impl SuperSystem<'_> {
                             eigenvectors: state_2.properties.tdm(n).unwrap().to_owned(),
                             q_tr: q_ov_2.dot(&tdm_2),
                             tr_dipole: state_2.properties.tr_dipole(n).unwrap(),
-                            occ_orb: m_j.slice.occ_orb.clone(),
-                            virt_orb: m_i.slice.virt_orb.clone(),
+                            occ_orb: m_j.slice.occ_orb,
+                            virt_orb: m_i.slice.virt_orb,
                             occ_indices,
                             virt_indices,
                         };
@@ -245,7 +247,6 @@ impl SuperSystem<'_> {
         let n_roots: usize = n_le + 3;
 
         let fock_matrix: ArrayView2<f64> = self.properties.lcmo_fock().unwrap();
-        write_npy("h_prime_hamiltonian.npy", &fock_matrix);
         // Calculate the excited states of the monomers
         // Swap the orbital energies of the monomers with the elements of the H' matrix
         self.monomers.par_iter_mut().for_each(|mol| {
@@ -314,6 +315,7 @@ impl SuperSystem<'_> {
                 200,
                 true,
                 self.config.excited.davidson_subspace_multiplier,
+                false,
             )
             .unwrap();
             energies = davidson.eigenvalues;
@@ -359,7 +361,7 @@ impl SuperSystem<'_> {
             &self.atoms,
         );
         // write the energies and oscillator strenghts to numpy files
-        exciton.spectrum_to_npy("lcmo_spec.npy");
+        exciton.spectrum_to_npy("lcmo_spec.npy").unwrap();
         exciton.spectrum_to_txt("lcmo_spec.txt");
         println!("{}", exciton);
 
@@ -377,7 +379,7 @@ impl SuperSystem<'_> {
         }
     }
 
-    pub fn get_excitonic_matrix(&mut self) -> (Array2<f64>, bool) {
+    pub fn get_excitonic_matrix(&mut self) -> Array2<f64> {
         // Calculate the H' matrix
         let hamiltonian = self.build_lcmo_fock_matrix();
         self.properties.set_lcmo_fock(hamiltonian);
@@ -409,12 +411,10 @@ impl SuperSystem<'_> {
                 &self.config,
             );
         });
-
         // Construct the basis states.
-        let mut states: Vec<BasisState> =
-            self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
-        let state_swap: bool = false;
+        let states: Vec<BasisState> = self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
 
+        // dimension of the Hamiltonian
         let dim: usize = states.len();
         // Initialize the Exciton-Hamiltonian.
         let mut h = vec![0.0; dim * dim];
@@ -435,7 +435,6 @@ impl SuperSystem<'_> {
                         }
                     });
             });
-
         let mut h: Array2<f64> = Array::from(h).into_shape((dim, dim)).unwrap();
         let diag = h.diag();
         h = &h + &h.t() - Array::from_diag(&diag);
@@ -459,13 +458,11 @@ impl SuperSystem<'_> {
                 BasisState::PairCT(ref a) => {
                     reduced_states.push(ReducedBasisState::CT(a.to_owned()));
                 }
-                _ => {}
             };
         }
         // save the basis in the properties
         self.properties.set_basis_states(reduced_states);
-
-        return (h, state_swap);
+        h
     }
 
     pub fn get_tdm_for_ehrenfest(
@@ -506,8 +503,7 @@ impl SuperSystem<'_> {
         });
 
         // Construct the basis states.
-        let mut states: Vec<BasisState> =
-            self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
+        let states: Vec<BasisState> = self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
 
         // get the number of occupied and virtual orbitals
         let n_occ: usize = self
@@ -535,8 +531,6 @@ impl SuperSystem<'_> {
                 .slice_mut(s![mol.slice.orb, mol.slice.virt_orb])
                 .assign(&mol_orbs.slice(s![.., lumo..]));
         }
-        let orbs: Array2<f64> = concatenate![Axis(1), occ_orbs, virt_orbs];
-
         let tdm: Array2<f64> =
             self.get_transition_density_matrix_from_coeffs(coeffs, (n_occ, n_virt), states);
         let tdm_ao: Array2<f64> = occ_orbs.dot(&tdm.dot(&virt_orbs.t()));

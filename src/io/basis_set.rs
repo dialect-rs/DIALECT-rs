@@ -79,8 +79,8 @@ impl Default for BasisSet {
         let path_prefix: String = get_path_prefix();
         let filename: String = format!("{}/src/param/basis_sets/sto-3g.json", path_prefix);
         let path: &Path = Path::new(&filename);
-        let data: String =
-            fs::read_to_string(path).expect(&*format! {"Unable to read file {}", &filename});
+        let data: String = fs::read_to_string(path)
+            .unwrap_or_else(|_| panic!("Unable to read file {}", &filename));
         let data: InputData = from_str(&data).expect("JSON file was not well-formatted");
         Self::from(data)
     }
