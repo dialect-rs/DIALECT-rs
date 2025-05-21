@@ -27,7 +27,6 @@ impl Simulation {
     pub fn ehrenfest_tab_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
         let old_force_matrix: Array2<f64> = self.force_array.clone();
-        let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         // calculate the gradient and the excitonic couplings
         let excitonic_couplings: Array2<f64> = self.get_ehrenfest_data_tab(interface, step);
 
@@ -54,7 +53,7 @@ impl Simulation {
             .scale_velocities(self.velocities.view(), self.kinetic_energy);
 
         // Print settings
-        self.print_ehrenfest_data(Some(old_energy), false, step);
+        self.print_ehrenfest_data(false, step);
 
         // Calculate new coordinates from velocity-verlet
         self.coordinates = self.get_coord_verlet();

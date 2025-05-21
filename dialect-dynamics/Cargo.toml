@@ -1,6 +1,6 @@
 [package]
 name = "dialect-dynamics"
-version = "0.2.0"
+version = "1.0.0"
 authors = ["Richard Einsele <richard.einsele@uni-wuerzburg.de>"]
 edition = "2021"
 

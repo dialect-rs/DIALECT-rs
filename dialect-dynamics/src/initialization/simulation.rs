@@ -113,7 +113,15 @@ impl Simulation {
         let alpha_array: Option<Array1<f64>> = if config.ehrenfest_config.use_tab_decoherence {
             let mut alphas: Array1<f64> = Array1::zeros(system.n_atoms);
             for (idx, atom) in system.atomic_numbers.iter().enumerate() {
-                alphas[idx] = constants::ALPHA_GAUSSIAN_WIDTHS[atom];
+                // get the alpha value
+                let atom_tmp: usize = *atom as usize;
+                for (alpha_idx, val) in config.ehrenfest_decoherence.alpha_atoms.iter().enumerate()
+                {
+                    if *val == atom_tmp {
+                        alphas[idx] = config.ehrenfest_decoherence.alpha_values[alpha_idx];
+                    }
+                }
+                //alphas[idx] = constants::ALPHA_GAUSSIAN_WIDTHS[atom];
             }
             Some(alphas)
         } else {

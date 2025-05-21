@@ -1,0 +1,35 @@
+nstep = 100
+stepsize = 0.1
+restart_flag = false
+initial_state = [2]
+nstates = 8
+gs_dynamic = false
+use_surface_hopping = true
+use_ehrenfest = false
+load_velocities_from_file = false
+use_boltzmann_velocities = true
+artificial_energy_conservation = false
+
+[hopping_config]
+force_switch_to_gs = true
+decoherence_correction = true
+use_rk_integration = false
+use_local_diabatisation = true
+use_rescaling_at_frustrated_hop = false
+integration_steps = 1000
+
+[nonadibatic_config]
+use_nacv_couplings = true
+use_nact_couplings = false
+
+[thermostat_config]
+use_thermostat = false
+temperature = 300.0
+time_coupling = 50.0
+
+[print_config]
+print_restart = true
+print_coordinates = true
+print_energies = true
+print_temperature = true
+print_state = true

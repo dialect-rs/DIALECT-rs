@@ -1,0 +1,27 @@
+nstep = 100
+stepsize = 0.1
+restart_flag = false
+initial_state = [0]
+nstates = 1
+gs_dynamic = true
+use_surface_hopping = false
+use_ehrenfest = false
+load_velocities_from_file = false
+use_boltzmann_velocities = true
+artificial_energy_conservation = false
+
+[thermostat_config]
+use_thermostat = false
+temperature = 300.0
+time_coupling = 50.0
+
+[langevin_config]
+use_langevin = false
+friction = 0.015585
+
+[print_config]
+print_restart = true
+print_coordinates = true
+print_energies = true
+print_temperature = false
+print_state = false

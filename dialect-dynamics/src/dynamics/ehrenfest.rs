@@ -27,7 +27,6 @@ impl Simulation {
 
     pub fn ehrenfest_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
-        let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         // calculate the gradient and the excitonic couplings
         let excitonic_couplings: Array2<f64> = self.get_ehrenfest_data(interface, step);
 
@@ -48,7 +47,7 @@ impl Simulation {
             .scale_velocities(self.velocities.view(), self.kinetic_energy);
 
         // Print settings
-        self.print_ehrenfest_data(Some(old_energy), false, step);
+        self.print_ehrenfest_data(false, step);
 
         // Calculate new coordinates from velocity-verlet
         self.coordinates = self.get_coord_verlet();
@@ -72,12 +71,12 @@ impl Simulation {
         let step: usize = if self.config.restart_flag {
             let step: usize = self.restart_trajectory_ehrenfest(interface);
             // Print settings
-            self.print_ehrenfest_data(None, false, step);
+            self.print_ehrenfest_data(false, step);
             step
         } else {
             self.initiate_ehrenfest_trajectory(interface, 0);
             // Print settings
-            self.print_ehrenfest_data(None, true, 0);
+            self.print_ehrenfest_data(true, 0);
             0
         };
 

@@ -1,0 +1,47 @@
+jobtype = "opt"
+use_gaussian_gamma = false
+use_shell_resolved_gamma = false
+fmo = false
+vdw_scaling = 2.0
+verbose = 0
+
+[mol]
+charge = 0
+multiplicity = 1
+
+[lc]
+long_range_correction = false
+long_range_radius = 3.03
+
+[scf]
+scf_max_cycles = 250
+scf_charge_conv = 1.0e-8
+scf_energy_conv = 1.0e-8
+
+[dftb3]
+use_dftb3 = true
+use_gamma_damping = false
+hubbard_derivatives = [-0.1857, -0.1492] # from the element with the lowest atomic number to the highest
+
+[opt]
+state_to_optimize = 0
+geom_opt_max_cycles = 500
+geom_opt_tol_displacement = 1.0
+geom_opt_tol_gradient = 1.0
+geom_opt_tol_energy = 1.0e-1
+use_bfgs = true
+use_line_search = true
+
+[slater_koster]
+use_external_skf = true
+skf_directory = "/Users/einseler/work/slater_koster_files/3ob-3-1"
+
+[parallelization]
+number_of_cores = 1
+
+[dispersion]
+use_dispersion = false
+s6 = 1.0
+s8 = 0.01
+a1 = 0.497
+a2 = 3.622

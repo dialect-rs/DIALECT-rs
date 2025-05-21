@@ -148,14 +148,15 @@ fn default_use_tab_decoherence() -> bool {
 fn default_tab_grad_threshold() -> f64 {
     1.0e-5
 }
-// fn default_alpha_values() -> HashMap<u8, f64> {
-//     let mut map: HashMap<u8, f64> = HashMap::new();
-//     map.insert(1, 4.7);
-//     map.insert(6, 22.7);
-//     map.insert(7, 19.0);
-//     map.insert(8, 12.2);
-//     map
-// }
+fn default_alpha_values() -> Vec<f64> {
+    let vec: Vec<f64> = vec![4.7, 22.7, 19.8, 12.2];
+    vec
+}
+
+fn default_alpha_atoms() -> Vec<usize> {
+    let vec: Vec<usize> = vec![1, 6, 7, 8];
+    vec
+}
 fn default_ehrenfest_configuration() -> EhrenfestConfiguration {
     let config: EhrenfestConfiguration = toml::from_str("").unwrap();
     config
@@ -164,10 +165,10 @@ fn default_nonadiabatic_configuration() -> NonadiabaticConfiguration {
     let config: NonadiabaticConfiguration = toml::from_str("").unwrap();
     config
 }
-// fn default_ehrenfest_decoherence() -> EhrenfestDecoherence {
-//     let config: EhrenfestDecoherence = toml::from_str("").unwrap();
-//     config
-// }
+fn default_ehrenfest_decoherence() -> EhrenfestDecoherence {
+    let config: EhrenfestDecoherence = toml::from_str("").unwrap();
+    config
+}
 
 /// Struct that loads the configuration of the dynamics from the file "fish.toml"
 /// It holds the structs [HoppingConfiguration] and  [PulseConfigration]
@@ -197,8 +198,8 @@ pub struct DynamicConfiguration {
     pub artificial_energy_conservation: bool,
     #[serde(default = "default_ehrenfest_configuration")]
     pub ehrenfest_config: EhrenfestConfiguration,
-    // #[serde(default = "default_ehrenfest_decoherence")]
-    // pub ehrenfest_decoherence: EhrenfestDecoherence,
+    #[serde(default = "default_ehrenfest_decoherence")]
+    pub ehrenfest_decoherence: EhrenfestDecoherence,
     #[serde(default = "default_hopping_config")]
     pub hopping_config: HoppingConfiguration,
     #[serde(default = "default_nonadiabatic_configuration")]
@@ -256,11 +257,13 @@ pub struct EhrenfestConfiguration {
     pub print_coefficients: bool,
 }
 
-// #[derive(Serialize, Deserialize, Clone)]
-// pub struct EhrenfestDecoherence {
-//     #[serde(default = "default_alpha_values")]
-//     pub alpha_values: HashMap<u8, f64>,
-// }
+#[derive(Serialize, Deserialize, Clone)]
+pub struct EhrenfestDecoherence {
+    #[serde(default = "default_alpha_atoms")]
+    pub alpha_atoms: Vec<usize>,
+    #[serde(default = "default_alpha_values")]
+    pub alpha_values: Vec<f64>,
+}
 
 /// Structs that holds the parameters for the Nonadiabatic couplings
 #[derive(Serialize, Deserialize, Clone)]
@@ -321,10 +324,6 @@ pub struct PrintConfiguration {
     pub print_energies: bool,
     #[serde(default = "default_print_temperature")]
     pub print_temperature: bool,
-    #[serde(default = "default_print_standard")]
-    pub print_standard: bool,
-    #[serde(default = "default_print_hopping")]
-    pub print_hopping: bool,
     #[serde(default = "default_print_state")]
     pub print_state: bool,
 }

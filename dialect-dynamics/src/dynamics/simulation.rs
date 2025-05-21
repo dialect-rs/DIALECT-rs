@@ -81,12 +81,12 @@ impl Simulation {
         let step: usize = if self.config.restart_flag {
             let step: usize = self.restart_trajectory(interface);
             // Print output
-            self.print_data(None, false, step);
+            self.print_data(false, step);
             step
         } else {
             self.initiate_trajectory(interface);
             // Print output
-            self.print_data(None, true, 0);
+            self.print_data(true, 0);
             0
         };
 
@@ -105,7 +105,6 @@ impl Simulation {
     /// for the calculation of the required properties
     pub fn verlet_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         // let old_forces: Array2<f64> = self.forces.clone();
-        let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         let old_kinetic: f64 = self.kinetic_energy;
         let old_potential_energy: f64 = self.energies[self.state];
         let last_energies: Array1<f64> = self.energies.clone();
@@ -150,7 +149,7 @@ impl Simulation {
         }
 
         // Print settings
-        self.print_data(Some(old_energy), false, step);
+        self.print_data(false, step);
 
         // Calculate new coordinates from velocity-verlet
         self.coordinates = self.get_coord_verlet();
@@ -167,12 +166,12 @@ impl Simulation {
         let step: usize = if self.config.restart_flag {
             let step: usize = self.restart_trajectory(interface);
             // Print settings
-            self.print_data(None, false, step);
+            self.print_data(false, step);
             step
         } else {
             self.initiate_trajectory(interface);
             // Print settings
-            self.print_data(None, true, 0);
+            self.print_data(true, 0);
             0
         };
 
@@ -195,7 +194,6 @@ impl Simulation {
     /// Calculate a single step of the langevin dynamics
     pub fn langevin_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
-        let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         let last_energies: Array1<f64> = self.energies.clone();
         let old_state: usize = self.state;
 
@@ -219,7 +217,7 @@ impl Simulation {
         self.kinetic_energy = self.get_kinetic_energy();
 
         // Print settings
-        self.print_data(Some(old_energy), false, step);
+        self.print_data(false, step);
 
         // calculate new coordinates
         self.coordinates = self.get_coordinates_langevin();
