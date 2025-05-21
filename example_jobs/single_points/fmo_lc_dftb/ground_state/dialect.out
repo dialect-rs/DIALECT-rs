@@ -1,0 +1,82 @@
+                               -----------------                                
+                                    DIALECT                                     
+                               -----------------                                
+                                 version: 0.2.0                                 
+                                                                                
+            :::::::::::::::::::::::::::::::::::::::::::::::::::::::             
+            ::                   Roland Mitric                   ::             
+            ::  Institute of Physical and Theoretical Chemistry  ::             
+            ::              University of Wuerzburg              ::             
+        ::::::...................................................::::::         
+        :: Contributors:                                             ::         
+        :: --------                                                  ::         
+        :: Richard Einsele       <richard.einsele@uni-wuerzburg.de>  ::         
+        :: Joscha Hoche             <joscha.hoche@uni-wuerzburg.de>  ::         
+        :: Xincheng Miao           <xincheng.miao@uni-wuerzburg.de>  ::         
+        :: Luca Nils Philipp   <luca_nils.philipp@uni-wuerzburg.de>  ::         
+        :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::         
+                                                                                
+                                                       elapsed time:     0.05 s
+                                                                                
+--------------------------------------------------------------------------------
+                   Finished input check. No problems occured!                   
+-------------------------------------------------------------------------------- 
+                                                                                 
+                                                                                
+                                FMO SCC-Routine                                 
+--------------------------------------------------------------------------------
+max. iterations:          250
+                                                                                
+Monomer SCC Iterations:                       
+--------------------------------------------- 
+Iter.    #conv. Monomers          #Monomers
+--------------------------------------------------------------------------- 
+    1                  0                 44
+    2                  0                 44
+    3                  0                 44
+    4                  0                 44
+    5                  0                 44
+    6                  0                 44
+    7                  0                 44
+    8                  0                 44
+    9                  0                 44
+   10                  0                 44
+   11                  0                 44
+   12                  0                 44
+   13                  0                 44
+   14                  0                 44
+   15                  0                 44
+   16                  0                 44
+   17                  0                 44
+   18                  0                 44
+   19                  0                 44
+   20                  0                 44
+   21                  4                 44
+   22                  4                 44
+   23                 12                 44
+   24                  8                 44
+   25                 10                 44
+   26                 22                 44
+   27                 36                 44
+   28                 42                 44
+   29                 44                 44
+--------------------------------------------------------------------------- 
+                             FMO SCC converged                             
+                                                                                 
+sum of monomer energies:          -1882.96637354017730 Hartree
+sum of pair energies:                -0.12503000092278 Hartree
+sum of embedding energies:           -0.00020951642394 Hartree
+sum of ESD pair energies              0.00146736256660 Hartree
+sum of D3 dispersion energy:          0.00000000000000 Hartree
+
+total energy:                     -1883.09014569495730 Hartree
+-------------------------------------------------------------------------------- 
+                                                       elapsed time:     6.86 s
+                                                                                
+-------------------------------------------------------------------------------- 
+                                                 total elapsed time:     7.54 s
+                                                                                
+                    :::::::::::::::::::::::::::::::::::::::                     
+                    ::    Thank you for using DIALECT    ::                     
+                    :::::::::::::::::::::::::::::::::::::::                     
+                                                                                
