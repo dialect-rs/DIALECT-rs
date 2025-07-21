@@ -14,7 +14,7 @@ jobs:
 
     runs-on: ubuntu-latest
     env:
-      DIALECT_SRC_DIR: /home/runner/work/dialect/dialect
+      DIALECT_SRC_DIR: /home/runner/work/DIALECT-rs/DIALECT-rs
 
     steps:
     - uses: actions/checkout@v4
