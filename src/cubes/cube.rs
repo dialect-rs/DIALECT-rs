@@ -1,6 +1,7 @@
 use crate::cubes::basisfunctions::{
-    create_xtb_basis_from_atoms, evaluate_xtb_func_on_grid, AtomicBasisFunction, AtomicBasisSet,
+    create_sto_3g_basis_from_atoms, evaluate_sto_basis_shell_on_grid,
 };
+// evaluate_xtb_func_on_grid, AtomicBasisFunction, AtomicBasisSet,  create_xtb_basis_from_atoms,
 use crate::cubes::helpers::create_box_around_molecule;
 use crate::initialization::Atom;
 use crate::io::settings::ParameterizationConfig;
@@ -45,6 +46,24 @@ impl System {
         let mut output_filename: String = String::from("density_");
         output_filename.push_str(&step.to_string());
         output_filename.push_str(string);
+        output_filename.push_str(".cube");
+        generator.generate_density_cube_file(density.view(), output_filename);
+    }
+
+    pub fn cube_from_tdm(&self, tdm: ArrayView2<f64>, state: usize) {
+        // load the density from the file
+        let density: Array2<f32> = tdm.map(|val| *val as f32);
+        // create an object of DensityToCube
+        let generator: DensityToCube = DensityToCube::new(
+            self.config.density.points_per_bohr,
+            &self.atoms,
+            self.config.density.use_block_implementation,
+            self.config.density.n_blocks,
+            self.config.density.threshold as f32,
+            &self.config.parameterization,
+        );
+        let mut output_filename: String = String::from("tdm_");
+        output_filename.push_str(&state.to_string());
         output_filename.push_str(".cube");
         generator.generate_density_cube_file(density.view(), output_filename);
     }
@@ -153,8 +172,9 @@ pub struct DensityToCube<'a> {
     pub nz: usize,
     pub spacing: f64,
     pub atoms: &'a [Atom],
-    pub basis: AtomicBasisSet,
-    pub xtb_basis: Basis,
+    // pub basis: AtomicBasisSet,
+    // pub xtb_basis: Basis,
+    pub basis: Basis,
     pub use_block_impl: bool,
     pub n_blocks: usize,
     pub threshold: f32,
@@ -167,7 +187,7 @@ impl<'a> DensityToCube<'a> {
         use_block_impl: bool,
         n_blocks: usize,
         threshold: f32,
-        config: &ParameterizationConfig,
+        _config: &ParameterizationConfig,
     ) -> Self {
         // create box around the system
         let (xmin, xmax, ymin, ymax, zmin, zmax) = create_box_around_molecule(atoms, None);
@@ -181,8 +201,9 @@ impl<'a> DensityToCube<'a> {
         let ny: usize = (dy * ppb) as usize;
         let nz: usize = (dz * ppb) as usize;
 
-        let basis: AtomicBasisSet = AtomicBasisSet::new(atoms, config);
-        let xtb_basis: Basis = create_xtb_basis_from_atoms(atoms);
+        // let basis: AtomicBasisSet = AtomicBasisSet::new(atoms, config);
+        // let xtb_basis: Basis = create_xtb_basis_from_atoms(atoms);
+        let basis = create_sto_3g_basis_from_atoms(atoms);
 
         Self {
             xmin,
@@ -196,8 +217,9 @@ impl<'a> DensityToCube<'a> {
             nz,
             spacing,
             atoms,
+            // basis,
+            // xtb_basis,
             basis,
-            xtb_basis,
             use_block_impl,
             n_blocks,
             threshold,
@@ -272,14 +294,9 @@ impl<'a> DensityToCube<'a> {
 
         if !self.use_block_impl {
             // evaluate the basis on the grid
-            let bfs_on_grid: Array4<f32> = evaluate_basis_on_grid(
-                self.basis.basisfunctions.view(),
-                &self.xtb_basis,
-                x_grid.view(),
-                y_grid.view(),
-                z_grid.view(),
-                false,
-            );
+            let bfs_on_grid: Array4<f32> =
+                evaluate_basis_on_grid(&self.basis, x_grid.view(), y_grid.view(), z_grid.view());
+
             let rho: Array3<f32> = self.evaluate_density_on_grid_loop(density, bfs_on_grid.view());
             rho
         } else {
@@ -299,17 +316,19 @@ impl<'a> DensityToCube<'a> {
         let z_grid = Array::linspace(self.zmin, self.zmax, self.nz);
 
         // evaluate basis on grid
-        let bfs_on_grid: Array4<f32> = evaluate_basis_on_grid(
-            self.basis.basisfunctions.view(),
-            &self.xtb_basis,
-            x_grid.view(),
-            y_grid.view(),
-            z_grid.view(),
-            true,
-        );
+        let bfs_on_grid: Array4<f32> =
+            evaluate_basis_on_grid(&self.basis, x_grid.view(), y_grid.view(), z_grid.view());
+        // let bfs_on_grid: Array4<f32> = evaluate_basis_on_grid(
+        //     self.basis.basisfunctions.view(),
+        //     &self.xtb_basis,
+        //     x_grid.view(),
+        //     y_grid.view(),
+        //     z_grid.view(),
+        //     true,
+        // );
         // reshape array
         let bfs_grid_2d: Array2<f32> = bfs_on_grid
-            .into_shape([self.basis.basisfunctions.len(), self.nx * self.ny * self.nz])
+            .into_shape([self.basis.nbas, self.nx * self.ny * self.nz])
             .unwrap();
 
         // contract the arrays and reshape to 3d
@@ -326,17 +345,12 @@ impl<'a> DensityToCube<'a> {
         let z_grid = Array::linspace(self.zmin, self.zmax, self.nz);
 
         // evaluate basis on grid
-        let bfs_on_grid: Array4<f32> = evaluate_basis_on_grid(
-            self.basis.basisfunctions.view(),
-            &self.xtb_basis,
-            x_grid.view(),
-            y_grid.view(),
-            z_grid.view(),
-            true,
-        );
+        let bfs_on_grid: Array4<f32> =
+            evaluate_basis_on_grid(&self.basis, x_grid.view(), y_grid.view(), z_grid.view());
+
         // reshape array
         let bfs_grid_2d: Array2<f32> = bfs_on_grid
-            .into_shape([self.basis.basisfunctions.len(), self.nx * self.ny * self.nz])
+            .into_shape([self.basis.nbas, self.nx * self.ny * self.nz])
             .unwrap();
 
         let mut orbital_vec: Vec<Array3<f32>> = Vec::new();
@@ -390,14 +404,16 @@ impl<'a> DensityToCube<'a> {
             }
             let start_i: usize = i * c_len;
 
-            let bf_grid_i: Array4<f32> = evaluate_basis_on_grid(
-                self.basis.basisfunctions.slice(s![start_i..chunck]),
-                &self.xtb_basis,
-                x_grid,
-                y_grid,
-                z_grid,
-                false,
-            );
+            let bf_grid_i: Array4<f32> =
+                evaluate_basis_on_grid_chunck(&self.basis, x_grid, y_grid, z_grid, start_i, chunck);
+            //     evaluate_basis_on_grid(
+            //     self.basis.basisfunctions.slice(s![start_i..chunck]),
+            //     &self.xtb_basis,
+            //     x_grid,
+            //     y_grid,
+            //     z_grid,
+            //     false,
+            // );
 
             for j in 0..n_block {
                 if j == i {
@@ -426,13 +442,13 @@ impl<'a> DensityToCube<'a> {
                     }
                     let p_j: ArrayView2<f32> =
                         density.slice(s![start_i..chunck, start_j..chunck_j]);
-                    let bf_grid_j: Array4<f32> = evaluate_basis_on_grid(
-                        self.basis.basisfunctions.slice(s![start_j..chunck_j]),
-                        &self.xtb_basis,
+                    let bf_grid_j: Array4<f32> = evaluate_basis_on_grid_chunck(
+                        &self.basis,
                         x_grid,
                         y_grid,
                         z_grid,
-                        false,
+                        start_j,
+                        chunck_j,
                     );
 
                     // do einsum tensor products
@@ -459,39 +475,24 @@ impl<'a> DensityToCube<'a> {
 }
 
 pub fn evaluate_basis_on_grid(
-    basis: ArrayView1<AtomicBasisFunction>,
-    basis_xtb: &Basis,
+    basis: &Basis,
     x_grid: ArrayView1<f64>,
     y_grid: ArrayView1<f64>,
     z_grid: ArrayView1<f64>,
-    use_xtb_basis: bool,
 ) -> Array4<f32> {
     // create 4-dimensional array
     let mut bfs_on_grid: Array4<f32> =
-        Array4::zeros((basis.len(), x_grid.len(), y_grid.len(), z_grid.len()));
+        Array4::zeros((basis.nbas, x_grid.len(), y_grid.len(), z_grid.len()));
 
-    if use_xtb_basis {
-        // iterate over the basis functions and the three axes
-        for (bfs, mut bfs_arr) in basis_xtb
-            .basis_functions
-            .iter()
-            .zip(bfs_on_grid.axis_iter_mut(Axis(0)))
-        {
-            for (x_val, mut arr_x) in x_grid.iter().zip(bfs_arr.axis_iter_mut(Axis(0))) {
-                for (y_val, mut arr_y) in y_grid.iter().zip(arr_x.axis_iter_mut(Axis(0))) {
-                    for (z_val, z_arr) in z_grid.iter().zip(arr_y.iter_mut()) {
-                        *z_arr = evaluate_xtb_func_on_grid(bfs, *x_val, *y_val, *z_val) as f32;
-                    }
-                }
-            }
-        }
-    } else {
-        // iterate over the basis functions and the three axes
-        for (bfs, mut bfs_arr) in basis.iter().zip(bfs_on_grid.axis_iter_mut(Axis(0))) {
-            for (x_val, mut arr_x) in x_grid.iter().zip(bfs_arr.axis_iter_mut(Axis(0))) {
-                for (y_val, mut arr_y) in y_grid.iter().zip(arr_x.axis_iter_mut(Axis(0))) {
-                    for (z_val, z_arr) in z_grid.iter().zip(arr_y.iter_mut()) {
-                        *z_arr = bfs.eval(*x_val, *y_val, *z_val) as f32;
+    for shell in basis.shells.iter() {
+        for (x_idx, x_val) in x_grid.iter().enumerate() {
+            for (y_idx, y_val) in y_grid.iter().enumerate() {
+                for (z_idx, z_val) in z_grid.iter().enumerate() {
+                    let basis_value_arr =
+                        evaluate_sto_basis_shell_on_grid(basis, shell, *x_val, *y_val, *z_val);
+                    for (idx, _shell_val) in (shell.sph_start..shell.sph_end).enumerate() {
+                        bfs_on_grid[[shell.sph_start + idx, x_idx, y_idx, z_idx]] =
+                            basis_value_arr[idx] as f32;
                     }
                 }
             }
@@ -500,3 +501,81 @@ pub fn evaluate_basis_on_grid(
 
     bfs_on_grid
 }
+
+pub fn evaluate_basis_on_grid_chunck(
+    basis: &Basis,
+    x_grid: ArrayView1<f64>,
+    y_grid: ArrayView1<f64>,
+    z_grid: ArrayView1<f64>,
+    start: usize,
+    end: usize,
+) -> Array4<f32> {
+    let dim: usize = end - start;
+    // create 4-dimensional array
+    let mut bfs_on_grid: Array4<f32> =
+        Array4::zeros((dim, x_grid.len(), y_grid.len(), z_grid.len()));
+
+    for shell in basis.shells.iter() {
+        if shell.sph_start >= start && (shell.sph_end < end || shell.sph_end > start) {
+            for (x_idx, x_val) in x_grid.iter().enumerate() {
+                for (y_idx, y_val) in y_grid.iter().enumerate() {
+                    for (z_idx, z_val) in z_grid.iter().enumerate() {
+                        let basis_value_arr =
+                            evaluate_sto_basis_shell_on_grid(basis, shell, *x_val, *y_val, *z_val);
+                        for (idx, _shell_val) in (shell.sph_start..shell.sph_end).enumerate() {
+                            if shell.sph_start + idx >= start && shell.sph_start + idx < end {
+                                bfs_on_grid[[shell.sph_start - start + idx, x_idx, y_idx, z_idx]] =
+                                    basis_value_arr[idx] as f32;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    bfs_on_grid
+}
+
+// pub fn evaluate_basis_on_grid(
+//     basis: ArrayView1<AtomicBasisFunction>,
+//     basis_xtb: &Basis,
+//     x_grid: ArrayView1<f64>,
+//     y_grid: ArrayView1<f64>,
+//     z_grid: ArrayView1<f64>,
+//     use_xtb_basis: bool,
+// ) -> Array4<f32> {
+//     // create 4-dimensional array
+//     let mut bfs_on_grid: Array4<f32> =
+//         Array4::zeros((basis.len(), x_grid.len(), y_grid.len(), z_grid.len()));
+//
+//     if use_xtb_basis {
+//         // iterate over the basis functions and the three axes
+//         for (bfs, mut bfs_arr) in basis_xtb
+//             .basis_functions
+//             .iter()
+//             .zip(bfs_on_grid.axis_iter_mut(Axis(0)))
+//         {
+//             for (x_val, mut arr_x) in x_grid.iter().zip(bfs_arr.axis_iter_mut(Axis(0))) {
+//                 for (y_val, mut arr_y) in y_grid.iter().zip(arr_x.axis_iter_mut(Axis(0))) {
+//                     for (z_val, z_arr) in z_grid.iter().zip(arr_y.iter_mut()) {
+//                         *z_arr = evaluate_xtb_func_on_grid(bfs, *x_val, *y_val, *z_val) as f32;
+//                     }
+//                 }
+//             }
+//         }
+//     } else {
+//         // iterate over the basis functions and the three axes
+//         for (bfs, mut bfs_arr) in basis.iter().zip(bfs_on_grid.axis_iter_mut(Axis(0))) {
+//             for (x_val, mut arr_x) in x_grid.iter().zip(bfs_arr.axis_iter_mut(Axis(0))) {
+//                 for (y_val, mut arr_y) in y_grid.iter().zip(arr_x.axis_iter_mut(Axis(0))) {
+//                     for (z_val, z_arr) in z_grid.iter().zip(arr_y.iter_mut()) {
+//                         *z_arr = bfs.eval(*x_val, *y_val, *z_val) as f32;
+//                     }
+//                 }
+//             }
+//         }
+//     }
+//
+//     bfs_on_grid
+// }

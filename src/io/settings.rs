@@ -19,6 +19,9 @@ fn default_use_gaussian_gamma() -> bool {
 fn default_use_xtb1() -> bool {
     false
 }
+fn default_use_dftb() -> bool {
+    true
+}
 fn default_use_shell_resolved_gamma() -> bool {
     false
 }
@@ -312,23 +315,25 @@ fn default_parameterization_config() -> ParameterizationConfig {
     let config: ParameterizationConfig = toml::from_str("").unwrap();
     config
 }
+fn default_tightbinding_config() -> TightBindingConfig {
+    let config: TightBindingConfig = toml::from_str("").unwrap();
+    config
+}
+fn default_fmo_config() -> FMOConfig {
+    let config: FMOConfig = toml::from_str("").unwrap();
+    config
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Configuration {
     #[serde(default = "default_jobtype")]
     pub jobtype: String,
-    #[serde(default = "default_use_xtb1")]
-    pub use_xtb1: bool,
-    #[serde(default = "default_use_gaussian_gamma")]
-    pub use_gaussian_gamma: bool,
-    #[serde(default = "default_use_shell_resolved_gamma")]
-    pub use_shell_resolved_gamma: bool,
-    #[serde(default = "default_use_fmo")]
-    pub fmo: bool,
-    #[serde(default = "default_vdw_scaling")]
-    pub vdw_scaling: f64,
     #[serde(default = "default_verbose")]
     pub verbose: i8,
+    #[serde(default = "default_tightbinding_config")]
+    pub tight_binding: TightBindingConfig,
+    #[serde(default = "default_fmo_config")]
+    pub fmo: FMOConfig,
     #[serde(default = "default_mol_config")]
     pub mol: MoleculeConfig,
     #[serde(default = "default_scc_config")]
@@ -387,6 +392,26 @@ impl Configuration {
         }
         return config;
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct TightBindingConfig {
+    #[serde(default = "default_use_dftb")]
+    pub use_dftb: bool,
+    #[serde(default = "default_use_xtb1")]
+    pub use_xtb1: bool,
+    #[serde(default = "default_use_gaussian_gamma")]
+    pub use_gaussian_gamma: bool,
+    #[serde(default = "default_use_shell_resolved_gamma")]
+    pub use_shell_resolved_gamma: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct FMOConfig {
+    #[serde(default = "default_use_fmo")]
+    pub use_fmo: bool,
+    #[serde(default = "default_vdw_scaling")]
+    pub vdw_scaling: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]

@@ -1,14 +1,18 @@
 use crate::initialization::System;
 use crate::scc::scc_routine::RestrictedSCC;
 use ndarray::prelude::*;
+use ndarray_npy::write_npy;
 use rayon::prelude::*;
 
 impl System {
     pub fn calculate_num_hessian(&self) -> Array2<f64> {
         // calculate the numerical hessian of the system using finite differences of the gs gradient
-        let hess: Array2<f64> = derivative_gradient_fd(self, self.get_xyz(), 1.0e-5);
+        let hess: Array2<f64> = derivative_gradient_fd(self, self.get_xyz(), 1.0e-5, false);
         // symmetrize the hessian
         let hessian: Array2<f64> = 0.5 * (&hess + &hess.t());
+        if self.config.jobtype == String::from("hessian") {
+            write_npy("gs_hessian.npy", &hessian).unwrap();
+        }
 
         hessian
     }
@@ -21,9 +25,40 @@ impl System {
 
         self.ground_state_gradient(false)
     }
+
+    pub fn calculate_num_hessian_excited(&self) -> Array2<f64> {
+        // calculate the numerical hessian of the system using finite differences of the gs gradient
+        let hess: Array2<f64> = derivative_gradient_fd(self, self.get_xyz(), 1.0e-5, true);
+        // symmetrize the hessian
+        let hessian: Array2<f64> = 0.5 * (&hess + &hess.t());
+        if self.config.jobtype == String::from("hessian") {
+            let mut string: String = String::from("excited_s");
+            string += &format!("{}", self.config.opt.state_to_optimize + 1);
+            string += &format!("_hessian.npy");
+            write_npy(string, &hessian).unwrap();
+        }
+
+        hessian
+    }
+
+    pub fn excited_gradient_wrapper_hessian(&mut self, geometry: Array1<f64>) -> Array1<f64> {
+        self.properties.reset();
+        self.update_xyz(geometry.view());
+        self.prepare_scc();
+        self.run_scc().unwrap();
+
+        self.ground_state_gradient(true);
+        self.calculate_excited_states(false);
+        self.calculate_excited_state_gradient(self.config.opt.state_to_optimize)
+    }
 }
 
-fn derivative_gradient_fd(system: &System, origin: Array1<f64>, stepsize: f64) -> Array2<f64> {
+fn derivative_gradient_fd(
+    system: &System,
+    origin: Array1<f64>,
+    stepsize: f64,
+    excited: bool,
+) -> Array2<f64> {
     assert!(
         stepsize > 0.0,
         "The stepsize has to be > 0.0, but it is {}",
@@ -40,7 +75,7 @@ fn derivative_gradient_fd(system: &System, origin: Array1<f64>, stepsize: f64) -
             // compute the numerical derivative of this function and an error estimate using
             // finite difference
             let numerical_deriv: Array1<f64> =
-                finite_difference_1d(&mut system_clone, origin.clone(), i, stepsize);
+                finite_difference_1d(&mut system_clone, origin.clone(), i, stepsize, excited);
 
             numerical_deriv
         })
@@ -58,6 +93,7 @@ fn finite_difference_1d<D>(
     origin: ArrayBase<D, Ix1>, // Origin of coordinates, that are used for the function
     index: usize,              // Index for which the derivative is computed
     stepsize: f64,             // Initial step size
+    excited: bool,
 ) -> Array1<f64>
 where
     D: ndarray::Data<Elem = f64>,
@@ -67,7 +103,13 @@ where
     let mut step: Array1<f64> = Array1::zeros([origin.len()]);
     step[index] = 1.0;
 
-    (system.gs_gradient_wrapper_hessian(&origin + &(&step * stepsize))
-        - system.gs_gradient_wrapper_hessian(&origin - &(&step * stepsize)))
-        / (2.0 * stepsize)
+    if excited {
+        (system.excited_gradient_wrapper_hessian(&origin + &(&step * stepsize))
+            - system.excited_gradient_wrapper_hessian(&origin - &(&step * stepsize)))
+            / (2.0 * stepsize)
+    } else {
+        (system.gs_gradient_wrapper_hessian(&origin + &(&step * stepsize))
+            - system.gs_gradient_wrapper_hessian(&origin - &(&step * stepsize)))
+            / (2.0 * stepsize)
+    }
 }

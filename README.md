@@ -16,5 +16,7 @@ Richard Einsele and Roland Mitrić, Nonadiabatic Exciton Dynamics and Energy Gra
 
 Richard Einsele, Luca Nils Philipp and Roland Mitrić, FMO-LC-TDDFTB method for excited states of large molecular assemblies in the strong light-matter coupling regime, *J. Chem. Phys.*, __2024__, 161, 154106, https://doi.org/10.1063/5.0231191
 
+Richard Einsele, Xincheng Miao, Luca Nils Philipp and Roland Roland Mitrić, DIALECT, a Software Package for Exciton Spectra and Dynamics in Large Molecular Assemblies from Weak to Strong Light–Matter Coupling Regimes, *J. Phys. Chem. A*, __2025__, https://doi.org/10.1021/acs.jpca.5c03307
+
 # License
 __DIALECT__ is released under the GNU Lesser General Public License. For more information, see the included [LICENSE](https://github.com/dialect-rs/DIALECT-rs/blob/main/LICENSE) file.

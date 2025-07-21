@@ -1,5 +1,4 @@
 use std::time::Instant;
-
 use crate::initialization::restart::read_restart_parameters;
 use crate::initialization::Simulation;
 use crate::interface::QCInterface;
@@ -104,7 +103,6 @@ impl Simulation {
     /// Calculate a single step of the velocity-verlet dynamics utilizing the [QCInterface]
     /// for the calculation of the required properties
     pub fn verlet_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
-        // let old_forces: Array2<f64> = self.forces.clone();
         let old_kinetic: f64 = self.kinetic_energy;
         let old_potential_energy: f64 = self.energies[self.state];
         let last_energies: Array1<f64> = self.energies.clone();
@@ -148,7 +146,7 @@ impl Simulation {
                 self.scale_velocities_const_energy(old_state, old_kinetic, old_potential_energy);
         }
 
-        // Print settings
+        // Print setting
         self.print_data(false, step);
 
         // Calculate new coordinates from velocity-verlet

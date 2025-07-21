@@ -13,7 +13,7 @@ use ndarray_npy::write_npy;
 
 impl System {
     pub fn ground_state_gradient(&mut self, excited_gradients: bool) -> Array1<f64> {
-        let gradient: Array1<f64> = if !self.config.use_shell_resolved_gamma {
+        let gradient: Array1<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.ground_state_gradient_atomwise(excited_gradients)
         } else {
             self.ground_state_gradient_shell_resolved(excited_gradients)
@@ -84,10 +84,6 @@ impl System {
             .unwrap();
 
         // compute the energy weighted density matrix: W = 1/2 * D . (H + H_Coul) . D
-        // let w: Array1<f64> = 0.5
-        //     * (p.dot(&(&h0 + &(&coulomb_mat * &s))).dot(&p))
-        //         .into_shape([self.n_orbs * self.n_orbs])
-        //         .unwrap();
         let w: Array1<f64> = 0.5
             * (p.dot(&self.properties.h_coul_x().unwrap()).dot(&p))
                 .into_shape([self.n_orbs * self.n_orbs])
@@ -112,24 +108,7 @@ impl System {
         if self.config.dftb3.use_dftb3 {
             // get the third order gamma matrix
             let gamma_third_order: ArrayView2<f64> = self.properties.gamma_third_order().unwrap();
-            // let mut contribution: Array1<f64> = Array1::zeros(gradient.raw_dim());
-            // for nc in 0..3 {
-            //     for (idx, atom_a) in self.atoms.iter().enumerate() {
-            //         let grad_idx: usize = 3 * idx + nc;
-            //         let s_contrib: ArrayView2<f64> = grad_s.slice(s![grad_idx, .., ..]);
-            //         let gamma_contrib: Array2<f64> =
-            //             construct_third_order_gradient_contribution_test(
-            //                 self.n_orbs,
-            //                 &self.atoms,
-            //                 gamma_third_order,
-            //                 dq,
-            //                 atom_a,
-            //                 idx,
-            //             );
-            //         let temp_grad: f64 = s_contrib.dot(&(&gamma_contrib * &p).t()).trace().unwrap();
-            //         contribution[grad_idx] += temp_grad;
-            //     }
-            // }
+
             // gradient += &contribution;
             let coulomb_mat_third_order = construct_third_order_gradient_contribution(
                 self.n_orbs,
@@ -155,19 +134,7 @@ impl System {
             );
             let mut contribution: Array1<f64> = Array1::zeros(gradient.raw_dim());
             let dq2: Array1<f64> = dq.map(|val| val.powi(2));
-            // for nc in 0..3 {
-            //     for (idx, atom_a) in self.atoms.iter().enumerate() {
-            //         let grad_idx: usize = 3 * idx + nc;
-            //         for (idx2, atom_b) in self.atoms.iter().enumerate() {
-            //             if idx2 != idx {
-            //                 contribution[grad_idx] += dq[idx]
-            //                     * dq[idx2]
-            //                     * (grad_gamma_third_order[[grad_idx, idx2, idx]] * dq[idx2]
-            //                         + grad_gamma_third_order[[grad_idx, idx, idx2]] * dq[idx]);
-            //             }
-            //         }
-            //     }
-            // }
+
             for nc in 0..3 * self.n_atoms {
                 let dgamma_slice: ArrayView2<f64> = grad_gamma_third_order.slice(s![nc, .., ..]);
                 contribution[nc] = dq2.dot(&dgamma_slice.dot(&dq));

@@ -1,7 +1,6 @@
 use crate::excited_states::ProductCache;
 use crate::fmo::{ChargeTransferPreparation, Monomer};
 use crate::initialization::System;
-// use crate::utils::array_helper::parallel_matrix_multiply;
 use ndarray::prelude::*;
 use ndarray::Data;
 use rayon::prelude::*;

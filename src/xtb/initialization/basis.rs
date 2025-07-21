@@ -671,7 +671,7 @@ pub fn permuts(l: u32) -> Vec<Array1<u8>> {
     permut
 }
 
-fn permuts_2(l: u32) -> Vec<Array1<u8>> {
+pub fn permuts_2(l: u32) -> Vec<Array1<u8>> {
     match l {
         0 => vec![array![0, 0, 0]],
         1 => vec![array![0, 1, 0], array![0, 0, 1], array![1, 0, 0]],

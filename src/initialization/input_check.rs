@@ -19,7 +19,7 @@ impl System {
         }
 
         // check if damping of the gamma matrix and gaussian basis is requested
-        if config.dftb3.use_gamma_damping && config.use_gaussian_gamma {
+        if config.dftb3.use_gamma_damping && config.tight_binding.use_gaussian_gamma {
             debug!("The damping of the gamma matrix is not implemented for gaussian functions!");
             debug!("Please change the dialect.toml file accordingly.");
             panic!("Error occured in the input check!");
@@ -34,13 +34,13 @@ impl System {
             panic!("Error occured in the input check!");
         }
 
-        if config.use_shell_resolved_gamma && config.dftb3.use_dftb3 {
+        if config.tight_binding.use_shell_resolved_gamma && config.dftb3.use_dftb3 {
             debug!("The shell resolved option for the gamma matrix has only been implemented for DFTB2!");
             debug!("Please change the dialect.toml file accordingly.");
             panic!("Error occured in the input check!");
         }
 
-        if config.use_shell_resolved_gamma && config.tddftb.restrict_active_orbitals {
+        if config.tight_binding.use_shell_resolved_gamma && config.tddftb.restrict_active_orbitals {
             debug!("The shell resolved option for the gamma matrix is not yet supported for restricted active orbitals!");
             debug!("Please change the dialect.toml file accordingly.");
             panic!("Error occured in the input check!");

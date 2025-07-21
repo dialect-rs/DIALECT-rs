@@ -92,7 +92,7 @@ impl RestrictedSCC for System {
         let atomic_numbers: Vec<u8> = self.atoms.iter().map(|atom| atom.number).collect();
         self.properties.set_atomic_numbers(atomic_numbers);
         // get the gamma matrix
-        if !self.config.use_shell_resolved_gamma {
+        if !self.config.tight_binding.use_shell_resolved_gamma {
             let gamma: Array2<f64> = gamma_atomwise(&self.gammafunction, &self.atoms, self.n_atoms);
             // and save it as a `Property`
             self.properties.set_gamma(gamma);
@@ -107,7 +107,7 @@ impl RestrictedSCC for System {
 
         // if the system contains a long-range corrected Gammafunction the gamma matrix will be computed
         if self.gammafunction_lc.is_some() {
-            if !self.config.use_shell_resolved_gamma {
+            if !self.config.tight_binding.use_shell_resolved_gamma {
                 let (gamma_lr, gamma_lr_ao): (Array2<f64>, Array2<f64>) = gamma_ao_wise(
                     self.gammafunction_lc.as_ref().unwrap(),
                     &self.atoms,
@@ -128,7 +128,7 @@ impl RestrictedSCC for System {
 
         // if this is the first SCC calculation the charge differences will be initialized to zeros
         if !self.properties.contains_key("dq") {
-            if !self.config.use_shell_resolved_gamma {
+            if !self.config.tight_binding.use_shell_resolved_gamma {
                 self.properties.set_dq(Array1::zeros(self.n_atoms));
             } else {
                 self.properties.set_dq(Array1::zeros(self.n_orbs));
@@ -214,13 +214,13 @@ impl System {
         let dim: usize;
         if self.gammafunction_lc.is_some() {
             dim = self.n_orbs * self.n_orbs;
-        } else if self.config.use_shell_resolved_gamma {
+        } else if self.config.tight_binding.use_shell_resolved_gamma {
             dim = self.n_orbs;
         } else {
             dim = self.n_atoms;
         }
         let mut accel = mix_config.build_mixer(dim).unwrap();
-        let mut broyden_mixer: BroydenMixer = if self.config.use_shell_resolved_gamma {
+        let mut broyden_mixer: BroydenMixer = if self.config.tight_binding.use_shell_resolved_gamma {
             BroydenMixer::new(self.n_orbs)
         } else {
             BroydenMixer::new(self.n_atoms)
@@ -261,7 +261,7 @@ impl System {
         }
 
         'scf_loop: for i in 0..max_iter {
-            let h_coul: Array2<f64> = if !self.config.use_shell_resolved_gamma {
+            let h_coul: Array2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
                 construct_h1(self.n_orbs, &self.atoms, gamma.view(), dq.view()) * s.view()
             } else {
                 outer_sum(self.properties.gamma_ao().unwrap().dot(&dq).view()) * s * 0.5
@@ -327,12 +327,12 @@ impl System {
                 p = &delta_p + &p0;
 
                 // mulliken charges
-                if !self.config.use_shell_resolved_gamma {
+                if !self.config.tight_binding.use_shell_resolved_gamma {
                     mulliken_atomwise(delta_p.view(), s.view(), &self.atoms, self.n_atoms)
                 } else {
                     mulliken_aowise(delta_p.view(), s.view())
                 }
-            } else if !self.config.use_shell_resolved_gamma {
+            } else if !self.config.tight_binding.use_shell_resolved_gamma {
                 // mulliken charges
                 let dq1 = mulliken_atomwise(dp.view(), s.view(), &self.atoms, self.n_atoms);
                 let delta_dq: Array1<f64> = &dq1 - &dq;
@@ -347,7 +347,7 @@ impl System {
             };
 
             // compute electronic energy
-            scf_energy = if !self.config.use_shell_resolved_gamma {
+            scf_energy = if !self.config.tight_binding.use_shell_resolved_gamma {
                 get_electronic_energy_new(
                     p.view(),
                     h0.view(),

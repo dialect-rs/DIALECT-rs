@@ -1,15 +1,13 @@
-use crate::excited_states::moments::{mulliken_dipoles, oscillator_strength};
 use crate::excited_states::solvers::b_solver::Bsolver;
-use crate::excited_states::tda::new_mod::ExcitedStates;
 use crate::excited_states::{initial_subspace, ProductCache};
 use crate::fmo::{ChargeTransferPreparation, Monomer};
-use crate::initialization::{Atom, System};
+use crate::initialization::Atom;
 use ndarray::prelude::*;
 
 impl Monomer<'_> {
     pub fn casida_b_solver(
         &mut self,
-        atoms: &[Atom],
+        _atoms: &[Atom],
         n_roots: usize,
         max_iter: usize,
         tolerance: f64,
@@ -42,9 +40,6 @@ impl Monomer<'_> {
         // The transition charges for all excited states are computed.
         let q_trans: Array2<f64> = q_ov.dot(&davidson.eigenvectors);
 
-        // The Mulliken transition dipole moments are computed.
-        let tr_dipoles: Array2<f64> = mulliken_dipoles(q_trans.view(), atoms);
-
         // The eigenvalues are the excitation energies and the eigenvectors are the CI coefficients.
         self.properties.set_ci_eigenvalues_b(davidson.eigenvalues);
         self.properties.set_ci_coefficients_b(davidson.eigenvectors);
@@ -56,7 +51,7 @@ impl ChargeTransferPreparation<'_> {
     // Do the TDA-LC-TD-DFTB calculation
     pub fn casida_b_solver(
         &mut self,
-        atoms: &[Atom],
+        _atoms: &[Atom],
         n_roots: usize,
         max_iter: usize,
         tolerance: f64,

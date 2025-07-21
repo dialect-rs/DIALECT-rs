@@ -41,6 +41,22 @@ impl Properties {
         self.set("esd_pair_indices", Property::PairIndexMap(map))
     }
 
+    pub fn set_bool_map(&mut self, map: HashMap<(usize, usize), bool>) {
+        self.set("bool_map", Property::MatrixBoolMap(map))
+    }
+
+    pub fn set_overlap_map(&mut self, map: HashMap<(usize, usize), Array2<f64>>) {
+        self.set("overlap_map", Property::MatrixMap(map))
+    }
+
+    pub fn set_gamma_map(&mut self, map: HashMap<(usize, usize), Array2<f64>>) {
+        self.set("gamma_map", Property::MatrixMap(map))
+    }
+
+    pub fn set_gamma_lr_map(&mut self, map: HashMap<(usize, usize), Array2<f64>>) {
+        self.set("gamma_lr_map", Property::MatrixMap(map))
+    }
+
     /// Set the energy of the last scc iteration
     pub fn set_occupation(&mut self, f: Vec<f64>) {
         self.set("occupation", Property::VecF64(f))

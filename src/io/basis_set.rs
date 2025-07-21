@@ -30,7 +30,7 @@ struct InputShell {
 pub struct BasisSet {
     name: String,
     description: String,
-    basis_functions: HashMap<Element, Vec<BasisFunction>>,
+    pub basis_functions: HashMap<Element, Vec<BasisFunction>>,
 }
 
 impl From<InputData> for BasisSet {
@@ -102,6 +102,59 @@ impl BasisSet {
             }
         }
         txt
+    }
+
+    pub fn default_two_shell() -> Self {
+        let path_prefix: String = get_path_prefix();
+        let filename: String = format!("{}/src/param/basis_sets/sto-3g.json", path_prefix);
+        let path: &Path = Path::new(&filename);
+        let data: String = fs::read_to_string(path)
+            .unwrap_or_else(|_| panic!("Unable to read file {}", &filename));
+        let data: InputData = from_str(&data).expect("JSON file was not well-formatted");
+        create_two_shell_basis(data)
+    }
+}
+
+fn create_two_shell_basis(data: InputData) -> BasisSet {
+    // The HashMap is initialized.
+    let mut bfs: HashMap<Element, Vec<BasisFunction>> = HashMap::new();
+    for (element, shells) in data.elements.iter() {
+        // The corresponding Element is created.
+        let el: Element = Element::from(*element as u8);
+        // The BasisFunctions are created.
+        let mut functions: Vec<BasisFunction> = Vec::new();
+        // Iteration over all shells
+        let start: usize = if shells.electron_shells.len() > 1 {
+            shells.electron_shells.len() - 2
+        } else {
+            shells.electron_shells.len() - 1
+        };
+        for shell in shells.electron_shells[start..].iter() {
+            // The exponents are the same for all angular momenta.
+            let exponents: Vec<f64> = shell
+                .exponents
+                .iter()
+                .map(|x| x.parse::<f64>().unwrap())
+                .collect();
+            // Iteration over all angular momenta.
+            for (l, c) in shell.angular_momentum.iter().zip(shell.coefficients.iter()) {
+                // The coefficients are converted to floats.
+                let coefficients: Vec<f64> = c.iter().map(|x| x.parse::<f64>().unwrap()).collect();
+                // Add the new BasisFunction
+                functions.push(BasisFunction {
+                    l: AngularMomentum::from(*l),
+                    exponents: exponents.clone(),
+                    coefficients,
+                });
+            }
+        }
+
+        bfs.insert(el, functions);
+    }
+    BasisSet {
+        name: data.name,
+        description: data.description,
+        basis_functions: bfs,
     }
 }
 

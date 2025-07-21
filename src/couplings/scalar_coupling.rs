@@ -191,15 +191,6 @@ impl SuperSystem<'_> {
     ) -> Array2<f64> {
         // get old supersystem from properties
         let old_supersystem = self.properties.old_supersystem();
-        // get the old supersystem
-        // let old_system: OldSupersystem = if old_supersystem.is_some() {
-        //     old_supersystem.unwrap().to_owned()
-        // }
-        // // if the dynamic is at it's first step, calculate the coupling between the
-        // // starting geometry
-        // else {
-        //     OldSupersystem::new(self)
-        // };
         let old_system = if let Some(oldsystem) = old_supersystem {
             oldsystem.to_owned()
         } else {
@@ -313,26 +304,6 @@ impl SuperSystem<'_> {
         for (idx, arr) in coupling_vec.iter().enumerate() {
             coupling.slice_mut(s![idx + 1, 1..]).assign(arr);
         }
-        // // parallel calculation
-        // let diabatic_gs: Vec<f64> = basis_states
-        //     .par_iter()
-        //     .map(|state| {
-        //         // coupling between the ground state and the diabatic states
-        //         self.scalar_coupling_diabatic_gs(other, state, s.view(), true)
-        //     })
-        //     .collect();
-        // // cooupling between the ground state and the diabatic state
-        // let gs_diabatic: Vec<f64> = old_basis
-        //     .par_iter()
-        //     .map(|state| self.scalar_coupling_diabatic_gs(other, state, s.view(), false))
-        //     .collect();
-        // // slice coupling matrix
-        // coupling
-        //     .slice_mut(s![0, 1..])
-        //     .assign(&Array::from(gs_diabatic));
-        // coupling
-        //     .slice_mut(s![1.., 0])
-        //     .assign(&Array::from(diabatic_gs));
 
         (coupling, s)
     }

@@ -45,6 +45,10 @@ pub enum Property {
     PairMap(HashMap<(usize, usize), PairType>),
     /// HashMap for indices of pairs.
     PairIndexMap(HashMap<(usize, usize), usize>),
+    /// HashMap for matrices between monomers
+    MatrixMap(HashMap<(usize, usize), Array2<f64>>),
+    /// HashMap for bools for matrices between monomers
+    MatrixBoolMap(HashMap<(usize, usize), bool>),
     /// Vector property of u8 type
     VecU8(Vec<u8>),
     /// Vector property of usize type
@@ -111,6 +115,18 @@ impl From<HashMap<(usize, usize), PairType>> for Property {
 impl From<HashMap<(usize, usize), usize>> for Property {
     fn from(value: HashMap<(usize, usize), usize>) -> Self {
         Property::PairIndexMap(value)
+    }
+}
+
+impl From<HashMap<(usize, usize), bool>> for Property {
+    fn from(value: HashMap<(usize, usize), bool>) -> Self {
+        Property::MatrixBoolMap(value)
+    }
+}
+
+impl From<HashMap<(usize, usize), Array2<f64>>> for Property {
+    fn from(value: HashMap<(usize, usize), Array2<f64>>) -> Self {
+        Property::MatrixMap(value)
     }
 }
 

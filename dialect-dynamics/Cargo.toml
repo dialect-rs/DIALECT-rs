@@ -15,7 +15,7 @@ ndarray = { version = "0.15.6", features = [
     "blas",
 ] }
 approx = "0.5.1"
-ndarray-linalg = { version = "0.16", features = ["netlib-system"]}
+ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
 ndarray-stats = "0.5.1"
 phf = { version = "0.11.1", features = ["macros"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -33,7 +33,6 @@ soa_derive = "0.12.0"
 rand_distr = "0.4.0"
 rand = "0.8.5"
 ndarray-npy = "0.8.1"
-rawpointer = { version = "0.2" }
 
 [profile.release]
 debug = true

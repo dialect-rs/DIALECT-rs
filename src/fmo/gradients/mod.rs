@@ -11,9 +11,7 @@ mod es_dimer;
 mod le_state;
 mod monomer;
 mod pair;
-mod response;
 
-// mod numerical;
 use crate::fmo::gradients::embedding::diag_of_last_dimensions;
 use crate::fmo::helpers::get_pair_slice;
 use crate::gradients::dispersion::gradient_disp;

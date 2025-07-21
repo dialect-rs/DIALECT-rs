@@ -94,9 +94,9 @@ fn main() {
     // ................................................................
     match config.jobtype.as_str() {
         "sp" => {
-            if !config.use_xtb1 {
+            if config.tight_binding.use_dftb {
                 // Normal DFTB calculation
-                if !config.fmo {
+                if !config.fmo.use_fmo {
                     // Create system from frame and config
                     let mut system = System::from((frame, config.clone()));
                     system.input_check();
@@ -134,7 +134,7 @@ fn main() {
                         system.create_exciton_hamiltonian();
                     }
                 }
-            } else {
+            } else if config.tight_binding.use_xtb1 {
                 // xtb1 calculation
                 // create the xtb system
                 let mut system = XtbSystem::from((frame, config.clone()));
@@ -152,8 +152,8 @@ fn main() {
             system.density_to_cube();
         }
         "dynamics" => {
-            if !config.use_xtb1 {
-                if !config.fmo {
+            if config.tight_binding.use_dftb {
+                if !config.fmo.use_fmo {
                     let mut system = System::from((frame, config.clone()));
                     system.input_check();
                     let dynamics_config: DynamicConfiguration = read_dynamic_input(&system.config);
@@ -215,7 +215,7 @@ fn main() {
                         dynamics.verlet_dynamics(&mut system);
                     }
                 }
-            } else {
+            } else if config.tight_binding.use_xtb1 {
                 // create the xtb system
                 let mut system = XtbSystem::from((frame, config.clone()));
                 system.input_check();
@@ -232,8 +232,8 @@ fn main() {
             }
         }
         "opt" => {
-            if !config.use_xtb1 {
-                if !config.fmo {
+            if config.tight_binding.use_dftb {
+                if !config.fmo.use_fmo {
                     // Create system from frame and config
                     let mut system = System::from((frame, config.clone()));
                     system.input_check();
@@ -258,7 +258,7 @@ fn main() {
                     // at the moment, only a ground state optimization of the fmo system is implemented
                     system.optimize_cartesian(system.config.opt.state_to_optimize, &config);
                 }
-            } else {
+            } else if config.tight_binding.use_xtb1 {
                 // create the xtb system
                 let mut system = XtbSystem::from((frame, config.clone()));
                 system.input_check();
@@ -279,9 +279,9 @@ fn main() {
             system.get_ehrenfest_densities();
         }
         "grad" => {
-            if !config.use_xtb1 {
+            if config.tight_binding.use_dftb {
                 // Normal DFTB calculation
-                if !config.fmo {
+                if config.fmo.use_fmo {
                     // Create system from frame and config
                     let mut system = System::from((frame, config.clone()));
                     system.input_check();
@@ -318,7 +318,7 @@ fn main() {
                     system.run_scc().unwrap();
                     system.ground_state_gradient();
                 }
-            } else {
+            } else if config.tight_binding.use_xtb1 {
                 // create the xtb system
                 let mut system = XtbSystem::from((frame, config.clone()));
 
@@ -326,6 +326,23 @@ fn main() {
                 system.prepare_scc();
                 system.run_scc().unwrap();
                 system.ground_state_gradient();
+            }
+        }
+        "hessian" => {
+            if config.tight_binding.use_dftb {
+                // Normal DFTB calculation
+                if !config.fmo.use_fmo {
+                    // Create system from frame and config
+                    let system = System::from((frame, config.clone()));
+                    system.input_check();
+
+                    system.calculate_num_hessian();
+                    if system.config.excited.calculate_excited_states {
+                        system.calculate_num_hessian_excited();
+                    }
+                }
+            } else {
+                panic!("Hessian calculations are only supported for DFTB!");
             }
         }
         "monomer_identification" => {

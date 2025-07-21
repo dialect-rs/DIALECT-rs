@@ -141,7 +141,6 @@ impl Simulation {
                 index_vec.push((idx_i, idx_j));
             }
         }
-
         let (vec_c, vec_d): (Vec<c64>, Vec<c64>) = index_vec
             .par_iter()
             .map(|indices| {
@@ -383,7 +382,6 @@ impl Simulation {
                 self.coordinates.view(),
                 self.velocities.view(),
                 self.coefficients.view(),
-                // abs_coefficients.view(),
                 self.config.ehrenfest_config.state_threshold,
                 self.config.ehrenfest_config.tab_grad_threshold,
                 self.config.stepsize,

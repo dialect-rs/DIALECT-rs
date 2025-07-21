@@ -70,20 +70,6 @@ pub fn mulliken_aowise(p: ArrayView2<f64>, s: ArrayView2<f64>) -> Array1<f64> {
     s.dot(&p).diag().to_owned()
 }
 
-// pub fn mulliken_atomwise_from_ao_xtb(
-//     basis: &Basis,
-//     n_atoms: usize,
-//     dq_ao: ArrayView1<f64>,
-// ) -> Array1<f64> {
-//     let mut q: Array1<f64> = Array1::<f64>::zeros(n_atoms);
-//
-//     for (i, funci) in basis.basis_functions.iter().enumerate() {
-//         let at_i: usize = funci.atom_index;
-//         q[at_i] += dq_ao[i];
-//     }
-//     q
-// }
-
 pub fn mulliken_atomwise_from_ao_xtb(
     basis: &Basis,
     n_atoms: usize,

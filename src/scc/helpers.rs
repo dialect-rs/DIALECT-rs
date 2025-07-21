@@ -177,8 +177,8 @@ pub fn calc_coulomb_third_order(gamma_third_order: ArrayView2<f64>, dq: ArrayVie
 }
 
 pub fn calc_exchange(s: ArrayView2<f64>, g0_lr_ao: ArrayView2<f64>, dp: ArrayView2<f64>) -> f64 {
-    let ex =
-        ((s.dot(&dp.dot(&s))) * dp * g0_lr_ao).sum() + (s.dot(&dp) * dp.dot(&s) * g0_lr_ao).sum();
+    let dp_s: Array2<f64> = dp.dot(&s);
+    let ex = (s.dot(&dp_s) * dp * g0_lr_ao).sum() + (&dp_s.t() * &dp_s * g0_lr_ao).sum();
     -0.125 * ex
 }
 
@@ -228,22 +228,24 @@ pub fn construct_h1(
     gamma: ArrayView2<f64>,
     dq: ArrayView1<f64>,
 ) -> Array2<f64> {
+    // 1) compute the static potential per atom
     let e_stat_pot: Array1<f64> = gamma.dot(&dq);
-    let mut h1: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
-    let mut mu: usize = 0;
-    let mut nu: usize;
-    for (i, atomi) in atoms.iter().enumerate() {
-        for _ in 0..(atomi.n_orbs) {
-            nu = 0;
-            for (j, atomj) in atoms.iter().enumerate() {
-                for _ in 0..(atomj.n_orbs) {
-                    h1[[mu, nu]] = 0.5 * (e_stat_pot[i] + e_stat_pot[j]);
-                    nu += 1;
-                }
-            }
-            mu += 1;
+
+    let mut e_orb = Array1::<f64>::zeros(n_orbs);
+    let mut offset = 0;
+    for (i, atom) in atoms.iter().enumerate() {
+        let count = atom.n_orbs;
+        let val = e_stat_pot[i];
+        // Fill e_orb[offset .. offset+count] with val
+        for k in 0..count {
+            e_orb[offset + k] = val;
         }
+        offset += count;
     }
+
+    // 3) Broadcast
+    let h1 = (&e_orb.view().insert_axis(Axis(1)) + &e_orb.view().insert_axis(Axis(0))) * 0.5;
+
     h1
 }
 
@@ -253,27 +255,32 @@ pub fn construct_h_third_order(
     gamma_third_order: ArrayView2<f64>,
     dq: ArrayView1<f64>,
 ) -> Array2<f64> {
+    // 1) Compute e_stat_pot = γ · dq
     let e_stat_pot: Array1<f64> = gamma_third_order.dot(&dq);
-    let e_stat_pot2: Array1<f64> = dq.map(|val| val.powi(2)).dot(&gamma_third_order);
-    let mut h: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
-    let mut mu: usize = 0;
-    let mut nu: usize;
-    for (i, atomi) in atoms.iter().enumerate() {
-        for _ in 0..(atomi.n_orbs) {
-            nu = 0;
-            for (j, atomj) in atoms.iter().enumerate() {
-                for _ in 0..(atomj.n_orbs) {
-                    let contrib_1: f64 =
-                        1.0 / 3.0 * (e_stat_pot[i] * dq[i] + e_stat_pot[j] * dq[j]);
-                    let contrib_2: f64 = 1.0 / 6.0 * (e_stat_pot2[i] + e_stat_pot2[j]);
-                    // add to h
-                    h[[mu, nu]] = contrib_1 + contrib_2;
-                    nu += 1;
-                }
-            }
-            mu += 1;
+    // 2) Compute dq², then e_stat_pot2 = (dq²) · γ^(3)
+    let dq_sq: Array1<f64> = dq.mapv(|x| x * x);
+    let e_stat_pot2: Array1<f64> = dq_sq.dot(&gamma_third_order);
+
+    // 3) Build per-atom contributions:
+    let mut e1 = &e_stat_pot * &dq;
+    e1 *= 1.0 / 3.0;
+    let e2 = &e_stat_pot2 * (1.0 / 6.0);
+    let e_atom = &e1 + &e2;
+
+    let mut e_orb_sum = Array1::<f64>::zeros(n_orbs);
+    let mut offset = 0;
+    for (i, atom) in atoms.iter().enumerate() {
+        let count = atom.n_orbs;
+        let val = e_atom[i];
+        for k in 0..count {
+            e_orb_sum[offset + k] = val;
         }
+        offset += count;
     }
+
+    // 5) Broadcasted
+    let h = &e_orb_sum.view().insert_axis(Axis(1)) + &e_orb_sum.view().insert_axis(Axis(0));
+
     h
 }
 
@@ -298,52 +305,6 @@ pub fn construct_third_order_gradient_contribution(
                         + e_stat_pot_2[i]
                         + 2.0 * e_stat_pot[j] * dq[j]
                         + e_stat_pot_2[j])
-                        / 3.0;
-                    nu += 1;
-                }
-            }
-            mu += 1;
-        }
-    }
-    h
-}
-
-pub fn construct_third_order_gradient_contribution_test(
-    n_orbs: usize,
-    atoms: &[Atom],
-    gamma_third_order: ArrayView2<f64>,
-    dq: ArrayView1<f64>,
-    grad_atom: &Atom,
-    atom_idx: usize,
-) -> Array2<f64> {
-    let e_stat_pot: Array1<f64> = gamma_third_order.dot(&dq);
-    let e_stat_pot_2: Array1<f64> = dq.map(|val| val.powi(2)).dot(&gamma_third_order);
-    let mut h: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
-    let mut mu: usize = 0;
-    let mut nu: usize;
-
-    let mut ao_count: usize = 0;
-    let mut count: usize = 0;
-    for (idx, atom) in atoms.iter().enumerate() {
-        if idx == atom_idx {
-            ao_count = count;
-            break;
-        }
-        for _ in 0..(atom.n_orbs) {
-            count += 1;
-        }
-    }
-
-    for (i, atomi) in atoms.iter().enumerate() {
-        for _ in 0..(atomi.n_orbs) {
-            nu = ao_count;
-            if atom_idx != i {
-                for _ in 0..(grad_atom.n_orbs) {
-                    // add to h
-                    h[[mu, nu]] = (2.0 * e_stat_pot[i] * dq[i]
-                        + e_stat_pot_2[i]
-                        + 2.0 * e_stat_pot[atom_idx] * dq[atom_idx]
-                        + e_stat_pot_2[atom_idx])
                         / 3.0;
                     nu += 1;
                 }

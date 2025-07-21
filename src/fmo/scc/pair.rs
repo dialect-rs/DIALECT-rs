@@ -198,7 +198,13 @@ impl Pair<'_> {
         }
     }
 
-    pub fn run_scc(&mut self, atoms: &[Atom], config: SccConfig, shell_resolved: bool) {
+    pub fn run_scc(
+        &mut self,
+        atoms: &[Atom],
+        config: SccConfig,
+        shell_resolved: bool,
+        mix_config: &MixConfig,
+    ) {
         let scf_charge_conv: f64 = config.scf_charge_conv;
         let scf_energy_conv: f64 = config.scf_energy_conv;
         let max_iter: usize = config.scf_max_cycles;
@@ -207,7 +213,7 @@ impl Pair<'_> {
         let mut dq: Array1<f64> = self.properties.dq().unwrap().to_owned();
 
         // Anderson mixer
-        let mix_config: MixConfig = MixConfig::default();
+        let mix_config: MixConfig = *mix_config;
         let dim: usize;
         if self.gammafunction_lc.is_some() {
             dim = self.n_orbs * self.n_orbs;

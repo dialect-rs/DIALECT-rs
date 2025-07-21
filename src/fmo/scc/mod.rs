@@ -1,3 +1,4 @@
+mod fragmented_matrices;
 pub(crate) mod helpers;
 mod logging;
 mod monomer;
@@ -10,7 +11,7 @@ use crate::initialization::Atom;
 use crate::scc::gamma_approximation::{
     gamma_ao_wise_shell_resolved, gamma_atomwise, GammaFunction,
 };
-use crate::scc::h0_and_s::h0_and_s;
+use crate::scc::h0_and_s::s_supersystem;
 use crate::scc::scc_routine::{RestrictedSCC, SCCError};
 use crate::utils::Timer;
 use ndarray::prelude::*;
@@ -33,16 +34,18 @@ impl RestrictedSCC for SuperSystem<'_> {
         self.monomers.par_iter_mut().for_each(|mol: &mut Monomer| {
             mol.prepare_scc(
                 &atoms[mol.slice.atom_as_range()],
-                self.config.use_shell_resolved_gamma,
+                self.config.tight_binding.use_shell_resolved_gamma,
+                self.config.mix_config.clone(),
             );
         });
         if self.properties.s().is_none() {
             let skf = self.monomers[0].slako.clone();
             let norbs: usize = self.properties.n_occ().unwrap() + self.properties.n_virt().unwrap();
-            let (s, _h0) = h0_and_s(norbs, &self.atoms, &skf);
+            let s = s_supersystem(norbs, &self.atoms, &skf);
+            // let (s, _h0) = h0_and_s(norbs, &self.atoms, &skf);
             self.properties.set_s(s);
         }
-        if !self.config.use_shell_resolved_gamma {
+        if !self.config.tight_binding.use_shell_resolved_gamma {
             if self.properties.gamma().is_none() {
                 // Initialize the unscreened Gamma function -> r_lr == 0.00
                 let gf: GammaFunction = self.monomers[0].gammafunction.clone();

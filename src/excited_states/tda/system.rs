@@ -86,7 +86,7 @@ impl System {
 
     pub fn prepare_tda(&mut self) {
         if self.properties.q_ov().is_none() {
-            if self.config.use_shell_resolved_gamma {
+            if self.config.tight_binding.use_shell_resolved_gamma {
                 let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges_ao(
                     self.n_orbs,
                     self.properties.orbs().unwrap(),
@@ -247,5 +247,7 @@ impl System {
 
         // write to numpy file
         write_npy(txt, &density_ao).unwrap();
+
+        self.cube_from_tdm(density_ao.view(), state);
     }
 }

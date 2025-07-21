@@ -32,26 +32,55 @@ impl Monomer<'_> {
         self.properties.set_cache(ProductCache::new());
 
         // Reference to the energy differences between virtuals and occupied orbitals.
-        let omega: ArrayView1<f64> = self.properties.omega().unwrap();
+        let omega: Array1<f64> = self.properties.omega().unwrap().to_owned();
 
         // The initial guess for the subspace is created.
         let guess: Array2<f64> = initial_subspace(omega.view(), n_roots);
 
         // Davidson iteration.
-        let davidson: Davidson = Davidson::new(
+        let davidson = Davidson::new(
             self,
-            guess,
+            guess.clone(),
             n_roots,
             tolerance,
             max_iter,
             false,
             subspace_multiplier,
-            config.use_shell_resolved_gamma,
-        )
-        .unwrap();
+            config.tight_binding.use_shell_resolved_gamma,
+        );
+
+        // if davidson failed do the Strattmann procedure with B = 0
+        let (eigenvalues, eigenvectors) = if davidson.is_err() {
+            let alt_casida: CasidaSolverTDA = CasidaSolverTDA::new(
+                self,
+                guess,
+                omega.view(),
+                n_roots,
+                tolerance,
+                max_iter,
+                subspace_multiplier,
+                config.tight_binding.use_shell_resolved_gamma,
+            )
+            .unwrap();
+            (alt_casida.eigenvalues, alt_casida.eigenvectors)
+        } else {
+            let tmp = davidson.unwrap();
+            (tmp.eigenvalues, tmp.eigenvectors)
+        };
 
         // check if the tda routine yields realistic energies
-        let energy_vector = davidson.eigenvalues.clone().to_vec();
+        let energy_vector = eigenvalues.clone().to_vec();
+        for energy in energy_vector.iter() {
+            let energy_ev: f64 = energy * 27.2114;
+
+            // check for unrealistic energy values
+            if energy_ev < 0.001 {
+                panic!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
+            }
+        }
+
+        // check if the tda routine yields realistic energies
+        let energy_vector = eigenvalues.clone().to_vec();
         for energy in energy_vector.iter() {
             let energy_ev: f64 = energy * 27.2114;
 
@@ -65,17 +94,17 @@ impl Monomer<'_> {
         let q_ov: ArrayView2<f64> = self.properties.q_ov().unwrap();
 
         // The transition charges for all excited states are computed.
-        let q_trans: Array2<f64> = q_ov.dot(&davidson.eigenvectors);
+        let q_trans: Array2<f64> = q_ov.dot(&eigenvectors);
 
         // The Mulliken transition dipole moments are computed.
-        let tr_dipoles: Array2<f64> = if !config.use_shell_resolved_gamma {
+        let tr_dipoles: Array2<f64> = if !config.tight_binding.use_shell_resolved_gamma {
             mulliken_dipoles(q_trans.view(), atoms)
         } else {
             mulliken_dipoles_from_ao(q_trans.view(), atoms)
         };
 
         // The oscillator strengths are computed.
-        let f: Array1<f64> = oscillator_strength(davidson.eigenvalues.view(), tr_dipoles.view());
+        let f: Array1<f64> = oscillator_strength(eigenvalues.view(), tr_dipoles.view());
 
         let mut n_occ: usize = self.properties.occ_indices().unwrap().len();
         let mut n_virt: usize = self.properties.virt_indices().unwrap().len();
@@ -85,8 +114,7 @@ impl Monomer<'_> {
             n_virt = (n_virt as f64 * config.tddftb.active_orbital_threshold) as usize;
         }
 
-        let mut tdm: Array3<f64> = davidson
-            .eigenvectors
+        let mut tdm: Array3<f64> = eigenvectors
             .clone()
             .into_shape([n_occ, n_virt, f.len()])
             .unwrap();
@@ -120,7 +148,7 @@ impl Monomer<'_> {
 
         let states: ExcitedStates = ExcitedStates {
             total_energy: self.properties.last_energy().unwrap(),
-            energies: davidson.eigenvalues.clone(),
+            energies: eigenvalues.clone(),
             tdm: tdm.clone(),
             f: f.clone(),
             tr_dip: tr_dipoles.clone(),
@@ -128,7 +156,7 @@ impl Monomer<'_> {
         };
 
         // The eigenvalues are the excitation energies and the eigenvectors are the CI coefficients.
-        self.properties.set_ci_eigenvalues(davidson.eigenvalues);
+        self.properties.set_ci_eigenvalues(eigenvalues);
         if config.tddftb.restrict_active_orbitals {
             let n_occ: usize = self.properties.occ_indices().unwrap().len();
             let n_virt: usize = self.properties.virt_indices().unwrap().len();
@@ -136,7 +164,7 @@ impl Monomer<'_> {
             let eigvecs: Array2<f64> = tdm.into_shape([n_occ * n_virt, f.len()]).unwrap();
             self.properties.set_ci_coefficients(eigvecs);
         } else {
-            self.properties.set_ci_coefficients(davidson.eigenvectors);
+            self.properties.set_ci_coefficients(eigenvectors);
         }
         self.properties.set_q_trans(q_trans);
         self.properties.set_tr_dipoles(tr_dipoles);
@@ -175,7 +203,7 @@ impl System {
             max_iter,
             false,
             subspace_multiplier,
-            self.config.use_shell_resolved_gamma,
+            self.config.tight_binding.use_shell_resolved_gamma,
         );
 
         // if davidson failed do the Strattmann procedure with B = 0
@@ -188,7 +216,7 @@ impl System {
                 tolerance,
                 max_iter,
                 subspace_multiplier,
-                self.config.use_shell_resolved_gamma,
+                self.config.tight_binding.use_shell_resolved_gamma,
             )
             .unwrap();
             (alt_casida.eigenvalues, alt_casida.eigenvectors)
@@ -284,7 +312,7 @@ impl System {
             max_iter,
             false,
             subspace_multiplier,
-            self.config.use_shell_resolved_gamma,
+            self.config.tight_binding.use_shell_resolved_gamma,
         );
 
         // if davidson failed do the Strattmann procedure with B = 0
@@ -297,7 +325,7 @@ impl System {
                 tolerance,
                 max_iter,
                 subspace_multiplier,
-                self.config.use_shell_resolved_gamma,
+                self.config.tight_binding.use_shell_resolved_gamma,
             )
             .unwrap();
             (alt_casida.eigenvalues, alt_casida.eigenvectors)
@@ -388,7 +416,7 @@ impl System {
         let q_trans: Array2<f64> = q_ov.dot(&eigenvectors);
 
         // The Mulliken transition dipole moments are computed.
-        let tr_dipoles: Array2<f64> = if !self.config.use_shell_resolved_gamma {
+        let tr_dipoles: Array2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             mulliken_dipoles(q_trans.view(), &self.atoms)
         } else {
             mulliken_dipoles_from_ao(q_trans.view(), &self.atoms)

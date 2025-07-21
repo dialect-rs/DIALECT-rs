@@ -92,48 +92,6 @@ impl From<(Element, &ParameterizationConfig)> for Atom {
             xyz: Vector3::<f64>::zeros(),
         }
     }
-
-    // fn from(element: Element) -> Self {
-    //     let symbol: &'static str = element.symbol();
-    //     let confined_atom: PseudoAtom = PseudoAtom::confined_atom(symbol);
-    //     let free_atom: PseudoAtom = PseudoAtom::free_atom(symbol);
-    //     let mut valorbs: Vec<AtomicOrbital> = Vec::new();
-    //     let mut occupation: Vec<f64> = Vec::new();
-    //     let mut n_elec: usize = 0;
-    //     for (i, j) in confined_atom
-    //         .valence_orbitals
-    //         .iter()
-    //         .zip(free_atom.valence_orbitals.iter())
-    //     {
-    //         let n: i8 = confined_atom.nshell[*i as usize];
-    //         let l: i8 = confined_atom.angular_momenta[*i as usize];
-    //         let energy: f64 = free_atom.energies[*j as usize];
-    //         for m in l.neg()..(l + 1) {
-    //             valorbs.push(AtomicOrbital::from(((n - 1, l, m), energy)));
-    //             occupation.push(
-    //                 confined_atom.orbital_occupation[*i as usize] as f64 / (2 * l + 1) as f64,
-    //             );
-    //         }
-    //         n_elec += confined_atom.orbital_occupation[*i as usize] as usize;
-    //     }
-    //     let n_orbs: usize = valorbs.len();
-
-    //     Atom {
-    //         name: symbol,
-    //         number: element.number(),
-    //         kind: element,
-    //         hubbard: vec![
-    //             confined_atom.hubbard_u,
-    //             confined_atom.hubbard_u,
-    //             confined_atom.hubbard_u,
-    //         ],
-    //         valorbs: valorbs,
-    //         n_orbs: n_orbs,
-    //         valorbs_occupation: occupation,
-    //         n_elec: n_elec,
-    //         xyz: Vector3::<f64>::zeros(),
-    //     }
-    // }
 }
 
 impl From<(Element, &SkfHandler)> for Atom {

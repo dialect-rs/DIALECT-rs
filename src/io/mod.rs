@@ -1,4 +1,4 @@
-mod basis_set;
+pub mod basis_set;
 mod coordinates;
 mod imprint;
 mod input;

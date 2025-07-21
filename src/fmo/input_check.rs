@@ -23,12 +23,12 @@ impl SuperSystem<'_> {
             println!("Please adjust the dialect.toml file accordingly!");
             panic!("Error occured in the input check!")
         }
-        if config.use_shell_resolved_gamma && config.tddftb.restrict_active_orbitals {
+        if config.tight_binding.use_shell_resolved_gamma && config.tddftb.restrict_active_orbitals {
             println!("The shell resolved option for the gamma matrix is not yet supported for restricted active orbitals!");
             println!("Please change the dialect.toml file accordingly.");
             panic!("Error occured in the input check!");
         }
-        if config.use_shell_resolved_gamma && config.jobtype != *"sp" {
+        if config.tight_binding.use_shell_resolved_gamma && config.jobtype != *"sp" {
             println!("The shell resolved option for FMO only supports single point calculations at the moment!");
             println!("Please change the dialect.toml file accordingly.");
             panic!("Error occured in the input check!");

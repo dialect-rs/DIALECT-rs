@@ -1,6 +1,5 @@
 use crate::excited_states::ProductCache;
 use crate::fmo::{ChargeTransferPreparation, Monomer};
-use crate::initialization::System;
 use ndarray::prelude::*;
 
 pub trait BsolverEngine {
@@ -40,7 +39,7 @@ impl BsolverEngine for Monomer<'_> {
             x.slice_move(s![.., n_old..])
         };
         // The number of vectors that needs to be computed in this iteration.
-        let n_comp: usize = compute_vectors.ncols();
+        // let n_comp: usize = compute_vectors.ncols();
 
         // The product of the Coulomb matrix elements with the subspace vectors is computed.
         let coulomb: Array2<f64> = 2.0 * q_ov.t().dot(&gamma.dot(&q_ov.dot(&compute_vectors)));
@@ -52,7 +51,7 @@ impl BsolverEngine for Monomer<'_> {
         // Number of virtual orbitals.
         let n_virt: usize = self.properties.virt_indices().unwrap().len();
         // Reference to the screened Gamma matrix.
-        let gamma_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
+        // let gamma_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
         // The contraction with the subpspace vectors is more complex than in the case
         // of the Coulomb part.
         // Contraction of the Gamma matrix with the o-v transition charges.
@@ -79,10 +78,9 @@ impl BsolverEngine for Monomer<'_> {
         let mut k_b: Array2<f64> = Array::zeros(bmat.raw_dim());
 
         // Iteration over the subspace vectors.
-        for (_i, (mut k_b_i, xi)) in k_b
+        for (mut k_b_i, xi) in k_b
             .axis_iter_mut(Axis(1))
             .zip(compute_vectors.axis_iter(Axis(1)))
-            .enumerate()
         {
             // The current vector reshaped into the form of n_occ, n_virt
             let xi = xi.as_standard_layout().into_shape((n_occ, n_virt)).unwrap();
@@ -120,7 +118,7 @@ impl BsolverEngine for Monomer<'_> {
     /// The energy difference of the virtual and occupied orbitals is used as a preconditioner.
     fn precondition(&self, r_k: ArrayView1<f64>, w_k: f64) -> Array1<f64> {
         // The denominator is build from the orbital energy differences and the shift value.
-        let mut denom: Array1<f64> = (Array1::from_elem(self.get_size(), w_k));
+        let mut denom: Array1<f64> = Array1::from_elem(self.get_size(), w_k);
         // Values smaller than 0.0001 are replaced by 1.0.
         denom.mapv_inplace(|x| if x.abs() < 0.0001 { 1.0 } else { x });
         &r_k / &denom
@@ -159,7 +157,7 @@ impl BsolverEngine for ChargeTransferPreparation<'_> {
             x.slice_move(s![.., n_old..])
         };
         // The number of vectors that needs to be computed in this iteration.
-        let n_comp: usize = compute_vectors.ncols();
+        // let n_comp: usize = compute_vectors.ncols();
 
         // The product of the Coulomb matrix elements with the subspace vectors is computed.
         let coulomb: Array2<f64> = 2.0 * q_ov.t().dot(&gamma.dot(&q_ov.dot(&compute_vectors)));
@@ -173,7 +171,7 @@ impl BsolverEngine for ChargeTransferPreparation<'_> {
         // Number of virtual orbitals.
         let n_virt: usize = (q_vv.dim().1 as f64).sqrt() as usize;
         // Reference to the screened Gamma matrix.
-        let gamma_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
+        // let gamma_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
         // The contraction with the subpspace vectors is more complex than in the case
         // of the Coulomb part.
         // Contraction of the Gamma matrix with the o-v transition charges.
@@ -200,10 +198,9 @@ impl BsolverEngine for ChargeTransferPreparation<'_> {
         let mut k_b: Array2<f64> = Array::zeros(bmat.raw_dim());
 
         // Iteration over the subspace vectors.
-        for (_i, (mut k_b_i, xi)) in k_b
+        for (mut k_b_i, xi) in k_b
             .axis_iter_mut(Axis(1))
             .zip(compute_vectors.axis_iter(Axis(1)))
-            .enumerate()
         {
             // The current vector reshaped into the form of n_occ, n_virt
             let xi = xi.as_standard_layout().into_shape((n_occ, n_virt)).unwrap();
@@ -240,7 +237,7 @@ impl BsolverEngine for ChargeTransferPreparation<'_> {
     /// The energy difference of the virtual and occupied orbitals is used as a preconditioner.
     fn precondition(&self, r_k: ArrayView1<f64>, w_k: f64) -> Array1<f64> {
         // The denominator is build from the orbital energy differences and the shift value.
-        let mut denom: Array1<f64> = (Array1::from_elem(self.get_size(), w_k));
+        let mut denom: Array1<f64> = Array1::from_elem(self.get_size(), w_k);
         // Values smaller than 0.0001 are replaced by 1.0.
         denom.mapv_inplace(|x| if x.abs() < 0.0001 { 1.0 } else { x });
         &r_k / &denom

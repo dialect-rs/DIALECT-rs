@@ -22,7 +22,7 @@ fn get_config_external_skf() -> Configuration {
     config.slater_koster.skf_directory = format!("{}/tests/data/slako/ob2-1-1-split", path_prefix);
     config.scf.scf_charge_conv = 1.0e-11;
     config.scf.scf_charge_conv = 1.0e-11;
-    config.use_gaussian_gamma = false;
+    config.tight_binding.use_gaussian_gamma = false;
     config
 }
 
@@ -77,22 +77,6 @@ fn load_2d(filename: &str) -> Array2<f64> {
     let shape: (usize, usize) = (results.num_lines, results.num_fields);
     Array2::from_shape_vec(shape, results.results).unwrap()
 }
-
-// fn load_3d(filename: &str) -> Array3<f64> {
-//     let file = String::from(filename);
-//     let params = ReaderParams {
-//         comments: Some(b'%'),
-//         delimiter: Delimiter::WhiteSpace,
-//         skip_header: None,
-//         skip_footer: None,
-//         usecols: None,
-//         max_rows: None,
-//     };
-//     let results = load_txt_f64(&file, &params).unwrap();
-//     let last_axis: usize = (results.num_fields as f64).sqrt() as usize;
-//     let shape: (usize, usize, usize) = (results.num_lines, last_axis, last_axis);
-//     return Array3::from_shape_vec(shape, results.results).unwrap();
-// }
 
 fn get_properties(mol: &str) -> Properties {
     let mut properties: Properties = Properties::new();

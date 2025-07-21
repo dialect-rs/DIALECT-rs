@@ -150,7 +150,7 @@ impl Bsolver {
                     let orth_v: Array1<f64> = &vec - &guess.dot(&guess.t().dot(&vec));
                     let norm: f64 = orth_v.norm();
                     if norm > 1.0e-7 {
-                        guess.push_column((&orth_v / norm).view());
+                        guess.push_column((&orth_v / norm).view()).unwrap();
                     }
                 }
 
@@ -189,7 +189,7 @@ impl Bsolver {
 
         Bsolver {
             eigenvalues: subspace_eigenvalues.slice(s![0..nvalues]).to_owned(),
-            eigenvectors: eigenvectors,
+            eigenvectors,
         }
     }
 }

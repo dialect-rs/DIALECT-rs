@@ -16,7 +16,7 @@ impl SuperSystem<'_> {
         // charge differences of all atoms. these are needed to compute the electrostatic potential
         // that acts on the monomers.
         let mut dq: Array1<f64> = if self.properties.dq().is_none() {
-            if !self.config.use_shell_resolved_gamma {
+            if !self.config.tight_binding.use_shell_resolved_gamma {
                 Array1::zeros([self.atoms.len()])
             } else {
                 let n_orbs: usize = Array::from(
@@ -40,7 +40,7 @@ impl SuperSystem<'_> {
             // the matrix vector product of the gamma matrix for all atoms and the charge differences
             // yields the electrostatic potential for all atoms. this is then converted into ao basis
             // and given to each monomer scc step
-            let esp_at: Array1<f64> = if !self.config.use_shell_resolved_gamma {
+            let esp_at: Array1<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
                 self.properties.gamma().unwrap().dot(&dq)
             } else {
                 self.properties.gamma_ao().unwrap().dot(&dq)
@@ -51,7 +51,7 @@ impl SuperSystem<'_> {
                 .monomers
                 .par_iter_mut()
                 .map(|mol| {
-                    let v_esp: Array2<f64> = if self.config.use_shell_resolved_gamma {
+                    let v_esp: Array2<f64> = if self.config.tight_binding.use_shell_resolved_gamma {
                         aovec_to_aomat(esp_at.slice(s![mol.slice.orb]), mol.n_orbs)
                     } else {
                         atomvec_to_aomat(
@@ -64,13 +64,13 @@ impl SuperSystem<'_> {
                         &atoms[mol.slice.atom_as_range()],
                         v_esp,
                         *scf_config,
-                        self.config.use_shell_resolved_gamma,
+                        self.config.tight_binding.use_shell_resolved_gamma,
                     )
                 })
                 .collect();
             for mol in self.monomers.iter() {
                 // save the dq's from the monomer calculation
-                if !self.config.use_shell_resolved_gamma {
+                if !self.config.tight_binding.use_shell_resolved_gamma {
                     dq.slice_mut(s![mol.slice.atom])
                         .assign(&mol.properties.dq().unwrap());
                 } else {
@@ -112,7 +112,7 @@ impl SuperSystem<'_> {
         // PARALLEL: The dot product could be parallelized and then it is not necessary to convert
         // the ArrayView into an owned ArrayBase
         for mol in self.monomers.iter_mut() {
-            if !self.config.use_shell_resolved_gamma {
+            if !self.config.tight_binding.use_shell_resolved_gamma {
                 let mut esp_slice: Array1<f64> = self
                     .properties
                     .gamma()
@@ -168,14 +168,15 @@ impl SuperSystem<'_> {
                     m_i,
                     m_j,
                     self.properties.gamma_ao(),
-                    self.config.use_shell_resolved_gamma,
+                    self.config.tight_binding.use_shell_resolved_gamma,
                 );
 
                 // do the SCC iterations
                 pair.run_scc(
                     &pair_atoms,
                     *scf_config,
-                    self.config.use_shell_resolved_gamma,
+                    self.config.tight_binding.use_shell_resolved_gamma,
+                    &self.config.mix_config,
                 );
 
                 // and compute the SCC energy
@@ -206,7 +207,7 @@ impl SuperSystem<'_> {
     pub fn embedding_energy(&self) -> f64 {
         // The embedding energy is initialized to zero.
         let mut embedding: f64 = 0.0;
-        if !self.config.use_shell_resolved_gamma {
+        if !self.config.tight_binding.use_shell_resolved_gamma {
             // Reference to the Gamma matrix of the full system.
             let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
             for pair in self.pairs.iter() {
@@ -269,7 +270,7 @@ impl SuperSystem<'_> {
 
     pub fn esd_pair_energy(&mut self) -> f64 {
         let mut esd_energy: f64 = 0.0;
-        if !self.config.use_shell_resolved_gamma {
+        if !self.config.tight_binding.use_shell_resolved_gamma {
             for esd_pair in self.esd_pairs.iter() {
                 let m_i: &Monomer = &self.monomers[esd_pair.i];
                 let m_j: &Monomer = &self.monomers[esd_pair.j];

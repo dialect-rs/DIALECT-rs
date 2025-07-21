@@ -39,23 +39,8 @@ impl System {
             }
         }
         // calculate the mulliken dipole moment
-        // println!("Charge difference: {}", &nuclear_charges - &atomic_charges);
         let mulliken_dip: Array1<f64> = (&nuclear_charges - &atomic_charges).dot(&xyz);
-        // println!("Mulliken dipole moment: {}", mulliken_dip);
-
-        // calculate the dipole matrix
-        // let dipole_matrix: Array3<f64> = dipole_matrix(self.n_orbs, &self.atoms, &self.slako);
-        // calculate the dipole moment
-        // let electronic_dipole_moment: Array1<f64> =
-        //     p.into_shape(self.n_orbs * self.n_orbs).unwrap().dot(
-        //         &dipole_matrix
-        //             .into_shape([self.n_orbs * self.n_orbs, 3])
-        //             .unwrap(),
-        //     );
         let dipole_moment = nuclear_charges.dot(&xyz); // - &electronic_dipole_moment;
-                                                       // println!("electronic dipole moment: {}", electronic_dipole_moment);
-                                                       // println!("nuclear dipole moment: {}", nuclear_charges.dot(&xyz));
-                                                       // println!("Dipole moment {}", dipole_moment);
 
         (mulliken_dip, dipole_moment, atomic_charge_diffs)
     }

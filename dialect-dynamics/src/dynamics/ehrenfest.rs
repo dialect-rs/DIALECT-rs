@@ -7,9 +7,6 @@ use crate::output::helper::{
 };
 use ndarray::prelude::*;
 use ndarray_linalg::c64;
-// use ndarray_npy::NpzWriter;
-// use std::fs::File;
-// use faer::{set_global_parallelism, Parallelism};
 use std::ops::AddAssign;
 use std::time::Instant;
 
@@ -147,7 +144,6 @@ impl Simulation {
             self.coordinates.view(),
             self.velocities.view(),
             self.coefficients.view(),
-            // abs_coefficients.view(),
             self.config.ehrenfest_config.state_threshold,
             self.config.stepsize,
             step,

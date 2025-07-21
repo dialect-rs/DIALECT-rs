@@ -62,7 +62,7 @@ impl Monomer<'_> {
             }
         } else {
             if self.properties.q_ov().is_none() && self.properties.q_ov().is_none() {
-                if config.use_shell_resolved_gamma {
+                if config.tight_binding.use_shell_resolved_gamma {
                     let (qov, qoo, qvv): (Array2<f64>, Array2<f64>, Array2<f64>) = trans_charges_ao(
                         self.n_orbs,
                         self.properties.orbs().unwrap(),

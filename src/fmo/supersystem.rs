@@ -86,8 +86,8 @@ impl<'a>
         let gf: GammaFunction = initialize_gamma_function(
             &unique_atoms,
             0.0,
-            input.1.use_gaussian_gamma,
-            input.1.use_shell_resolved_gamma,
+            input.1.tight_binding.use_gaussian_gamma,
+            input.1.tight_binding.use_shell_resolved_gamma,
             input.1.dftb3.use_gamma_damping,
         );
 
@@ -96,8 +96,8 @@ impl<'a>
             Some(initialize_gamma_function(
                 &unique_atoms,
                 input.1.lc.long_range_radius,
-                input.1.use_gaussian_gamma,
-                input.1.use_shell_resolved_gamma,
+                input.1.tight_binding.use_gaussian_gamma,
+                input.1.tight_binding.use_shell_resolved_gamma,
                 input.1.dftb3.use_gamma_damping,
             ))
         } else {
@@ -189,7 +189,7 @@ impl<'a>
 
         // Compute the Gamma function between all atoms
         properties.set_gamma(gamma_atomwise(&gf, &atoms, atoms.len()));
-        // Comupate the Gamma function with long-range correction
+        // Compute the Gamma function with long-range correction
         if gf_lc.is_some() {
             properties.set_gamma_lr(gamma_atomwise(&gf_lc.clone().unwrap(), &atoms, atoms.len()));
         }
@@ -213,7 +213,7 @@ impl<'a>
                 match get_pair_type(
                     &atoms[m_i.slice.atom_as_range()],
                     &atoms[m_j.slice.atom_as_range()],
-                    input.1.vdw_scaling,
+                    input.1.fmo.vdw_scaling,
                 ) {
                     PairType::Pair => {
                         pairs.push(Pair::new(i, i + j + 1, m_i, m_j, input.2, input.3));
@@ -236,7 +236,6 @@ impl<'a>
         properties.set_esd_pair_indices(esd_pair_indices);
 
         info!("{}", timer);
-
         let s = s_supersystem(n_orbs, &atoms, input.2);
         properties.set_s(s);
 

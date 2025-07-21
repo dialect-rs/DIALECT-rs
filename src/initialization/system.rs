@@ -168,8 +168,8 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
         let gf: GammaFunction = initialize_gamma_function(
             &unique_atoms,
             0.0,
-            molecule.2.use_gaussian_gamma,
-            molecule.2.use_shell_resolved_gamma,
+            molecule.2.tight_binding.use_gaussian_gamma,
+            molecule.2.tight_binding.use_shell_resolved_gamma,
             molecule.2.dftb3.use_gamma_damping,
         );
         // initialize the gamma function for long-range correction if it is requested
@@ -177,8 +177,8 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
             Some(initialize_gamma_function(
                 &unique_atoms,
                 molecule.2.lc.long_range_radius,
-                molecule.2.use_gaussian_gamma,
-                molecule.2.use_shell_resolved_gamma,
+                molecule.2.tight_binding.use_gaussian_gamma,
+                molecule.2.tight_binding.use_shell_resolved_gamma,
                 molecule.2.dftb3.use_gamma_damping,
             ))
         } else {

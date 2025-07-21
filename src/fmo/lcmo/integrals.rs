@@ -43,7 +43,7 @@ impl SuperSystem<'_> {
         let (atoms_i, atoms_j): (Slice, Slice) = (i.monomer.slice.atom, j.monomer.slice.atom);
 
         // Get the gamma matrix between both sets of atoms.
-        let gamma_ab: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let gamma_ab: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_slice(atoms_i, atoms_j).unwrap()
         } else {
             self.properties
@@ -70,14 +70,14 @@ impl SuperSystem<'_> {
                         .slice_move(s![i.monomer.slice.orb, j.monomer.slice.orb]);
 
                     // The transition charges between both sets of occupied orbitals are computed. .
-                    let q_ij: Array3<f64> = if !self.config.use_shell_resolved_gamma {
+                    let q_ij: Array3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.q_lele(i, j, ElecHole::Hole, ElecHole::Hole, s_ab.view())
                     } else {
                         self.q_lele_ao(i, j, ElecHole::Hole, ElecHole::Hole, s_ab.view())
                     };
 
                     // Transition charges between both sets of virtual orbitals are computed.
-                    let q_ab: Array3<f64> = if !self.config.use_shell_resolved_gamma {
+                    let q_ab: Array3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.q_lele(i, j, ElecHole::Electron, ElecHole::Electron, s_ab.view())
                     } else {
                         self.q_lele_ao(i, j, ElecHole::Electron, ElecHole::Electron, s_ab.view())
@@ -116,7 +116,7 @@ impl SuperSystem<'_> {
                     };
 
                     // Some properties that are used specify the shapes.
-                    let n_atoms: usize = if !self.config.use_shell_resolved_gamma {
+                    let n_atoms: usize = if !self.config.tight_binding.use_shell_resolved_gamma {
                         i.monomer.n_atoms + j.monomer.n_atoms
                     } else {
                         i.monomer.n_orbs + j.monomer.n_orbs
@@ -126,8 +126,8 @@ impl SuperSystem<'_> {
                     // Number of virtual orbitals in both monomers.
                     let (n_a, n_b): (usize, usize) = (q_ab.dim().1, q_ab.dim().2);
 
-                    // The lrc-Gamma matrix of the dimer. TODO: WHICH GAMMA IS NEEDED HERE???
-                    let gamma_lc_ab: Array2<f64> = if !self.config.use_shell_resolved_gamma {
+                    // The lrc-Gamma matrix of the dimer.
+                    let gamma_lc_ab: Array2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.gamma_ab_cd(
                             i.monomer.index,
                             j.monomer.index,
@@ -267,7 +267,7 @@ impl SuperSystem<'_> {
         let restrict_space: bool = self.config.fmo_lc_tddftb.restrict_active_space;
 
         // calculate the gamma matrix between the three monomers
-        let gamma = if !self.config.use_shell_resolved_gamma {
+        let gamma = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.gamma_ab_c(j.m_h, j.m_l, i.monomer.index, LRC::OFF)
         } else {
             self.gamma_ab_c_ao(j.m_h, j.m_l, i.monomer.index, LRC::OFF)
@@ -289,7 +289,7 @@ impl SuperSystem<'_> {
                 let q_ij = if i.monomer.index == j.m_h {
                     let q_oo = i.monomer.properties.q_oo().unwrap();
                     let nocc: usize = i.occs.ncols();
-                    let n_dim: usize = if !self.config.use_shell_resolved_gamma {
+                    let n_dim: usize = if !self.config.tight_binding.use_shell_resolved_gamma {
                         i.monomer.n_atoms
                     } else {
                         i.monomer.n_orbs
@@ -311,7 +311,7 @@ impl SuperSystem<'_> {
                     } else {
                         q_oo.into_shape([n_dim, nocc, nocc]).unwrap().to_owned()
                     }
-                } else if !self.config.use_shell_resolved_gamma {
+                } else if !self.config.tight_binding.use_shell_resolved_gamma {
                     self.q_lect(i, j, ElecHole::Hole)
                 } else {
                     self.q_lect_ao(i, j, ElecHole::Hole)
@@ -320,7 +320,7 @@ impl SuperSystem<'_> {
                 let q_ab = if i.monomer.index == j.m_l {
                     let q_vv = i.monomer.properties.q_vv().unwrap();
                     let nvirt: usize = i.virts.ncols();
-                    let n_dim: usize = if !self.config.use_shell_resolved_gamma {
+                    let n_dim: usize = if !self.config.tight_binding.use_shell_resolved_gamma {
                         i.monomer.n_atoms
                     } else {
                         i.monomer.n_orbs
@@ -343,26 +343,26 @@ impl SuperSystem<'_> {
                     } else {
                         q_vv.into_shape([n_dim, nvirt, nvirt]).unwrap().to_owned()
                     }
-                } else if !self.config.use_shell_resolved_gamma {
+                } else if !self.config.tight_binding.use_shell_resolved_gamma {
                     self.q_lect(i, j, ElecHole::Electron)
                 } else {
                     self.q_lect_ao(i, j, ElecHole::Electron)
                 };
 
                 let gamma_lr = if i.monomer.index == j.m_h {
-                    let gamma = if !self.config.use_shell_resolved_gamma {
+                    let gamma = if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.gamma_ab_c(i.monomer.index, j.m_l, i.monomer.index, LRC::ON)
                     } else {
                         self.gamma_ab_c_ao(i.monomer.index, j.m_l, i.monomer.index, LRC::ON)
                     };
                     gamma.reversed_axes()
                 } else if i.monomer.index == j.m_l {
-                    if !self.config.use_shell_resolved_gamma {
+                    if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.gamma_ab_c(i.monomer.index, j.m_h, i.monomer.index, LRC::ON)
                     } else {
                         self.gamma_ab_c_ao(i.monomer.index, j.m_h, i.monomer.index, LRC::ON)
                     }
-                } else if !self.config.use_shell_resolved_gamma {
+                } else if !self.config.tight_binding.use_shell_resolved_gamma {
                     self.gamma_ab_cd(i.monomer.index, j.m_h, i.monomer.index, j.m_l, LRC::ON)
                 } else {
                     self.gamma_ab_cd_ao(i.monomer.index, j.m_h, i.monomer.index, j.m_l, LRC::ON)
@@ -447,7 +447,7 @@ impl SuperSystem<'_> {
 
     pub fn ct_ct(&self, state_1: &ChargeTransferPair, state_2: &ChargeTransferPair) -> f64 {
         // calculate the gamma matrix between the two pairs
-        let gamma_ij_kl: Array2<f64> = if !self.config.use_shell_resolved_gamma {
+        let gamma_ij_kl: Array2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.gamma_ab_cd(state_1.m_h, state_1.m_l, state_2.m_h, state_2.m_l, LRC::OFF)
         } else {
             self.gamma_ab_cd_ao(state_1.m_h, state_1.m_l, state_2.m_h, state_2.m_l, LRC::OFF)
@@ -477,7 +477,7 @@ impl SuperSystem<'_> {
                         .unwrap()
                         .len();
                     let q_oo = self.monomers[state_1.m_h].properties.q_oo().unwrap();
-                    let n_dim: usize = if !self.config.use_shell_resolved_gamma {
+                    let n_dim: usize = if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.monomers[state_1.m_h].n_atoms
                     } else {
                         self.monomers[state_1.m_h].n_orbs
@@ -500,7 +500,7 @@ impl SuperSystem<'_> {
                     } else {
                         q_oo.into_shape([n_dim, nocc, nocc]).unwrap().to_owned()
                     }
-                } else if !self.config.use_shell_resolved_gamma {
+                } else if !self.config.tight_binding.use_shell_resolved_gamma {
                     self.q_ctct(state_1, state_2, ElecHole::Hole)
                 } else {
                     self.q_ctct_ao(state_1, state_2, ElecHole::Hole)
@@ -513,7 +513,7 @@ impl SuperSystem<'_> {
                         .unwrap()
                         .len();
                     let q_vv = self.monomers[state_1.m_l].properties.q_vv().unwrap();
-                    let n_dim: usize = if !self.config.use_shell_resolved_gamma {
+                    let n_dim: usize = if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.monomers[state_1.m_l].n_atoms
                     } else {
                         self.monomers[state_1.m_l].n_orbs
@@ -535,26 +535,26 @@ impl SuperSystem<'_> {
                     } else {
                         q_vv.into_shape([n_dim, nvirt, nvirt]).unwrap().to_owned()
                     }
-                } else if !self.config.use_shell_resolved_gamma {
+                } else if !self.config.tight_binding.use_shell_resolved_gamma {
                     self.q_ctct(state_1, state_2, ElecHole::Electron)
                 } else {
                     self.q_ctct_ao(state_1, state_2, ElecHole::Electron)
                 };
 
                 let gamma_lr = if state_1.m_h == state_2.m_h {
-                    let gamma = if !self.config.use_shell_resolved_gamma {
+                    let gamma = if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.gamma_ab_c(state_1.m_l, state_2.m_l, state_1.m_h, LRC::ON)
                     } else {
                         self.gamma_ab_c_ao(state_1.m_l, state_2.m_l, state_1.m_h, LRC::ON)
                     };
                     gamma.reversed_axes()
                 } else if state_1.m_l == state_2.m_l {
-                    if !self.config.use_shell_resolved_gamma {
+                    if !self.config.tight_binding.use_shell_resolved_gamma {
                         self.gamma_ab_c(state_1.m_h, state_2.m_h, state_1.m_l, LRC::ON)
                     } else {
                         self.gamma_ab_c_ao(state_1.m_h, state_2.m_h, state_1.m_l, LRC::ON)
                     }
-                } else if !self.config.use_shell_resolved_gamma {
+                } else if !self.config.tight_binding.use_shell_resolved_gamma {
                     self.gamma_ab_cd(state_1.m_h, state_2.m_h, state_1.m_l, state_2.m_l, LRC::ON)
                 } else {
                     self.gamma_ab_cd_ao(state_1.m_h, state_2.m_h, state_1.m_l, state_2.m_l, LRC::ON)

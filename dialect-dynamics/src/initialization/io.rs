@@ -6,8 +6,8 @@ use crate::defaults::*;
 use chemfiles::{Frame, Trajectory};
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::Path;
-use std::{env, fs};
 
 fn default_nstep() -> usize {
     NSTEP

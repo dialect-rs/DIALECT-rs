@@ -12,5 +12,3 @@ pub mod old_system;
 pub mod parameter_handling;
 pub mod parameters;
 pub mod system;
-
-//, AtomRef, AtomRefMut, AtomSlice, AtomSliceMut, AtomVec};

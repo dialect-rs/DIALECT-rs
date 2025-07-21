@@ -585,6 +585,83 @@ impl Properties {
             .map(|value| value.as_array3().unwrap().view())
     }
 
+    /// Get an overlap matrix between two monomers
+    pub fn overlap_ij(&self, i: usize, j: usize) -> ArrayView2<f64> {
+        if i == j {
+            let map: &HashMap<(usize, usize), Array2<f64>> =
+                self.get("overlap_map").unwrap().as_matrix_map().unwrap();
+            map.get(&(i, i)).unwrap().view()
+        } else if i < j {
+            let map: &HashMap<(usize, usize), Array2<f64>> =
+                self.get("overlap_map").unwrap().as_matrix_map().unwrap();
+            map.get(&(i, j)).unwrap().view()
+        } else {
+            let map: &HashMap<(usize, usize), Array2<f64>> =
+                self.get("overlap_map").unwrap().as_matrix_map().unwrap();
+            map.get(&(j, i)).unwrap().t()
+        }
+    }
+
+    pub fn bool_ij(&self, i: usize, j: usize) -> bool {
+        if i == j {
+            let map: &HashMap<(usize, usize), bool> =
+                self.get("bool_map").unwrap().as_matrix_bool_map().unwrap();
+            map.get(&(i, i)).unwrap().to_owned()
+        } else {
+            let map: &HashMap<(usize, usize), bool> =
+                self.get("bool_map").unwrap().as_matrix_bool_map().unwrap();
+            map.get(&(i, j))
+                .unwrap_or_else(|| map.get(&(j, i)).unwrap())
+                .to_owned()
+        }
+    }
+
+    /// Get a gamma matrix between two monomers
+    pub fn gamma_ij(&self, i: usize, j: usize) -> ArrayView2<f64> {
+        if i == j {
+            let map: &HashMap<(usize, usize), Array2<f64>> =
+                self.get("gamma_map").unwrap().as_matrix_map().unwrap();
+            map.get(&(i, i)).unwrap().view()
+        } else {
+            let map: &HashMap<(usize, usize), Array2<f64>> =
+                self.get("gamma_map").unwrap().as_matrix_map().unwrap();
+            map.get(&(i, j))
+                .unwrap_or_else(|| map.get(&(j, i)).unwrap())
+                .view()
+        }
+    }
+
+    pub fn gamma_map(&self) -> &HashMap<(usize, usize), Array2<f64>> {
+        self.get("gamma_map").unwrap().as_matrix_map().unwrap()
+    }
+
+    pub fn gamma_lr_map(&self) -> &HashMap<(usize, usize), Array2<f64>> {
+        self.get("gamma_lr_map").unwrap().as_matrix_map().unwrap()
+    }
+
+    pub fn overlap_map(&self) -> &HashMap<(usize, usize), Array2<f64>> {
+        self.get("overlap_map").unwrap().as_matrix_map().unwrap()
+    }
+
+    pub fn bool_map(&self) -> &HashMap<(usize, usize), bool> {
+        self.get("bool_map").unwrap().as_matrix_bool_map().unwrap()
+    }
+
+    /// Get a gamma matrix between two monomers
+    pub fn gamma_lr_ij(&self, i: usize, j: usize) -> ArrayView2<f64> {
+        if i == j {
+            let map: &HashMap<(usize, usize), Array2<f64>> =
+                self.get("gamma_lr_map").unwrap().as_matrix_map().unwrap();
+            map.get(&(i, i)).unwrap().view()
+        } else {
+            let map: &HashMap<(usize, usize), Array2<f64>> =
+                self.get("gamma_lr_map").unwrap().as_matrix_map().unwrap();
+            map.get(&(i, j))
+                .unwrap_or_else(|| map.get(&(j, i)).unwrap())
+                .view()
+        }
+    }
+
     /// Get type of a monomer pair.
     pub fn type_of_pair(&self, i: usize, j: usize) -> PairType {
         if i == j {
@@ -730,5 +807,19 @@ impl Properties {
             Some(value) => Some(value.as_vec_usize().unwrap()),
             _ => None,
         }
+    }
+}
+
+pub fn array_from_map(
+    map: &HashMap<(usize, usize), Array2<f64>>,
+    i: usize,
+    j: usize,
+) -> ArrayView2<f64> {
+    if i == j {
+        map.get(&(i, i)).unwrap().view()
+    } else if i < j {
+        map.get(&(i, j)).unwrap().view()
+    } else {
+        map.get(&(j, i)).unwrap().t()
     }
 }

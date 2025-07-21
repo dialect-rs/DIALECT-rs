@@ -30,8 +30,6 @@ impl Simulation {
 
         if self.config.print_config.print_energies {
             write_energies(self.energies.view(), first_call);
-            // let total_energy: f64 = self.kinetic_energy + self.energies[self.state];
-            // write_kinetic_and_total_energy(self.kinetic_energy, total_energy, first_call);
         }
         if self.config.print_config.print_state {
             write_state(self.state, first_call);
@@ -40,7 +38,6 @@ impl Simulation {
             let temperature: f64 = self.thermostat.get_temperature(self.kinetic_energy);
             write_temperature(temperature, first_call);
         }
-
         if self.config.use_surface_hopping {
             let coeff_abs = self.coefficients.map(|val| val.norm_sqr());
             self.coeff_writer
@@ -75,8 +72,6 @@ impl Simulation {
 
         if self.config.print_config.print_energies {
             write_energies(self.energies.view(), first_call);
-            // let total_energy: f64 = self.kinetic_energy + self.energies[self.state];
-            // write_kinetic_and_total_energy(self.kinetic_energy, total_energy, first_call);
         }
         if self.config.print_config.print_temperature {
             let temperature: f64 = self.thermostat.get_temperature(self.kinetic_energy);

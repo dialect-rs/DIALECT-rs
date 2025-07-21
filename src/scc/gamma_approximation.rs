@@ -1682,6 +1682,37 @@ pub fn gamma_ao_wise_shell_resolved(
     g0_a0
 }
 
+pub fn gamma_ao_wise_shell_resolved_ab(
+    gamma_func: &GammaFunction,
+    atomsi: &[Atom],
+    atomsj: &[Atom],
+    n_orbsi: usize,
+    n_orbsj: usize,
+) -> Array2<f64> {
+    let mut g0_a0: Array2<f64> = Array2::zeros((n_orbsi, n_orbsj));
+    let mut mu: usize = 0;
+    let mut nu: usize;
+    for (_i, atomi) in atomsi.iter().enumerate() {
+        for orb_i in atomi.valorbs.iter() {
+            nu = 0;
+            for (_j, atomj) in atomsj.iter().enumerate() {
+                for orb_j in atomj.valorbs.iter() {
+                    g0_a0[[mu, nu]] = gamma_func.eval_shell_resolved(
+                        (atomi.xyz - atomj.xyz).norm(),
+                        atomi.number,
+                        atomj.number,
+                        orb_i.l as u8,
+                        orb_j.l as u8,
+                    );
+                    nu += 1;
+                }
+            }
+            mu += 1;
+        }
+    }
+    g0_a0
+}
+
 pub fn gamma_gradients_ao_wise_shell_resolved(
     gamma_func: &GammaFunction,
     atoms: &[Atom],

@@ -19,7 +19,7 @@ use ndarray_stats::DeviationExt;
 use super::helpers::atomvec_to_aomat;
 
 impl Monomer<'_> {
-    pub fn prepare_scc(&mut self, atoms: &[Atom], shell_resolved: bool) {
+    pub fn prepare_scc(&mut self, atoms: &[Atom], shell_resolved: bool, mix_config: MixConfig) {
         // get H0 and S
         let (s, h0): (Array2<f64>, Array2<f64>) = h0_and_s(self.n_orbs, atoms, self.slako);
         // convert generalized eigenvalue problem H.C = S.C.e into eigenvalue problem H'.C' = C'.e
@@ -78,7 +78,6 @@ impl Monomer<'_> {
             }
         }
         // Anderson mixer
-        let mix_config: MixConfig = MixConfig::default();
         let dim: usize;
         if self.gammafunction_lc.is_some() {
             dim = self.n_orbs * self.n_orbs;

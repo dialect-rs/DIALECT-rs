@@ -3,7 +3,7 @@
 use hashbrown::HashMap;
 pub use property::Property;
 
-mod getter;
+pub mod getter;
 pub mod property;
 mod setter;
 mod taker;

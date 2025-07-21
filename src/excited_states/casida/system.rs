@@ -39,7 +39,7 @@ impl System {
             tolerance,
             max_iter,
             subspace_multiplier,
-            self.config.use_shell_resolved_gamma,
+            self.config.tight_binding.use_shell_resolved_gamma,
         )
         .unwrap();
 
@@ -154,7 +154,7 @@ impl System {
             tolerance,
             max_iter,
             subspace_multiplier,
-            self.config.use_shell_resolved_gamma,
+            self.config.tight_binding.use_shell_resolved_gamma,
         )
         .unwrap();
 
@@ -176,7 +176,7 @@ impl System {
         let q_trans: Array2<f64> = q_ov.dot(&result.eigenvectors);
 
         // The Mulliken transition dipole moments are computed.
-        let tr_dipoles: Array2<f64> = if !self.config.use_shell_resolved_gamma {
+        let tr_dipoles: Array2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             mulliken_dipoles(q_trans.view(), &self.atoms)
         } else {
             mulliken_dipoles_from_ao(q_trans.view(), &self.atoms)
@@ -282,7 +282,7 @@ impl System {
         let q_trans: Array2<f64> = q_ov.dot(&eigenvectors);
 
         // The Mulliken transition dipole moments are computed.
-        let tr_dipoles: Array2<f64> = if !self.config.use_shell_resolved_gamma {
+        let tr_dipoles: Array2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             mulliken_dipoles(q_trans.view(), &self.atoms)
         } else {
             mulliken_dipoles_from_ao(q_trans.view(), &self.atoms)
@@ -505,7 +505,7 @@ pub fn a_mat_exchange(molecule: &System) -> Array2<f64> {
     // Reference to the v-v transition charges.
     let qvv: ArrayView2<f64> = molecule.properties.q_vv().unwrap();
     // Reference to the screened Gamma matrix.
-    let gamma_lr: ArrayView2<f64> = if molecule.config.use_shell_resolved_gamma {
+    let gamma_lr: ArrayView2<f64> = if molecule.config.tight_binding.use_shell_resolved_gamma {
         molecule.properties.gamma_lr_ao().unwrap()
     } else {
         molecule.properties.gamma_lr().unwrap()
@@ -529,7 +529,7 @@ pub fn a_mat_fock_and_coulomb(molecule: &System) -> Array2<f64> {
     // Reference to the o-v transition charges.
     let qov: ArrayView2<f64> = molecule.properties.q_ov().unwrap();
     // Reference to the unscreened Gamma matrix.
-    let gamma: ArrayView2<f64> = if molecule.config.use_shell_resolved_gamma {
+    let gamma: ArrayView2<f64> = if molecule.config.tight_binding.use_shell_resolved_gamma {
         molecule.properties.gamma_ao().unwrap()
     } else {
         molecule.properties.gamma().unwrap()
@@ -545,7 +545,7 @@ pub fn b_mat_coulomb(molecule: &System) -> Array2<f64> {
     // Reference to the o-v transition charges.
     let qov: ArrayView2<f64> = molecule.properties.q_ov().unwrap();
     // Reference to the unscreened Gamma matrix.
-    let gamma: ArrayView2<f64> = if molecule.config.use_shell_resolved_gamma {
+    let gamma: ArrayView2<f64> = if molecule.config.tight_binding.use_shell_resolved_gamma {
         molecule.properties.gamma_ao().unwrap()
     } else {
         molecule.properties.gamma().unwrap()
@@ -574,7 +574,7 @@ pub fn b_mat_exchange(molecule: &System) -> Array2<f64> {
 
     let qov: ArrayView2<f64> = molecule.properties.q_ov().unwrap();
     // Reference to the screened Gamma matrix.
-    let gamma: ArrayView2<f64> = if molecule.config.use_shell_resolved_gamma {
+    let gamma: ArrayView2<f64> = if molecule.config.tight_binding.use_shell_resolved_gamma {
         molecule.properties.gamma_lr_ao().unwrap()
     } else {
         molecule.properties.gamma_lr().unwrap()

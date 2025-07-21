@@ -9,6 +9,7 @@ use crate::utils::ToOwnedF;
 use hashbrown::HashMap;
 use ndarray::{s, Array, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
 use ndarray_linalg::{into_col, into_row, IntoTriangular, Norm, UPLO};
+use rayon::prelude::*;
 
 impl System {
     pub fn nac_tddftb_gs(&self, state: usize) -> Array1<f64> {
@@ -52,7 +53,7 @@ impl System {
         let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_ov()
                 .unwrap()
@@ -65,7 +66,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_virt))
                 .unwrap()
         };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_oo()
                 .unwrap()
@@ -78,7 +79,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_occ))
                 .unwrap()
         };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_vv()
                 .unwrap()
@@ -100,12 +101,12 @@ impl System {
         let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
 
         // set gamma matrices
-        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma().unwrap()
         } else {
             self.properties.gamma_ao().unwrap()
         };
-        let g0_lr: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_lr().unwrap()
         } else {
             self.properties.gamma_lr_ao().unwrap()
@@ -144,7 +145,7 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_ao().unwrap()
         } else {
             g0.view()
@@ -241,7 +242,7 @@ impl System {
         let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_ov()
                 .unwrap()
@@ -254,7 +255,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_virt))
                 .unwrap()
         };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_oo()
                 .unwrap()
@@ -267,7 +268,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_occ))
                 .unwrap()
         };
-        // let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        // let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
         //     self.properties
         //         .q_vv()
         //         .unwrap()
@@ -282,7 +283,7 @@ impl System {
         // };
 
         // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma().unwrap()
         } else {
             self.properties.gamma_ao().unwrap()
@@ -321,7 +322,7 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_ao().unwrap()
         } else {
             g0.view()
@@ -423,7 +424,7 @@ impl System {
         let x_state: ArrayView2<f64> = x_state.slice(s![state, .., ..]);
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_ov()
                 .unwrap()
@@ -436,7 +437,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_virt))
                 .unwrap()
         };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_oo()
                 .unwrap()
@@ -449,7 +450,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_occ))
                 .unwrap()
         };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_vv()
                 .unwrap()
@@ -471,12 +472,12 @@ impl System {
         let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
 
         // set gamma matrices
-        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma().unwrap()
         } else {
             self.properties.gamma_ao().unwrap()
         };
-        let g0_lr: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_lr().unwrap()
         } else {
             self.properties.gamma_lr_ao().unwrap()
@@ -515,7 +516,7 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_ao().unwrap()
         } else {
             g0.view()
@@ -619,7 +620,7 @@ impl System {
         let x_state: ArrayView2<f64> = x_state.slice(s![state, .., ..]);
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_ov()
                 .unwrap()
@@ -632,7 +633,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_virt))
                 .unwrap()
         };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_oo()
                 .unwrap()
@@ -645,7 +646,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_occ))
                 .unwrap()
         };
-        // let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        // let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
         //     self.properties
         //         .q_vv()
         //         .unwrap()
@@ -660,7 +661,7 @@ impl System {
         // };
 
         // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma().unwrap()
         } else {
             self.properties.gamma_ao().unwrap()
@@ -699,7 +700,7 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_ao().unwrap()
         } else {
             g0.view()
@@ -834,7 +835,7 @@ impl System {
                 + xmy_state_2.dot(&xmy_state_1.t()));
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_ov()
                 .unwrap()
@@ -847,7 +848,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_virt))
                 .unwrap()
         };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_oo()
                 .unwrap()
@@ -860,7 +861,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_occ))
                 .unwrap()
         };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_vv()
                 .unwrap()
@@ -882,12 +883,12 @@ impl System {
         let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
 
         // set gamma matrices
-        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma().unwrap()
         } else {
             self.properties.gamma_ao().unwrap()
         };
-        let g0_lr: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_lr().unwrap()
         } else {
             self.properties.gamma_lr_ao().unwrap()
@@ -1033,7 +1034,7 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_ao().unwrap()
         } else {
             g0.view()
@@ -1080,7 +1081,7 @@ impl System {
         let xmy_ao_2: Array2<f64> = orbs_occ.dot(&xmy_state_2.dot(&orbs_virt.t()));
 
         // set g0lr_ao and g1lr_ao
-        let g0lr_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0lr_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_lr_ao().unwrap()
         } else {
             g0_lr.view()
@@ -1251,7 +1252,7 @@ impl System {
                 + xmy_state_2.dot(&xmy_state_1.t()));
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_ov()
                 .unwrap()
@@ -1264,7 +1265,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_virt))
                 .unwrap()
         };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_oo()
                 .unwrap()
@@ -1277,7 +1278,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_occ))
                 .unwrap()
         };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_vv()
                 .unwrap()
@@ -1292,7 +1293,7 @@ impl System {
         };
 
         // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma().unwrap()
         } else {
             self.properties.gamma_ao().unwrap()
@@ -1377,7 +1378,7 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_ao().unwrap()
         } else {
             g0.view()
@@ -1539,7 +1540,7 @@ impl System {
             0.5 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_ov()
                 .unwrap()
@@ -1552,7 +1553,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_virt))
                 .unwrap()
         };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_oo()
                 .unwrap()
@@ -1565,7 +1566,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_occ))
                 .unwrap()
         };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_vv()
                 .unwrap()
@@ -1588,12 +1589,12 @@ impl System {
         let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
 
         // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma().unwrap()
         } else {
             self.properties.gamma_ao().unwrap()
         };
-        let g0_lr: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_lr().unwrap()
         } else {
             self.properties.gamma_lr_ao().unwrap()
@@ -1691,7 +1692,7 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_ao().unwrap()
         } else {
             g0.view()
@@ -1737,7 +1738,7 @@ impl System {
         let x_ao_2: Array2<f64> = orbs_occ.dot(&x_state_2.dot(&orbs_virt.t()));
 
         // set g0lr_ao and g1lr_ao
-        let g0lr_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0lr_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_lr_ao().unwrap()
         } else {
             g0_lr.view()
@@ -1872,7 +1873,7 @@ impl System {
             0.5 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
 
         // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_ov()
                 .unwrap()
@@ -1885,7 +1886,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_virt))
                 .unwrap()
         };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_oo()
                 .unwrap()
@@ -1898,7 +1899,7 @@ impl System {
                 .into_shape((self.n_orbs, n_occ, n_occ))
                 .unwrap()
         };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.use_shell_resolved_gamma {
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties
                 .q_vv()
                 .unwrap()
@@ -1913,7 +1914,7 @@ impl System {
         };
 
         // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma().unwrap()
         } else {
             self.properties.gamma_ao().unwrap()
@@ -2003,7 +2004,7 @@ impl System {
 
         // get arrays from properties
         let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.use_shell_resolved_gamma {
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
             self.properties.gamma_ao().unwrap()
         } else {
             g0.view()
@@ -2139,59 +2140,69 @@ impl System {
         // let mut coupling_vectors: Array3<f64> = Array3::zeros([nstates, nstates, 3 * self.n_atoms]);
         let mut coupling_vectors: Vec<Array1<f64>> = Vec::new();
 
+        // create iteration indices
+        let mut iter_indices: Vec<(usize, usize)> = Vec::new();
+        for i in 0..nstates {
+            for j in 0..nstates {
+                if i < j {
+                    iter_indices.push((i, j));
+                }
+            }
+        }
+
         // get the old system
         let old_system = self.properties.old_system();
         if old_system.is_some() {
             let old_sys = old_system.unwrap();
             let old_vectors: Vec<Array1<f64>> = old_sys.old_nacv.clone().unwrap();
-            let mut count: usize = 0;
 
-            for i in 0..nstates {
-                for j in 0..nstates {
-                    if i < j {
-                        let vector: Array1<f64> = self.get_nonadiabatic_coupling_vectors(i, j);
-                        let normed_vector: Array1<f64> = &vector / (vector.norm());
-                        // let old_vec: ArrayView1<f64> = old_vectors.slice(s![i, j, ..]);
-                        let old_vec: ArrayView1<f64> = old_vectors[count].view();
-                        let normed_old_vec: Array1<f64> = &old_vec / (old_vec.norm());
-                        let sign: f64 = normed_old_vec.dot(&normed_vector);
+            // new iteration
+            let result: Vec<(f64, Array1<f64>)> = iter_indices
+                .par_iter()
+                .enumerate()
+                .map(|(idx, (i, j))| {
+                    let vector: Array1<f64> = self.get_nonadiabatic_coupling_vectors(*i, *j);
+                    let normed_vector: Array1<f64> = &vector / (vector.norm());
+                    let old_vec: ArrayView1<f64> = old_vectors[idx].view();
+                    let normed_old_vec: Array1<f64> = &old_vec / (old_vec.norm());
+                    let sign: f64 = normed_old_vec.dot(&normed_vector);
 
-                        // check for positive or negative sign
-                        if sign > 0.0 {
-                            // coupling_vectors.slice_mut(s![i, j, ..]).assign(&vector);
-                            let val: f64 = vector.dot(&velocities_1d);
-                            coupling_vectors.push(vector);
-
-                            coupling[[i, j]] = val;
-                            coupling[[j, i]] = -1.0 * val;
-                        } else {
-                            let vec_changed_sign: Array1<f64> = -1.0 * &vector;
-                            // coupling_vectors
-                            //     .slice_mut(s![i, j, ..])
-                            //     .assign(&vec_changed_sign);
-                            let val: f64 = vec_changed_sign.dot(&velocities_1d);
-                            coupling_vectors.push(vec_changed_sign);
-
-                            coupling[[i, j]] = val;
-                            coupling[[j, i]] = -1.0 * val;
-                        }
-                        count += 1;
+                    // check for positive or negative sign
+                    if sign > 0.0 {
+                        let val: f64 = vector.dot(&velocities_1d);
+                        (val, vector)
+                    } else {
+                        let vec_changed_sign: Array1<f64> = -1.0 * &vector;
+                        let val: f64 = vec_changed_sign.dot(&velocities_1d);
+                        (val, vec_changed_sign)
                     }
-                }
+                })
+                .collect();
+
+            for (iter_idx, (val, vec)) in iter_indices.iter().zip(result.iter()) {
+                let i: usize = iter_idx.0;
+                let j: usize = iter_idx.1;
+                coupling[[i, j]] = *val;
+                coupling[[j, i]] = -1.0 * val;
+                coupling_vectors.push(vec.to_owned());
             }
         } else {
-            for i in 0..nstates {
-                for j in 0..nstates {
-                    if i < j {
-                        let vector: Array1<f64> = self.get_nonadiabatic_coupling_vectors(i, j);
-                        // coupling_vectors.slice_mut(s![i, j, ..]).assign(&vector);
-                        let val: f64 = vector.dot(&velocities_1d);
-                        coupling_vectors.push(vector);
+            // new iteration
+            let result: Vec<(f64, Array1<f64>)> = iter_indices
+                .par_iter()
+                .map(|&(i, j)| {
+                    let vector: Array1<f64> = self.get_nonadiabatic_coupling_vectors(i, j);
+                    let val: f64 = vector.dot(&velocities_1d);
 
-                        coupling[[i, j]] = val;
-                        coupling[[j, i]] = -1.0 * val;
-                    }
-                }
+                    (val, vector)
+                })
+                .collect();
+            for (iter_idx, (val, vec)) in iter_indices.iter().zip(result.iter()) {
+                let i: usize = iter_idx.0;
+                let j: usize = iter_idx.1;
+                coupling[[i, j]] = *val;
+                coupling[[j, i]] = -1.0 * val;
+                coupling_vectors.push(vec.to_owned());
             }
         }
 
