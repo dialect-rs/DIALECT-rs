@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ "new_main" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "new_main" ]
+    branches: [ "main" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,7 +14,7 @@ jobs:
 
     runs-on: ubuntu-latest
     env:
-      DIALECT_SRC_DIR: /home/runner/work/dialect_atomic/dialect_atomic
+      DIALECT_SRC_DIR: /home/runner/work/dialect/dialect
 
     steps:
     - uses: actions/checkout@v4
