@@ -1,5 +1,4 @@
 jobtype = "polariton"
-vdw_scaling = 2.0
 verbose = 0
 
 [tight_binding]
