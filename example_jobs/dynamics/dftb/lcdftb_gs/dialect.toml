@@ -1,9 +1,15 @@
 jobtype = "dynamics"
-use_gaussian_gamma = false
-use_shell_resolved_gamma = false
+verbose = 0
+
+[tight_binding]
+use_dftb = true 
+use_xtb1 = false   
+use_gaussian_gamma = false  
+use_shell_resolved_gamma = false 
+
+[fmo]
 fmo = false
 vdw_scaling = 2.0
-verbose = 0
 
 [mol]
 charge = 0
