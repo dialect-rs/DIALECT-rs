@@ -1,14 +1,16 @@
 use crate::utils::Timer;
-use clap::{crate_name, crate_version};
 use log::{info, warn};
+
+const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
+const CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const LOG_WIDTH: usize = 80;
 
 pub fn write_header() {
     warn!("{: ^LOG_WIDTH$}", "-----------------");
-    warn!("{: ^LOG_WIDTH$}", crate_name!().to_uppercase());
+    warn!("{: ^LOG_WIDTH$}", CRATE_NAME.to_uppercase());
     warn!("{: ^LOG_WIDTH$}", "-----------------");
-    warn!("{: ^LOG_WIDTH$}", format!("version: {}", crate_version!()));
+    warn!("{: ^LOG_WIDTH$}", format!("version: {}", CRATE_VERSION));
     warn!("{: ^LOG_WIDTH$}", "");
     warn!("{: ^LOG_WIDTH$}", format!("{::^55}", ""));
     warn!(
@@ -72,7 +74,7 @@ pub fn write_footer(timer: Timer) {
         "{: ^80}",
         format!(
             "::    Thank you for using {}    ::",
-            crate_name!().to_uppercase()
+            CRATE_NAME.to_uppercase()
         )
     );
     warn!("{: ^80}", ":::::::::::::::::::::::::::::::::::::::");

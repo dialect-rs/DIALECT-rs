@@ -1,0 +1,40 @@
+[package]
+name = "dialect-utilities"
+version = "1.0.0"
+authors = [
+    "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
+    "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
+]
+edition = "2021"
+
+[dependencies]
+xyz_parser = { git = "https://github.com/einseler/xyz_parser" }
+anyhow = "1.0.95"
+derive_builder = "0.12.0"
+dialect-base = { path = "../dialect-base" }
+dialect-config = { path = "../dialect-config" }
+dialect-dftb-core = { path = "../dialect-dftb-core" }
+dialect-xtb-core = { path = "../dialect-xtb-core" }
+hashbrown = "0.13.2"
+# Pulls in the LAPACK/BLAS backend so the raw `extern "C"` symbols
+# (dsyevd_, dgemm_) resolve when this crate is tested standalone.
+lapack-src = { version = "0.13", features = ["openblas"] }
+nalgebra = "0.32.1"
+ndarray = { version = "0.15.6", features = ["rayon", "serde-1"] }
+ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
+ndarray-npy = "0.8.1"
+ndarray-stats = "0.5.1"
+rayon = "1.10.0"
+rusty-fitpack = { git = "https://github.com/einseler/Rusty-FITPACK" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4.17"
+rand = "0.8.5"
+rand_distr = "0.4.0"
+sphrs = { git = "https://github.com/einseler/sphrs" }
+splines = "4.1.1"
+libm = "0.2.5"
+ndarray-rand = "0.14.0"
+petgraph = "0.6.3"
+itertools = "0.10.5"

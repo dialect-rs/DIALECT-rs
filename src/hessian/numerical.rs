@@ -18,7 +18,7 @@ impl System {
     }
 
     pub fn gs_gradient_wrapper_hessian(&mut self, geometry: Array1<f64>) -> Array1<f64> {
-        self.properties.reset();
+        self.properties.reset_reduced();
         self.update_xyz(geometry.view());
         self.prepare_scc();
         self.run_scc().unwrap();
@@ -42,7 +42,7 @@ impl System {
     }
 
     pub fn excited_gradient_wrapper_hessian(&mut self, geometry: Array1<f64>) -> Array1<f64> {
-        self.properties.reset();
+        self.properties.reset_reduced();
         self.update_xyz(geometry.view());
         self.prepare_scc();
         self.run_scc().unwrap();

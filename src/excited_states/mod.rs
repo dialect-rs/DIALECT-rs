@@ -8,7 +8,7 @@ use ndarray_npy::{write_npy, WriteNpyError};
 pub use solvers::*;
 pub use tda::*;
 pub use transition_charges::*;
-pub use utils::*;
+pub use dialect_solvers::cache::*;
 
 use crate::constants::HARTREE_TO_EV;
 use crate::excited_states::ntos::natural_transition_orbitals;
@@ -19,8 +19,9 @@ pub mod casida;
 pub mod ntos;
 pub mod solvers;
 pub(crate) mod tda;
+mod tdm_analysis;
 mod transition_charges;
-mod utils;
+
 
 /// General trait for all excited states struct, to implement basis functions.
 pub trait ExcitedState {
@@ -28,17 +29,17 @@ pub trait ExcitedState {
     fn get_lumo(&self) -> usize;
 
     /// Returns the MO coefficients.
-    fn get_mo_coefficients(&self) -> ArrayView2<f64>;
+    fn get_mo_coefficients(&self) -> ArrayView2<'_, f64>;
 
     /// Returns the reduced one particle transition density matrix in MO basis for a specific
     /// excited states. 0 => S1, 1 => S2, ...
     fn get_transition_density_matrix(&self, state: usize) -> Array2<f64>;
 
     /// Returns the relative excitation energy of all excited states.
-    fn get_energies(&self) -> ArrayView1<f64>;
+    fn get_energies(&self) -> ArrayView1<'_, f64>;
 
     /// Returns the oscilaltor strengths of all excited states.
-    fn get_oscillator_strengths(&self) -> ArrayView1<f64>;
+    fn get_oscillator_strengths(&self) -> ArrayView1<'_, f64>;
 
     /// Returns the number of excited states.
     fn get_num_states(&self) -> usize;

@@ -1,3 +1,5 @@
+use super::helpers::atomvec_to_aomat;
+use crate::scc::mixer::BuildMixer;
 use crate::fmo::Monomer;
 use crate::initialization::Atom;
 use crate::io::settings::MixConfig;
@@ -5,7 +7,9 @@ use crate::io::SccConfig;
 use crate::scc::gamma_approximation::*;
 use crate::scc::get_electronic_energy_gamma_shell_resolved;
 use crate::scc::h0_and_s::*;
+use crate::scc::lapack_eigh::{compute_s_inv_sqrt, dsyevd_eigh};
 use crate::scc::mixer::AndersonAccel;
+use crate::scc::mixer::BroydenMixerNew;
 use crate::scc::mulliken::mulliken_aowise;
 use crate::scc::mulliken::mulliken_atomwise;
 use crate::scc::outer_sum;
@@ -13,18 +17,17 @@ use crate::scc::{
     calc_exchange, density_matrix, density_matrix_ref, get_electronic_energy_new, lc_exact_exchange,
 };
 use ndarray::prelude::*;
-use ndarray_linalg::*;
+// use ndarray_linalg::*;
 use ndarray_stats::DeviationExt;
 
-use super::helpers::atomvec_to_aomat;
-
 impl Monomer<'_> {
-    pub fn prepare_scc(&mut self, atoms: &[Atom], shell_resolved: bool, mix_config: MixConfig) {
+    pub fn prepare_scc(&mut self, atoms: &[Atom], shell_resolved: bool, mix_config: MixConfig, broyden_config: &crate::io::settings::BroydenConfig) {
         // get H0 and S
         let (s, h0): (Array2<f64>, Array2<f64>) = h0_and_s(self.n_orbs, atoms, self.slako);
         // convert generalized eigenvalue problem H.C = S.C.e into eigenvalue problem H'.C' = C'.e
         // by Loewdin orthogonalization, H' = X^T.H.X, where X = S^(-1/2)
-        let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
+        // let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
+        let x: Array2<f64> = compute_s_inv_sqrt(s.view());
         // and save it in the self properties
         self.properties.set_h0(h0);
         self.properties.set_s(s);
@@ -77,17 +80,18 @@ impl Monomer<'_> {
                 self.properties.set_gamma_lr_ao(gamma_lr_ao);
             }
         }
-        // Anderson mixer
-        let dim: usize;
+        // Mixer initialization
         if self.gammafunction_lc.is_some() {
-            dim = self.n_orbs * self.n_orbs;
-        } else if !shell_resolved {
-            dim = self.n_atoms;
+            // LC case: use Anderson mixer for density matrix mixing
+            let dim = self.n_orbs * self.n_orbs;
+            let accel = mix_config.build_mixer(dim).unwrap();
+            self.properties.set_accel(accel);
         } else {
-            dim = self.n_orbs;
+            // Non-LC case: use Broyden mixer for charge mixing
+            let dim = if !shell_resolved { self.n_atoms } else { self.n_orbs };
+            let broyden_mixer = BroydenMixerNew::from_config(dim, broyden_config);
+            self.properties.set_mixer_new(broyden_mixer);
         }
-        let accel = mix_config.build_mixer(dim).unwrap();
-        self.properties.set_accel(accel);
 
         // if this is the first SCC calculation the charge differences will be initialized to zeros
         if !self.properties.contains_key("dq") {
@@ -123,7 +127,17 @@ impl Monomer<'_> {
         let scf_charge_conv: f64 = config.scf_charge_conv;
         let scf_energy_conv: f64 = config.scf_energy_conv;
         let dq: Array1<f64> = self.properties.take_dq().unwrap();
-        let mut accel: AndersonAccel = self.properties.take_accel().unwrap();
+        // Take mixer before immutable borrows to satisfy borrow checker
+        let mut accel: Option<AndersonAccel> = if self.gammafunction_lc.is_some() {
+            Some(self.properties.take_accel().unwrap())
+        } else {
+            None
+        };
+        let mut broyden_mixer: Option<BroydenMixerNew> = if self.gammafunction_lc.is_none() {
+            Some(self.properties.take_mixer_new().unwrap())
+        } else {
+            None
+        };
         let x: ArrayView2<f64> = self.properties.x().unwrap();
         let s: ArrayView2<f64> = self.properties.s().unwrap();
         let h0: ArrayView2<f64> = self.properties.h0().unwrap();
@@ -161,7 +175,8 @@ impl Monomer<'_> {
 
         // H' = X^t.H.X
         h = x.t().dot(&h).dot(&x);
-        let tmp: (Array1<f64>, Array2<f64>) = h.eigh(UPLO::Upper).unwrap();
+        // let tmp: (Array1<f64>, Array2<f64>) = h.eigh(UPLO::Upper).unwrap();
+        let tmp: (Array1<f64>, Array2<f64>) = dsyevd_eigh(h.view());
         let orbe: Array1<f64> = tmp.0;
         // C = X.C'
         let orbs: Array2<f64> = x.dot(&tmp.1);
@@ -174,6 +189,8 @@ impl Monomer<'_> {
 
         let (dq_new, delta_p_temp): (Array1<f64>, Option<Array2<f64>>) =
             if self.gammafunction_lc.is_some() {
+                // LC case: mix density matrix with Anderson Acceleration
+                let accel = accel.as_mut().unwrap();
                 let dim: usize = self.n_orbs * self.n_orbs;
                 let dp_flat: ArrayView1<f64> = dp.view().into_shape(dim).unwrap();
 
@@ -202,14 +219,17 @@ impl Monomer<'_> {
                     (dq_temp, Some(delta_p))
                 }
             } else {
-                // mulliken charges
+                // Non-LC case: mix charges with Broyden mixer
+                let mixer = broyden_mixer.as_mut().unwrap();
                 if !shell_resolved {
                     let dq1 = mulliken_atomwise(dp.view(), s.view(), atoms, self.n_atoms);
-                    let dq_temp = accel.apply(dq.view(), dq1.view()).unwrap();
+                    let delta_dq: Array1<f64> = &dq1 - &dq;
+                    let dq_temp = mixer.next(&dq, &delta_dq);
                     (dq_temp, None)
                 } else {
                     let dq1 = mulliken_aowise(dp.view(), s.view());
-                    let dq_temp = accel.apply(dq.view(), dq1.view()).unwrap();
+                    let delta_dq: Array1<f64> = &dq1 - &dq;
+                    let dq_temp = mixer.next(&dq, &delta_dq);
                     (dq_temp, None)
                 }
             };
@@ -248,11 +268,17 @@ impl Monomer<'_> {
         if self.gammafunction_lc.is_some() {
             self.properties.set_delta_p(delta_p_temp.unwrap());
         }
+        // Store mixers back
+        if let Some(accel) = accel {
+            self.properties.set_accel(accel);
+        }
+        if let Some(broyden_mixer) = broyden_mixer {
+            self.properties.set_mixer_new(broyden_mixer);
+        }
         self.properties.set_orbs(orbs);
         self.properties.set_orbe(orbe);
         self.properties.set_p(p);
         self.properties.set_dq(dq_new);
-        self.properties.set_accel(accel);
         self.properties.set_last_energy(scf_energy);
         self.properties.set_h_coul_x(h_save);
         self.properties.set_h_coul_transformed(h);

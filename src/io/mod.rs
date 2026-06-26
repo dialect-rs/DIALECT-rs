@@ -1,4 +1,4 @@
-pub mod basis_set;
+pub use dialect_utilities::cubes::basis_set;
 mod coordinates;
 mod imprint;
 mod input;

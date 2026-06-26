@@ -268,6 +268,7 @@ impl System {
         let orbs_i: ArrayView2<f64> = self.properties.orbs().unwrap();
         // calculate the overlap between the molecular orbitals
         let s_mo: Array2<f64> = old_orbs.t().dot(&s_ao.dot(&orbs_i));
+        // println!("S in MO basis: \n {:.4}",s_mo);
 
         // get occupied and virtual orbitals
         let occ_indices = self.properties.occ_indices().unwrap();
@@ -281,7 +282,9 @@ impl System {
 
         // check the signs of the states
         let sci_1: f64 = self.ci_overlap_system_states_2(state_i, state_i, n_roots);
+        // let sci_2: f64 = self.ci_overlap_system_states_2(state_j, state_j, n_roots);
         let prefac_i: f64 = if sci_1 > 0.0 { 1.0 } else { -1.0 };
+        // let prefac_j: f64 = if sci_2 > 0.0 { 1.0 } else { -1.0 };
 
         // scalar coupling value
         let mut s_ci: f64 = 0.0;
@@ -372,6 +375,7 @@ impl System {
         let orbs_i: ArrayView2<f64> = self.properties.orbs().unwrap();
         // calculate the overlap between the molecular orbitals
         let s_mo: Array2<f64> = old_orbs.t().dot(&s_ao.dot(&orbs_i));
+        // println!("S in MO basis: \n {:.4}",s_mo);
 
         // get occupied and virtual orbitals
         let occ_indices = self.properties.occ_indices().unwrap();

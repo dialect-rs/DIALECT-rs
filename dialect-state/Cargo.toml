@@ -1,0 +1,18 @@
+[package]
+name = "dialect-state"
+version = "1.0.0"
+authors = [
+    "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
+    "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
+]
+edition = "2021"
+
+[dependencies]
+dialect-dftb-core = { path = "../dialect-dftb-core" }
+dialect-solvers = { path = "../dialect-solvers" }
+dialect-utilities = { path = "../dialect-utilities" }
+enum-as-inner = "0.5.1"
+hashbrown = "0.13.2"
+nalgebra = "0.32.1"
+ndarray = { version = "0.15.6", features = ["rayon"] }

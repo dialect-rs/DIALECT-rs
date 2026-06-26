@@ -1,54 +1,30 @@
 use crate::defaults::{CONFIG_FILE_NAME, DYNAMIC_CONFIG_FILE_NAME};
 use crate::initialization::Atom;
-use crate::io::{read_file_to_frame, Configuration};
-use crate::xtb::initialization::atom::XtbAtom;
-use chemfiles::Frame;
-use dialect_dynamics::initialization::{DynamicConfiguration, SystemData};
+use crate::io::Configuration;
+use dialect_xtb::initialization::atom::XtbAtom;
+use dialect_dynamics::initialization::{load_dynamics_config, DynamicConfiguration, SystemData};
 use ndarray::prelude::*;
-use std::fs;
 use std::path::Path;
+use xyz_parser::{parse_xyz_file, XyzFrame};
 
-pub fn read_input(geom_file: &str) -> (Frame, Configuration) {
+
+pub fn read_input_new(geom_file: &str) -> (XyzFrame, Configuration) {
     // The file containing the cartesian coordinates is the only mandatory file to
     // start a calculation.
-    let frame: Frame = read_file_to_frame(geom_file);
+    let frame: XyzFrame = parse_xyz_file(geom_file).unwrap();
 
-    // The configuration file is read, if it does not exist in the directory
-    // the program initializes the default settings and writes a configuration file
-    // to the directory. At the moment the filename of the configuration file
-    // is hard set in the defaults.rs file to "tincr.toml"
-    let config_file_path: &Path = Path::new(CONFIG_FILE_NAME);
-    let mut config_string: String = if config_file_path.exists() {
-        fs::read_to_string(config_file_path).expect("Unable to read config file")
-    } else {
-        String::from("")
-    };
-    // Load the configuration.
-    let config: Configuration = toml::from_str(&config_string).unwrap();
-    // The configuration file is saved if it does not exist already so that the user can see
-    // all the used options.
-    if !config_file_path.exists() {
-        config_string = toml::to_string(&config).unwrap();
-        fs::write(config_file_path, config_string).expect("Unable to write config file");
-    }
+    // Read the user-facing configuration file; the commented default
+    // template is written first if no file exists.
+    let config: Configuration =
+        dialect_config::load_dialect_config(Path::new(CONFIG_FILE_NAME));
     (frame, config)
 }
 
 pub fn read_dynamic_input(dialect_config: &Configuration) -> DynamicConfiguration {
-    let config_file_path: &Path = Path::new(DYNAMIC_CONFIG_FILE_NAME);
-    let mut config_string: String = if config_file_path.exists() {
-        fs::read_to_string(config_file_path).expect("Unable to read config file")
-    } else {
-        String::from("")
-    };
-    // load the configuration
-    let mut config: DynamicConfiguration = toml::from_str(&config_string).unwrap();
-    // save the configuration file if it does not exist already so that the user can see
-    // all the used options
-    if !config_file_path.exists() {
-        config_string = toml::to_string(&config).unwrap();
-        fs::write(config_file_path, config_string).expect("Unable to write config file");
-    }
+    // Read the user-facing configuration file; the commented default
+    // template is written first if no file exists.
+    let mut config: DynamicConfiguration =
+        load_dynamics_config(Path::new(DYNAMIC_CONFIG_FILE_NAME));
     // check the number of states
     let n_states: usize = config.nstates;
     let initial_state: usize = config.initial_state[0];
@@ -60,20 +36,10 @@ pub fn read_dynamic_input(dialect_config: &Configuration) -> DynamicConfiguratio
 }
 
 pub fn read_dynamic_input_old(dialect_config: &Configuration) -> DynamicConfiguration {
-    let config_file_path: &Path = Path::new(DYNAMIC_CONFIG_FILE_NAME);
-    let mut config_string: String = if config_file_path.exists() {
-        fs::read_to_string(config_file_path).expect("Unable to read config file")
-    } else {
-        String::from("")
-    };
-    // load the configuration
-    let mut config: DynamicConfiguration = toml::from_str(&config_string).unwrap();
-    // save the configuration file if it does not exist already so that the user can see
-    // all the used options
-    if !config_file_path.exists() {
-        config_string = toml::to_string(&config).unwrap();
-        fs::write(config_file_path, config_string).expect("Unable to write config file");
-    }
+    // Read the user-facing configuration file; the commented default
+    // template is written first if no file exists.
+    let mut config: DynamicConfiguration =
+        load_dynamics_config(Path::new(DYNAMIC_CONFIG_FILE_NAME));
 
     if config.initial_state[0] != 0 {
         // Number of excited states
@@ -122,20 +88,10 @@ pub fn read_dynamic_input_ehrenfest(
     dialect_config: &Configuration,
     n_mol: usize,
 ) -> DynamicConfiguration {
-    let config_file_path: &Path = Path::new(DYNAMIC_CONFIG_FILE_NAME);
-    let mut config_string: String = if config_file_path.exists() {
-        fs::read_to_string(config_file_path).expect("Unable to read config file")
-    } else {
-        String::from("")
-    };
-    // load the configuration
-    let mut config: DynamicConfiguration = toml::from_str(&config_string).unwrap();
-    // save the configuration file if it does not exist already so that the user can see
-    // all the used options
-    if !config_file_path.exists() {
-        config_string = toml::to_string(&config).unwrap();
-        fs::write(config_file_path, config_string).expect("Unable to write config file");
-    }
+    // Read the user-facing configuration file; the commented default
+    // template is written first if no file exists.
+    let mut config: DynamicConfiguration =
+        load_dynamics_config(Path::new(DYNAMIC_CONFIG_FILE_NAME));
 
     // Number of LE states per monomer.
     let n_le: usize = dialect_config.fmo_lc_tddftb.n_le;

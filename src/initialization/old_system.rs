@@ -1,21 +1,17 @@
-use crate::initialization::{Atom, System};
+//! Snapshot of a DFTB System for step-to-step state in dynamics and
+//! couplings. The plain data struct lives in dialect-state.
+
+pub use dialect_state::old_system::OldSystem;
+
+use crate::initialization::System;
 use ndarray::prelude::*;
 
-#[derive(Debug, Clone)]
-pub struct OldSystem {
-    pub atoms: Vec<Atom>,
-    pub orbs: Array2<f64>,
-    pub ci_coefficients: Array2<f64>,
-    pub old_scalar_couplings: Option<Array2<f64>>,
-    pub old_nacv: Option<Vec<Array1<f64>>>,
-}
+pub fn new_old_system(
 
-impl OldSystem {
-    pub fn new(
         system: &System,
         old_scalar_couplings: Option<Array2<f64>>,
         old_nacv: Option<Vec<Array1<f64>>>,
-    ) -> Self {
+    ) -> OldSystem {
         OldSystem {
             atoms: system.atoms.clone(),
             orbs: system.properties.orbs().unwrap().to_owned(),
@@ -24,4 +20,3 @@ impl OldSystem {
             old_nacv,
         }
     }
-}

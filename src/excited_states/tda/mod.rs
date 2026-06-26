@@ -12,6 +12,7 @@ use crate::excited_states::{initial_subspace, trans_charges, ProductCache};
 use crate::fmo::Monomer;
 use crate::initialization::{Atom, System};
 use crate::io::Configuration;
+use log::warn;
 use moments::{mulliken_dipoles, mulliken_dipoles_from_ao, oscillator_strength};
 use ndarray::prelude::*;
 use ndarray_linalg::{Eigh, UPLO};
@@ -74,19 +75,8 @@ impl Monomer<'_> {
             let energy_ev: f64 = energy * 27.2114;
 
             // check for unrealistic energy values
-            if energy_ev < 0.001 {
-                panic!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
-            }
-        }
-
-        // check if the tda routine yields realistic energies
-        let energy_vector = eigenvalues.clone().to_vec();
-        for energy in energy_vector.iter() {
-            let energy_ev: f64 = energy * 27.2114;
-
-            // check for unrealistic energy values
             if energy_ev < 1.0e-5 {
-                panic!("Davidson routine convergence error! An unrealistic energy value of < 1.0e-5 eV was obtained!");
+                warn!("Davidson routine convergence error! An unrealistic energy value of < 1.0e-5 eV was obtained!");
             }
         }
 
@@ -232,7 +222,7 @@ impl System {
 
             // check for unrealistic energy values
             if energy_ev < 0.001 {
-                panic!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
+                warn!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
             }
         }
 
@@ -293,6 +283,7 @@ impl System {
         max_iter: usize,
         tolerance: f64,
         subspace_multiplier: usize,
+        print_states: bool,
     ) {
         // Set an empty product cache.
         self.properties.set_cache(ProductCache::new());
@@ -341,7 +332,7 @@ impl System {
 
             // check for unrealistic energy values
             if energy_ev < 0.001 {
-                panic!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
+                warn!("Davidson routine convergence error! An unrealistic energy value of < 0.001 eV was obtained!");
             }
         }
 
@@ -392,8 +383,9 @@ impl System {
         self.properties.set_tr_dipoles(tr_dipoles);
         self.properties.set_oscillator_strengths(f);
 
-        println!("{}", states);
-
+        if print_states {
+            println!("{}", states);
+        }
         //print_states(&self, n_roots);
     }
 

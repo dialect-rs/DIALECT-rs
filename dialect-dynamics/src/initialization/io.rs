@@ -3,7 +3,6 @@
 #[macro_use]
 use crate::constants;
 use crate::defaults::*;
-use chemfiles::{Frame, Trajectory};
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -118,9 +117,6 @@ fn default_use_surface_hopping() -> bool {
 fn default_use_nacv_couplings() -> bool {
     true
 }
-fn default_use_nact_couplings() -> bool {
-    USE_EHRENFEST
-}
 fn default_state_threshold() -> f64 {
     STATE_THRESHOLD
 }
@@ -156,6 +152,13 @@ fn default_alpha_values() -> Vec<f64> {
 fn default_alpha_atoms() -> Vec<usize> {
     let vec: Vec<usize> = vec![1, 6, 7, 8];
     vec
+}
+
+fn default_load_adiabatic_coefficients() -> bool {
+    false
+}
+fn default_adiabatic_coefficients_file() -> String {
+    String::from("adiabatic_coefficients_state_0.npy")
 }
 fn default_ehrenfest_configuration() -> EhrenfestConfiguration {
     let config: EhrenfestConfiguration = toml::from_str("").unwrap();
@@ -214,23 +217,10 @@ pub struct DynamicConfiguration {
 
 impl DynamicConfiguration {
     pub fn new() -> Self {
-        // read the configuration file, if it does not exist in the directory
-        // the program initializes the default settings and writes an configuration file
-        // to the directory
-        let config_file_path: &Path = Path::new(CONFIG_FILE_NAME);
-        let mut config_string: String = if config_file_path.exists() {
-            fs::read_to_string(config_file_path).expect("Unable to read config file")
-        } else {
-            String::from("")
-        };
-        // load the configration settings
-        let config: Self = toml::from_str(&config_string).unwrap();
-        // save the configuration file if it does not exist already
-        if config_file_path.exists() == false {
-            config_string = toml::to_string(&config).unwrap();
-            fs::write(config_file_path, config_string).expect("Unable to write config file");
-        }
-        return config;
+        // Read the user-facing configuration file (writing the commented
+        // default template first if it does not exist) and convert it to
+        // the internal representation.
+        crate::initialization::user_config::load_dynamics_config(Path::new(CONFIG_FILE_NAME))
     }
 }
 
@@ -255,6 +245,19 @@ pub struct EhrenfestConfiguration {
     pub integration_steps: usize,
     #[serde(default = "default_print_coefficients")]
     pub print_coefficients: bool,
+    /// If true, initialize the electronic (diabatic-basis) coefficients of
+    /// the Ehrenfest wavefunction from a saved FMO-LC-TDDFTB adiabatic
+    /// eigenvector instead of from `initial_state`. The `.npy` file holds
+    /// the (signed) eigenvector coefficients (as written by
+    /// `save_adiabatic_coefficients`), which become the initial electronic
+    /// amplitudes directly, so the trajectory starts in the chosen
+    /// adiabatic state with the correct relative phases.
+    #[serde(default = "default_load_adiabatic_coefficients")]
+    pub load_adiabatic_coefficients: bool,
+    /// Path to the saved adiabatic-coefficients `.npy` file used when
+    /// `load_adiabatic_coefficients` is true.
+    #[serde(default = "default_adiabatic_coefficients_file")]
+    pub adiabatic_coefficients_file: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -270,8 +273,6 @@ pub struct EhrenfestDecoherence {
 pub struct NonadiabaticConfiguration {
     #[serde(default = "default_use_nacv_couplings")]
     pub use_nacv_couplings: bool,
-    #[serde(default = "default_use_nact_couplings")]
-    pub use_nact_couplings: bool,
 }
 
 /// Structs that holds the parameters for the surface hopping routines
@@ -328,34 +329,25 @@ pub struct PrintConfiguration {
     pub print_state: bool,
 }
 
-/// Read a xyz-geometry file like .xyz or .pdb and returns a [Frame](chemfiles::Frame)
-pub fn read_file_to_frame(filename: &str) -> Frame {
-    // read the geometry file
-    let mut trajectory = Trajectory::open(filename, 'r').unwrap();
-    let mut frame = Frame::new();
-    // if multiple geometries are contained in the file, we will only use the first one
-    trajectory.read(&mut frame).unwrap();
-    return frame;
-}
+#[cfg(test)]
+mod ehrenfest_load_tests {
+    use super::EhrenfestConfiguration;
 
-/// Extract the atomic numbers and positions (in bohr) from a [Frame](chemfiles::frame)
-pub fn frame_to_coordinates(frame: Frame) -> (Vec<u8>, Array2<f64>) {
-    let mut positions: Array2<f64> = Array2::from_shape_vec(
-        (frame.size() as usize, 3),
-        frame
-            .positions()
-            .iter()
-            .flat_map(|array| array.iter())
-            .cloned()
-            .collect(),
-    )
-    .unwrap();
-    // transform the coordinates from angstrom to bohr
-    positions = positions / constants::BOHR_TO_ANGS;
-    // read the atomic number of each coordinate
-    let atomic_numbers: Vec<u8> = (0..frame.size() as u64)
-        .map(|i| frame.atom(i as usize).atomic_number() as u8)
-        .collect();
+    #[test]
+    fn adiabatic_load_defaults_off() {
+        let cfg: EhrenfestConfiguration = toml::from_str("").unwrap();
+        assert!(!cfg.load_adiabatic_coefficients);
+        assert_eq!(cfg.adiabatic_coefficients_file, "adiabatic_coefficients_state_0.npy");
+    }
 
-    return (atomic_numbers, positions);
+    #[test]
+    fn adiabatic_load_parsing() {
+        let cfg: EhrenfestConfiguration = toml::from_str(
+            "load_adiabatic_coefficients = true\n\
+             adiabatic_coefficients_file = \"adiabatic_coefficients_state_3.npy\"\n",
+        )
+        .unwrap();
+        assert!(cfg.load_adiabatic_coefficients);
+        assert_eq!(cfg.adiabatic_coefficients_file, "adiabatic_coefficients_state_3.npy");
+    }
 }

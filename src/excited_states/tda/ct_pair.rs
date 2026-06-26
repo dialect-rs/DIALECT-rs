@@ -1,4 +1,5 @@
 use super::moments::mulliken_dipoles_from_ao;
+use crate::excited_states::solvers::CTDavidsonWorkspace;
 use crate::excited_states::tda::moments::{mulliken_dipoles, oscillator_strength};
 use crate::excited_states::{orbe_differences, ProductCache};
 use crate::fmo::helpers::get_pair_slice;
@@ -325,7 +326,7 @@ impl ChargeTransferPreparation<'_> {
             self.properties
                 .set_q_oo(self.m_h.properties.q_oo_restricted().unwrap().to_owned());
             self.properties
-                .set_q_vv(self.m_h.properties.q_vv_restricted().unwrap().to_owned());
+                .set_q_vv(self.m_l.properties.q_vv_restricted().unwrap().to_owned());
         } else {
             self.properties
                 .set_q_oo(self.m_h.properties.q_oo().unwrap().to_owned());
@@ -334,6 +335,50 @@ impl ChargeTransferPreparation<'_> {
         }
         self.properties.set_occ_indices(occ_indices.to_vec());
         self.properties.set_virt_indices(virt_indices.to_vec());
+
+        // Pre-compute and cache gamma_lr^T . q_vv for Davidson optimization
+        // Also initialize BLAS workspace for exchange computation
+        // Set DIALECT_DISABLE_BLAS_CT=1 to disable BLAS optimization for testing
+        let use_blas = std::env::var("DIALECT_DISABLE_BLAS_CT").is_err();
+
+        if !config.tight_binding.use_shell_resolved_gamma {
+            if self.properties.gamma_lr().is_some() {
+                // Get all needed views before any mutation
+                let q_oo: ArrayView2<f64> = self.properties.q_oo().unwrap();
+                let q_vv: ArrayView2<f64> = self.properties.q_vv().unwrap();
+                let gamma_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
+                let n_occ: usize = (q_oo.dim().1 as f64).sqrt() as usize;
+                let n_virt: usize = (q_vv.dim().1 as f64).sqrt() as usize;
+
+                // Compute gamma_lr_qvv
+                let gamma_lr_qvv: Array3<f64> = gamma_lr
+                    .dot(&q_vv)
+                    .into_shape([natoms_h, n_virt, n_virt])
+                    .unwrap();
+
+                // Initialize BLAS-optimized workspace for exchange computation
+                // This must be done before set_gamma_lr_qvv which requires mutable borrow
+                if use_blas {
+                    let workspace = CTDavidsonWorkspace::new(q_oo, q_vv, gamma_lr, n_occ, n_virt);
+                    self.davidson_workspace = Some(workspace);
+                }
+
+                // Now we can mutate
+                self.properties.set_gamma_lr_qvv(gamma_lr_qvv);
+            }
+        } else {
+            if let Some(gamma_lr_ao) = self.properties.gamma_lr_ao() {
+                let q_vv: ArrayView2<f64> = self.properties.q_vv().unwrap();
+                let n_virt: usize = (q_vv.dim().1 as f64).sqrt() as usize;
+                let gamma_lr_qvv: Array3<f64> = gamma_lr_ao
+                    .t()
+                    .dot(&q_vv)
+                    .into_shape([norbs_l, n_virt, n_virt])
+                    .unwrap();
+                self.properties.set_gamma_lr_qvv(gamma_lr_qvv);
+                // Note: BLAS workspace not yet implemented for AO-resolved gamma
+            }
+        }
     }
 
     // Calculate the transition charges between the orbitals of both monomers of the CT state
@@ -487,10 +532,12 @@ impl ChargeTransferPreparation<'_> {
         let omega: ArrayView1<f64> = self.properties.omega().unwrap();
 
         // The initial guess for the subspace is created.
-        let guess: Array2<f64> = initial_subspace(omega.view(), n_roots);
+        // Use larger initial subspace (2x n_roots) for faster convergence
+        let initial_size = (2 * n_roots).min(omega.len());
+        let guess: Array2<f64> = initial_subspace(omega.view(), initial_size);
 
-        // Davidson iteration.
-        let davidson: Davidson = Davidson::new(
+        // Davidson iteration (verbose=false for CT states to reduce output)
+        let davidson: Davidson = Davidson::new_with_verbose(
             self,
             guess,
             n_roots,
@@ -499,6 +546,7 @@ impl ChargeTransferPreparation<'_> {
             false,
             subspace_multiplier,
             config.tight_binding.use_shell_resolved_gamma,
+            false, // verbose=false for CT calculations
         )
         .unwrap();
 

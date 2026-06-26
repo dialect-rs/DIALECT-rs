@@ -1,4 +1,7 @@
-use crate::fmo::fragmentation::{build_graph, fragmentation, Graph};
+use crate::fmo::fragmentation::{
+    advanced_manual_fragmentation, build_graph, fragmentation,
+    group_nearest_neighbor_fragments, manual_fragmentation, Graph,
+};
 use crate::fmo::helpers::{MolIncrements, MolIndices, MolecularSlice};
 use crate::fmo::{get_pair_type, ESDPair, Monomer, Pair, PairType};
 use crate::initialization::parameters::{RepulsivePotential, SlaterKoster};
@@ -8,12 +11,16 @@ use crate::properties::Properties;
 use crate::scc::gamma_approximation::{gamma_atomwise, GammaFunction};
 use crate::scc::h0_and_s::s_supersystem;
 use crate::utils::Timer;
-use chemfiles::Frame;
 use hashbrown::HashMap;
 use log::info;
+use nalgebra::Vector3;
+use rayon::prelude::*;
 use ndarray::prelude::*;
 use ndarray::Slice;
 
+/// FMO-DFTB supersystem: the full system partitioned into fragments
+/// (monomers), together with the close-pair and ES-dimer-pair lists used by
+/// the FMO energy and gradient.
 #[derive(Debug, Clone)]
 pub struct SuperSystem<'a> {
     /// Type that holds all the input settings from the user.
@@ -37,11 +44,12 @@ pub struct SuperSystem<'a> {
     pub gammafunction: GammaFunction,
     /// Gamma function for the long-range correction. Only used if long-range correction is requested
     pub gammafunction_lc: Option<GammaFunction>,
+    pub slako: &'a SlaterKoster,
+    pub rep_pot: &'a RepulsivePotential,
 }
 
 impl<'a>
     From<(
-        Frame,
         Configuration,
         &'a SlaterKoster,
         &'a RepulsivePotential,
@@ -53,7 +61,6 @@ impl<'a>
     /// the global configuration as [Configuration](crate::io::settings::Configuration).
     fn from(
         input: (
-            Frame,
             Configuration,
             &'a SlaterKoster,
             &'a RepulsivePotential,
@@ -64,15 +71,15 @@ impl<'a>
         // Measure the time for the building of the struct
         let timer: Timer = Timer::start();
 
-        let unique_atoms: Vec<Atom> = input.4;
-        let atoms: Vec<Atom> = input.5;
+        let unique_atoms: Vec<Atom> = input.3;
+        let atoms: Vec<Atom> = input.4;
 
         // Get the number of unpaired electrons from the input option
-        let _n_unpaired: usize = match input.1.mol.multiplicity {
+        let _n_unpaired: usize = match input.0.mol.multiplicity {
             1u8 => 0,
             _ => panic!("The specified multiplicity is not implemented"),
         };
-        match input.1.mol.charge {
+        match input.0.mol.charge {
             0 => {}
             _ => {
                 panic!("Charged systems are not implemented for the FMO routines.")
@@ -86,19 +93,19 @@ impl<'a>
         let gf: GammaFunction = initialize_gamma_function(
             &unique_atoms,
             0.0,
-            input.1.tight_binding.use_gaussian_gamma,
-            input.1.tight_binding.use_shell_resolved_gamma,
-            input.1.dftb3.use_gamma_damping,
+            input.0.tight_binding.use_gaussian_gamma,
+            input.0.tight_binding.use_shell_resolved_gamma,
+            input.0.dftb3.use_gamma_damping,
         );
 
         // Initialize the screened gamma function only if LRC is requested
-        let gf_lc: Option<GammaFunction> = if input.1.lc.long_range_correction {
+        let gf_lc: Option<GammaFunction> = if input.0.lc.long_range_correction {
             Some(initialize_gamma_function(
                 &unique_atoms,
-                input.1.lc.long_range_radius,
-                input.1.tight_binding.use_gaussian_gamma,
-                input.1.tight_binding.use_shell_resolved_gamma,
-                input.1.dftb3.use_gamma_damping,
+                input.0.lc.long_range_radius,
+                input.0.tight_binding.use_gaussian_gamma,
+                input.0.tight_binding.use_shell_resolved_gamma,
+                input.0.dftb3.use_gamma_damping,
             ))
         } else {
             None
@@ -108,10 +115,29 @@ impl<'a>
         // the monomers
         let mut sorted_atoms: Vec<Atom> = Vec::with_capacity(atoms.len());
 
-        // Build a connectivity graph to distinguish the individual monomers from each other
-        let graph: Graph = build_graph(atoms.len(), &atoms);
-        // Here does the fragmentation happens
-        let monomer_indices: Vec<Vec<usize>> = fragmentation(&graph);
+        // Build fragments either manually or automatically using graph-based fragmentation
+        let monomer_indices: Vec<Vec<usize>> = if input.0.fmo.advanced_manual_fragmentation {
+            advanced_manual_fragmentation(atoms.len(), &input.0.fmo.fragment_index_vector)
+        } else if input.0.fmo.manual_fragmentation {
+            manual_fragmentation(
+                atoms.len(),
+                input.0.fmo.fragment_atom_count,
+                input.0.fmo.number_of_fragments,
+            )
+        } else {
+            let graph: Graph = build_graph(atoms.len(), &atoms);
+            fragmentation(&graph)
+        };
+        let monomer_indices = if input.0.fmo.fragments_per_monomer > 1 {
+            let positions: Vec<Vector3<f64>> = atoms.iter().map(|a| a.xyz).collect();
+            group_nearest_neighbor_fragments(
+                monomer_indices,
+                &positions,
+                input.0.fmo.fragments_per_monomer,
+            )
+        } else {
+            monomer_indices
+        };
 
         // Vec that stores all [Monomer]s
         let mut monomers: Vec<Monomer> = Vec::with_capacity(monomer_indices.len());
@@ -146,6 +172,7 @@ impl<'a>
                 orbs: m_n_orbs,
                 occs: n_occ,
                 virts: n_virt,
+                shells: 0,
             };
 
             // Create the slices for the atoms, grads and orbitals
@@ -158,8 +185,8 @@ impl<'a>
                 idx,
                 m_slice,
                 props,
-                input.3,
                 input.2,
+                input.1,
                 gf.clone(),
                 gf_lc.clone(),
             );
@@ -213,16 +240,16 @@ impl<'a>
                 match get_pair_type(
                     &atoms[m_i.slice.atom_as_range()],
                     &atoms[m_j.slice.atom_as_range()],
-                    input.1.fmo.vdw_scaling,
+                    input.0.fmo.vdw_scaling,
                 ) {
                     PairType::Pair => {
-                        pairs.push(Pair::new(i, i + j + 1, m_i, m_j, input.2, input.3));
+                        pairs.push(Pair::new(i, i + j + 1, m_i, m_j, input.1, input.2));
                         pair_types.insert((m_i.index, m_j.index), PairType::Pair);
                         pair_indices.insert((m_i.index, m_j.index), pair_iter);
                         pair_iter += 1;
                     }
                     PairType::ESD => {
-                        esd_pairs.push(ESDPair::new(i, i + j + 1, m_i, m_j, input.2, input.3));
+                        esd_pairs.push(ESDPair::new(i, i + j + 1, m_i, m_j, input.1, input.2));
                         pair_types.insert((m_i.index, m_j.index), PairType::ESD);
                         esd_pair_indices.insert((m_i.index, m_j.index), esd_iter);
                         esd_iter += 1;
@@ -236,11 +263,11 @@ impl<'a>
         properties.set_esd_pair_indices(esd_pair_indices);
 
         info!("{}", timer);
-        let s = s_supersystem(n_orbs, &atoms, input.2);
+        let s = s_supersystem(n_orbs, &atoms, input.1);
         properties.set_s(s);
 
         Self {
-            config: input.1,
+            config: input.0,
             atoms,
             n_mol: monomers.len(),
             monomers,
@@ -249,7 +276,76 @@ impl<'a>
             gammafunction_lc: gf_lc,
             pairs,
             esd_pairs,
+            slako: input.1,
+            rep_pot: input.2,
         }
+    }
+}
+
+impl<'a> SuperSystem<'a> {
+    /// Re-classify all monomer pairs by distance into close ("real") pairs that
+    /// get a full SCC and far pairs handled by the ES-dimer approximation.
+    /// Called after geometry changes (optimization / dynamics) to rebuild the
+    /// pair and ESD-pair lists.
+    pub fn redefine_pairs(&mut self) {
+        // Initialize the close pairs and the ones that are treated within the ES-dimer approx
+        let mut pairs: Vec<Pair<'a>> = Vec::new();
+        let mut esd_pairs: Vec<ESDPair<'a>> = Vec::new();
+
+        // Create a HashMap that maps the Monomers to the type of Pair. To identify if a pair of
+        // monomers are considered a real pair or should be treated with the ESD approx.
+        let mut pair_iter: usize = 0;
+        let mut esd_iter: usize = 0;
+        let mut pair_indices: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut esd_pair_indices: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut pair_types: HashMap<(usize, usize), PairType> = HashMap::new();
+
+        let scaling: f64 = self.config.fmo.vdw_scaling;
+        let n_mono: usize = self.monomers.len();
+
+        // Classify all (i, j) monomer pairs in parallel. `par_iter` keeps
+        // the result order identical to the input order, so the pair lists
+        // and index maps below come out exactly as in the serial loop.
+        let index_pairs: Vec<(usize, usize)> = (0..n_mono)
+            .flat_map(|i| ((i + 1)..n_mono).map(move |j| (i, j)))
+            .collect();
+        let kinds: Vec<PairType> = index_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                get_pair_type(
+                    &self.atoms[self.monomers[i].slice.atom_as_range()],
+                    &self.atoms[self.monomers[j].slice.atom_as_range()],
+                    scaling,
+                )
+            })
+            .collect();
+
+        // Sequential assembly — identical ordering and indices to the
+        // original double loop.
+        for (&(i, j), kind) in index_pairs.iter().zip(kinds.iter()) {
+            let m_i = &self.monomers[i];
+            let m_j = &self.monomers[j];
+            match kind {
+                PairType::Pair => {
+                    pairs.push(Pair::new(i, j, m_i, m_j, self.slako, self.rep_pot));
+                    pair_types.insert((m_i.index, m_j.index), PairType::Pair);
+                    pair_indices.insert((m_i.index, m_j.index), pair_iter);
+                    pair_iter += 1;
+                }
+                PairType::ESD => {
+                    esd_pairs.push(ESDPair::new(i, j, m_i, m_j, self.slako, self.rep_pot));
+                    pair_types.insert((m_i.index, m_j.index), PairType::ESD);
+                    esd_pair_indices.insert((m_i.index, m_j.index), esd_iter);
+                    esd_iter += 1;
+                }
+                _ => {}
+            }
+        }
+        self.properties.set_pair_types(pair_types);
+        self.properties.set_pair_indices(pair_indices);
+        self.properties.set_esd_pair_indices(esd_pair_indices);
+        self.pairs = pairs;
+        self.esd_pairs = esd_pairs;
     }
 }
 
@@ -272,11 +368,15 @@ impl SuperSystem<'_> {
         Array1::from_shape_vec(3 * self.atoms.len(), itertools::concat(xyz_list)).unwrap()
     }
 
-    pub fn gamma_a(&self, a: usize, lrc: LRC) -> ArrayView2<f64> {
+    /// Atom-resolved gamma block of monomer `a` (its diagonal block). The
+    /// indices `a`/`b`/`c`/`d` throughout this family are monomer indices, and
+    /// `lrc` selects the long-range-corrected (`ON`) or full (`OFF`) gamma matrix.
+    pub fn gamma_a(&self, a: usize, lrc: LRC) -> ArrayView2<'_, f64> {
         self.gamma_a_b(a, a, lrc)
     }
 
-    pub fn gamma_a_b(&self, a: usize, b: usize, lrc: LRC) -> ArrayView2<f64> {
+    /// Atom-resolved gamma block between monomers `a` and `b`.
+    pub fn gamma_a_b(&self, a: usize, b: usize, lrc: LRC) -> ArrayView2<'_, f64> {
         let atoms_a: Slice = self.monomers[a].slice.atom;
         let atoms_b: Slice = self.monomers[b].slice.atom;
         match lrc {
@@ -285,7 +385,8 @@ impl SuperSystem<'_> {
         }
     }
 
-    pub fn gamma_a_b_ao(&self, a: usize, b: usize, lrc: LRC) -> ArrayView2<f64> {
+    /// Orbital-resolved gamma block between monomers `a` and `b`.
+    pub fn gamma_a_b_ao(&self, a: usize, b: usize, lrc: LRC) -> ArrayView2<'_, f64> {
         let atoms_a: Slice = self.monomers[a].slice.orb;
         let atoms_b: Slice = self.monomers[b].slice.orb;
         match lrc {
@@ -294,6 +395,8 @@ impl SuperSystem<'_> {
         }
     }
 
+    /// Atom-resolved gamma block between the pair (a, b) and monomer c:
+    /// the rows of monomers a and b stacked against the columns of c.
     pub fn gamma_ab_c(&self, a: usize, b: usize, c: usize, lrc: LRC) -> Array2<f64> {
         let n_atoms_a: usize = self.monomers[a].n_atoms;
         let mut gamma: Array2<f64> = Array2::zeros([
@@ -309,6 +412,7 @@ impl SuperSystem<'_> {
         gamma
     }
 
+    /// Orbital-resolved version of [`Self::gamma_ab_c`].
     pub fn gamma_ab_c_ao(&self, a: usize, b: usize, c: usize, lrc: LRC) -> Array2<f64> {
         let n_orbs_a: usize = self.monomers[a].n_orbs;
         let mut gamma: Array2<f64> =
@@ -322,6 +426,8 @@ impl SuperSystem<'_> {
         gamma
     }
 
+    /// Atom-resolved gamma block between the pair (a, b) and the pair (c, d):
+    /// the stacked [I+J] rows against the stacked [K+L] columns.
     pub fn gamma_ab_cd(&self, a: usize, b: usize, c: usize, d: usize, lrc: LRC) -> Array2<f64> {
         let n_atoms_a: usize = self.monomers[a].n_atoms;
         let n_atoms_c: usize = self.monomers[c].n_atoms;
@@ -344,6 +450,7 @@ impl SuperSystem<'_> {
         gamma
     }
 
+    /// Orbital-resolved version of [`Self::gamma_ab_cd`].
     pub fn gamma_ab_cd_ao(&self, a: usize, b: usize, c: usize, d: usize, lrc: LRC) -> Array2<f64> {
         let n_orbs_a: usize = self.monomers[a].n_orbs;
         let n_orbs_c: usize = self.monomers[c].n_orbs;

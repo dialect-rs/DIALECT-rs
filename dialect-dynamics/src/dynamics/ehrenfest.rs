@@ -7,6 +7,9 @@ use crate::output::helper::{
 };
 use ndarray::prelude::*;
 use ndarray_linalg::c64;
+// use ndarray_npy::NpzWriter;
+// use std::fs::File;
+// use faer::{set_global_parallelism, Parallelism};
 use std::ops::AddAssign;
 use std::time::Instant;
 
@@ -24,6 +27,7 @@ impl Simulation {
 
     pub fn ehrenfest_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
+        // let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         // calculate the gradient and the excitonic couplings
         let excitonic_couplings: Array2<f64> = self.get_ehrenfest_data(interface, step);
 
@@ -144,6 +148,7 @@ impl Simulation {
             self.coordinates.view(),
             self.velocities.view(),
             self.coefficients.view(),
+            // abs_coefficients.view(),
             self.config.ehrenfest_config.state_threshold,
             self.config.stepsize,
             step,

@@ -1,0 +1,22 @@
+[package]
+name = "dialect-dftb-core"
+version = "1.0.0"
+authors = [
+    "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
+    "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
+]
+edition = "2021"
+
+[dependencies]
+dialect-base = { path = "../dialect-base" }
+dialect-xtb-core = { path = "../dialect-xtb-core" }
+hashbrown = "0.13.2"
+libm = "0.2.5"
+nalgebra = "0.32.1"
+ndarray = { version = "0.15.6", features = ["rayon"] }
+ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
+peroxide = { version = "0.32.1", features = ["serde"] }
+ron = "0.6.6"
+rusty-fitpack = { git = "https://github.com/einseler/Rusty-FITPACK" }
+serde = { version = "1.0", features = ["derive"] }

@@ -1,0 +1,17 @@
+[package]
+name = "dialect-config"
+version = "1.0.0"
+authors = [
+    "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
+    "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
+]
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+dialect-base = { path = "../dialect-base" }
+log = "0.4.17"
+serde = { version = "1.0", features = ["derive"] }
+serde_repr = "0.1.9"
+toml = "0.7.2"

@@ -1,4 +1,4 @@
-use crate::excited_states::ExcitedState;
+use crate::excited_states::{CTDavidsonWorkspace, ExcitedState};
 use crate::fmo::{ExcitonStates, Monomer, PairType, SuperSystem};
 use crate::initialization::Atom;
 use crate::io::settings::LcmoConfig;
@@ -6,14 +6,14 @@ use crate::properties::Properties;
 use crate::{initial_subspace, Davidson};
 use nalgebra::Vector3;
 use ndarray::prelude::*;
-use ndarray::{concatenate, Slice};
+use ndarray::concatenate;
 use ndarray_linalg::{Eigh, UPLO};
 use ndarray_npy::write_npy;
 use rayon::prelude::*;
 use std::fmt::{Display, Formatter};
 
 impl SuperSystem<'_> {
-    pub fn create_diabatic_basis(&self, n_ct: usize) -> Vec<BasisState> {
+    pub fn create_diabatic_basis(&self, n_ct: usize) -> Vec<BasisState<'_>> {
         let lcmo_config: LcmoConfig = self.config.fmo_lc_tddftb.clone();
         // Number of LE states per monomer.
         let n_le: usize = lcmo_config.n_le;
@@ -24,7 +24,6 @@ impl SuperSystem<'_> {
 
         let mut states: Vec<BasisState> = Vec::new();
         // Create all LE states.
-
         for mol in self.monomers.iter() {
             let homo: usize = mol.properties.homo().unwrap();
             let q_ov: ArrayView2<f64> = mol.properties.q_ov().unwrap();
@@ -101,12 +100,14 @@ impl SuperSystem<'_> {
                         m_l: m_j,
                         pair_type: type_ij,
                         properties: Properties::new(),
+                        davidson_workspace: None,
                     };
                     let mut state_2 = ChargeTransferPreparation {
                         m_h: m_j,
                         m_l: m_i,
                         pair_type: type_ij,
                         properties: Properties::new(),
+                        davidson_workspace: None,
                     };
 
                     // prepare the TDA calculation of both states
@@ -235,6 +236,9 @@ impl SuperSystem<'_> {
         states
     }
 
+    /// Build and diagonalize the FMO-LC-TDDFTB excitonic Hamiltonian in the
+    /// reduced basis of monomer locally-excited (LE) and inter-monomer
+    /// charge-transfer (CT) states, yielding the supersystem excited states.
     pub fn create_exciton_hamiltonian(&mut self) {
         // Calculate the H' matrix
         let hamiltonian = self.build_lcmo_fock_matrix();
@@ -320,6 +324,39 @@ impl SuperSystem<'_> {
             .unwrap();
             energies = davidson.eigenvalues;
             eigvectors = davidson.eigenvectors;
+        }
+
+        // Optionally write the adiabatic eigenvector coefficients of the
+        // selected excited states to `.npy` files. Each eigenvector is a
+        // column of `eigvectors` (the expansion coefficients of that
+        // adiabatic state over the diabatic basis `states`); the squared
+        // coefficients (weights of each diabatic basis state) are
+        // orthonormal and sum to 1. State `idx` is written to
+        // `adiabatic_coefficients_state_{idx}.npy`. The raw (signed)
+        // coefficients are stored so they can seed an Ehrenfest run from
+        // this adiabatic state with the correct relative phases.
+        if self.config.fmo_lc_tddftb.save_adiabatic_coefficients {
+            let n_states: usize = eigvectors.ncols();
+            for &idx in self.config.fmo_lc_tddftb.selected_coefficients.iter() {
+                if idx >= n_states {
+                    eprintln!(
+                        "Warning: selected_coefficients index {} is out of range \
+                         (only {} adiabatic states available); skipping.",
+                        idx, n_states
+                    );
+                    continue;
+                }
+                let coeffs: Array1<f64> = eigvectors.column(idx).to_owned();
+                let filename = format!("adiabatic_coefficients_state_{}.npy", idx);
+                match write_npy(&filename, &coeffs) {
+                    Ok(()) => println!(
+                        "Saved adiabatic coefficients of state {idx} to {filename} \
+                         (Σc² = {:.6})",
+                        coeffs.iter().map(|c| c * c).sum::<f64>()
+                    ),
+                    Err(e) => eprintln!("Failed to write {filename}: {e}"),
+                }
+            }
         }
 
         // get the number of occupied and virtual orbitals
@@ -411,6 +448,7 @@ impl SuperSystem<'_> {
                 &self.config,
             );
         });
+
         // Construct the basis states.
         let states: Vec<BasisState> = self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
 
@@ -435,6 +473,7 @@ impl SuperSystem<'_> {
                         }
                     });
             });
+
         let mut h: Array2<f64> = Array::from(h).into_shape((dim, dim)).unwrap();
         let diag = h.diag();
         h = &h + &h.t() - Array::from_diag(&diag);
@@ -559,6 +598,162 @@ impl SuperSystem<'_> {
         }
         (tdm_ao, h_mat, p_mat)
     }
+
+    pub fn get_tdm_for_ehrenfest_average_trajectory(&mut self, coeffs: ArrayView2<f64>) {
+        // Calculate the H' matrix
+        let hamiltonian = self.build_lcmo_fock_matrix();
+        self.properties.set_lcmo_fock(hamiltonian);
+
+        // Reference to the atoms of the total system.
+        let atoms: &[Atom] = &self.atoms[..];
+        // Number of LE states per monomer.
+        let n_le: usize = self.config.fmo_lc_tddftb.n_le;
+        let n_roots: usize = n_le + 3;
+
+        let fock_matrix: ArrayView2<f64> = self.properties.lcmo_fock().unwrap();
+        // Calculate the excited states of the monomers
+        // Swap the orbital energies of the monomers with the elements of the H' matrix
+        self.monomers.par_iter_mut().for_each(|mol| {
+            mol.properties.set_orbe(
+                fock_matrix
+                    .slice(s![mol.slice.orb, mol.slice.orb])
+                    .diag()
+                    .to_owned(),
+            );
+            mol.prepare_tda(&atoms[mol.slice.atom_as_range()], &self.config);
+            mol.run_tda(
+                &atoms[mol.slice.atom_as_range()],
+                n_roots,
+                self.config.excited.davidson_iterations,
+                self.config.excited.davidson_convergence,
+                self.config.excited.davidson_subspace_multiplier,
+                false,
+                &self.config,
+            );
+        });
+
+        // Construct the basis states.
+        let states: Vec<BasisState> = self.create_diabatic_basis(self.config.fmo_lc_tddftb.n_ct);
+
+        // get the number of occupied and virtual orbitals
+        let n_occ: usize = self
+            .monomers
+            .iter()
+            .map(|m| m.properties.n_occ().unwrap())
+            .sum();
+        let n_virt: usize = self
+            .monomers
+            .iter()
+            .map(|m| m.properties.n_virt().unwrap())
+            .sum();
+        let n_orbs: usize = n_occ + n_virt;
+        let mut occ_orbs: Array2<f64> = Array2::zeros([n_orbs, n_occ]);
+        let mut virt_orbs: Array2<f64> = Array2::zeros([n_orbs, n_virt]);
+
+        // get all occupide and virtual orbitals of the system
+        for mol in self.monomers.iter() {
+            let mol_orbs: ArrayView2<f64> = mol.properties.orbs().unwrap();
+            let lumo: usize = mol.properties.lumo().unwrap();
+            occ_orbs
+                .slice_mut(s![mol.slice.orb, mol.slice.occ_orb])
+                .assign(&mol_orbs.slice(s![.., ..lumo]));
+            virt_orbs
+                .slice_mut(s![mol.slice.orb, mol.slice.virt_orb])
+                .assign(&mol_orbs.slice(s![.., lumo..]));
+        }
+
+        // create step vector
+        let mut step_vec: Vec<usize> = Vec::new();
+        for (count, step) in (0..self.config.tdm_config.total_steps).enumerate() {
+            if count.rem_euclid(self.config.tdm_config.calculate_nth_step) == 0 {
+                step_vec.push(step);
+            }
+        }
+
+        if self.config.tdm_config.use_parallelization {
+            step_vec.par_iter().enumerate().for_each(|(idx, step)| {
+                let coeff: ArrayView1<f64> = coeffs.slice(s![idx, ..]);
+                let tdm: Array2<f64> = self.get_transition_density_matrix_from_coeffs(
+                    coeff,
+                    (n_occ, n_virt),
+                    states.clone(),
+                );
+                let tdm_ao: Array2<f64> = occ_orbs.dot(&tdm.dot(&virt_orbs.t()));
+
+                // hole and particle densities
+                let s: ArrayView2<f64> = self.properties.s().unwrap();
+                let h_mat: Array2<f64> = tdm_ao.dot(&s.dot(&tdm_ao.t()));
+                let p_mat: Array2<f64> = tdm_ao.t().dot(&s.dot(&tdm_ao));
+
+                if self.config.tdm_config.store_tdm {
+                    let mut tmp_string: String = String::from("transition_density_");
+                    tmp_string.push_str(&step.to_string());
+                    tmp_string.push_str(".npy");
+                    write_npy(tmp_string, &tdm_ao).unwrap();
+                }
+                if self.config.tdm_config.store_hole_particle {
+                    let mut tmp_string: String = String::from("hole_density_");
+                    tmp_string.push_str(&step.to_string());
+                    tmp_string.push_str(".npy");
+                    write_npy(tmp_string, &h_mat).unwrap();
+
+                    let mut tmp_string: String = String::from("particle_density_");
+                    tmp_string.push_str(&step.to_string());
+                    tmp_string.push_str(".npy");
+                    write_npy(tmp_string, &p_mat).unwrap();
+                }
+
+                if self.config.tdm_config.calc_cube {
+                    self.density_from_tdm(h_mat.view(), idx, "_h");
+                    self.density_from_tdm(p_mat.view(), idx, "_p");
+                }
+                if self.config.tdm_config.calc_tdm_cube {
+                    self.density_from_tdm(tdm.view(), idx, "_tdm");
+                }
+            });
+        } else {
+            for (idx, step) in step_vec.iter().enumerate() {
+                let coeff: ArrayView1<f64> = coeffs.slice(s![idx, ..]);
+                let tdm: Array2<f64> = self.get_transition_density_matrix_from_coeffs(
+                    coeff,
+                    (n_occ, n_virt),
+                    states.clone(),
+                );
+                let tdm_ao: Array2<f64> = occ_orbs.dot(&tdm.dot(&virt_orbs.t()));
+
+                // hole and particle densities
+                let s: ArrayView2<f64> = self.properties.s().unwrap();
+                let h_mat: Array2<f64> = tdm_ao.dot(&s.dot(&tdm_ao.t()));
+                let p_mat: Array2<f64> = tdm_ao.t().dot(&s.dot(&tdm_ao));
+
+                if self.config.tdm_config.store_tdm {
+                    let mut tmp_string: String = String::from("transition_density_");
+                    tmp_string.push_str(&step.to_string());
+                    tmp_string.push_str(".npy");
+                    write_npy(tmp_string, &tdm_ao).unwrap();
+                }
+                if self.config.tdm_config.store_hole_particle {
+                    let mut tmp_string: String = String::from("hole_density_");
+                    tmp_string.push_str(&step.to_string());
+                    tmp_string.push_str(".npy");
+                    write_npy(tmp_string, &h_mat).unwrap();
+
+                    let mut tmp_string: String = String::from("particle_density_");
+                    tmp_string.push_str(&step.to_string());
+                    tmp_string.push_str(".npy");
+                    write_npy(tmp_string, &p_mat).unwrap();
+                }
+
+                if self.config.tdm_config.calc_cube {
+                    self.density_from_tdm(h_mat.view(), idx, "_h");
+                    self.density_from_tdm(p_mat.view(), idx, "_p");
+                }
+                if self.config.tdm_config.calc_tdm_cube {
+                    self.density_from_tdm(tdm.view(), idx, "_tdm");
+                }
+            }
+        }
+    }
 }
 
 /// Different types of diabatic basis states that are used for the FMO-exciton model.
@@ -627,93 +822,9 @@ pub struct ChargeTransferPreparation<'a> {
     pub m_l: &'a Monomer<'a>,
     pub pair_type: PairType,
     pub properties: Properties,
+    /// BLAS-optimized workspace for exchange integrals in Davidson iterations.
+    /// Initialized by prepare_ct_tda when LC correction is enabled.
+    pub davidson_workspace: Option<CTDavidsonWorkspace>,
 }
 
-#[derive(Clone, Debug)]
-pub struct ChargeTransferPair {
-    pub m_h: usize,
-    pub m_l: usize,
-    pub state_index: usize,
-    pub state_energy: f64,
-    pub eigenvectors: Array2<f64>,
-    pub q_tr: Array1<f64>,
-    pub tr_dipole: Vector3<f64>,
-    /// [Slice](ndarray::prelude::Slice) for occupied orbitals corresponding to this molecular unit
-    pub occ_orb: Slice,
-    /// [Slice](ndarray::prelude::Slice) for virtual orbitals corresponding to this molecular unit
-    pub virt_orb: Slice,
-    pub occ_indices: Vec<usize>,
-    pub virt_indices: Vec<usize>,
-}
-
-impl PartialEq for ChargeTransferPair {
-    fn eq(&self, other: &Self) -> bool {
-        self.m_h == other.m_h && self.m_l == other.m_l && self.state_index == other.state_index
-    }
-}
-
-impl Display for ChargeTransferPair {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "CT {}: {} -> {}",
-            self.state_index,
-            self.m_h + 1,
-            self.m_l + 1
-        )
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum ReducedBasisState {
-    LE(ReducedLE),
-    CT(ChargeTransferPair),
-}
-
-#[derive(Clone, Debug)]
-pub struct ReducedLE {
-    pub energy: f64,
-    pub monomer_index: usize,
-    pub state_index: usize,
-    pub state_coefficient: f64,
-    pub homo: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct ReducedCT {
-    pub energy: f64,
-    pub monomer_index_h: usize,
-    pub monomer_index_e: usize,
-    pub state_index: usize,
-    pub state_coefficient: f64,
-}
-
-impl Display for ReducedBasisState {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match self {
-            ReducedBasisState::LE(state) => write!(f, "{}", state),
-            ReducedBasisState::CT(state) => write!(f, "{}", state),
-        }
-    }
-}
-
-impl Display for ReducedLE {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "LE(S{}) on Frag. {:>4}",
-            self.state_index + 1,
-            self.monomer_index + 1
-        )
-    }
-}
-
-impl Display for ReducedCT {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "CT(Nr.{}) between Frag.: {} -> {}",
-            self.state_index, self.monomer_index_h, self.monomer_index_e
-        )
-    }
-}
+pub use dialect_state::basis_states::{ChargeTransferPair, ReducedBasisState, ReducedLE};

@@ -3,28 +3,14 @@ use crate::{
     initialization::{parameter_handling::generate_parameters, Atom},
     scc::scc_routine::RestrictedSCC,
 };
-use chemfiles::{Frame, Trajectory};
+use xyz_parser::parse_trajectory_file;
 use ndarray::prelude::*;
-use ndarray_npy::NpzReader;
+use ndarray_npy::{read_npy, NpzReader};
 use rayon::prelude::*;
 use std::fs::File;
 
 impl SuperSystem<'_> {
     pub fn get_ehrenfest_densities(&mut self) {
-        // normal calc for first geometry
-        // self.prepare_scc();
-        // let _ = self.run_scc().unwrap();
-        // self.get_excitonic_matrix();
-
-        // println!("atoms length {}", self.atoms.len());
-
-        // // create the OldSupersystem and store it
-        // let old_system = OldSupersystem::new(&self);
-        // self.properties.set_ref_supersystem(old_system);
-
-        // load the geometries
-        // let trajectory = Trajectory::open("dynamics.xyz", 'r').unwrap();
-        // let frame = Frame::new();
         let mut step_vec: Vec<usize> = Vec::new();
         for (count, step) in (0..self.config.tdm_config.total_steps).enumerate() {
             if count.rem_euclid(self.config.tdm_config.calculate_nth_step) == 0 {
@@ -44,13 +30,11 @@ impl SuperSystem<'_> {
         self.properties.reset_reduced();
 
         if self.config.tdm_config.use_parallelization {
+            // load the geometries
+            let traj_frames = parse_trajectory_file("dynamics.xyz").unwrap();
             step_vec.par_iter().enumerate().for_each(|(idx, step)| {
-                // load the geometries
-                let mut trajectory = Trajectory::open("dynamics.xyz", 'r').unwrap();
-                let mut frame = Frame::new();
-                trajectory.read_step(*step, &mut frame).unwrap();
                 let (_slako, _vrep, atoms, _unique_atoms) =
-                    generate_parameters(frame.clone(), self.config.clone());
+                    generate_parameters(traj_frames[*step].clone(), self.config.clone());
 
                 // Get all [Atom]s of the SuperSystem in a sorted order that corresponds to the order of
                 // the monomers
@@ -90,16 +74,14 @@ impl SuperSystem<'_> {
             });
         } else {
             // load the geometries
-            let mut trajectory = Trajectory::open("dynamics.xyz", 'r').unwrap();
-            let mut frame = Frame::new();
+            let traj_frames = parse_trajectory_file("dynamics.xyz").unwrap();
             // load the coefficients
             let mut coefficients = NpzReader::new(File::open("coeff_abs.npz").unwrap()).unwrap();
 
             for (idx, step) in step_vec.iter().enumerate() {
                 // get new geometry
-                trajectory.read_step(*step, &mut frame).unwrap();
                 let (_slako, _vrep, atoms, _unique_atoms) =
-                    generate_parameters(frame.clone(), self.config.clone());
+                    generate_parameters(traj_frames[*step].clone(), self.config.clone());
 
                 // Get all [Atom]s of the SuperSystem in a sorted order that corresponds to the order of
                 // the monomers
@@ -145,5 +127,26 @@ impl SuperSystem<'_> {
                 self.properties.reset();
             }
         }
+    }
+
+    pub fn get_average_traj_ehrenfest_densities(&mut self) {
+        // reset old data
+        for monomer in self.monomers.iter_mut() {
+            monomer.properties.reset_reduced();
+        }
+        for pair in self.pairs.iter_mut() {
+            pair.properties.reset_reduced();
+        }
+        for esd_pair in self.esd_pairs.iter_mut() {
+            esd_pair.properties.reset_reduced();
+        }
+        self.properties.reset_reduced();
+        // read the coefficients
+        let coeff: Array2<f64> = read_npy("coeffs.npy").unwrap();
+        // ground state
+        self.prepare_scc();
+        let _ = self.run_scc().unwrap();
+
+        self.get_tdm_for_ehrenfest_average_trajectory(coeff.view());
     }
 }

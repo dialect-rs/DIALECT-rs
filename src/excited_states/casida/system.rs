@@ -620,7 +620,11 @@ mod tests {
     use approx::AbsDiffEq;
     use ndarray::{Array1, Array2};
 
-    pub const EPSILON: f64 = 1e-8;
+    // Reference energies were generated with the MKL BLAS backend; the
+    // OpenBLAS backend differs by up to ~1e-6 on these excitation energies,
+    // so the tolerance is set well above that drift while still being tight
+    // enough to catch real regressions.
+    pub const EPSILON: f64 = 1e-5;
 
     fn test_tddftb_calculation(molecule_and_properties: (&str, System, Properties), lc: bool) {
         let name = molecule_and_properties.0;

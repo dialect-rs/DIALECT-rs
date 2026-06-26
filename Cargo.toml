@@ -1,22 +1,37 @@
 [package]
 name = "dialect"
-version = "1.0.0"
+version = "1.1.0"
 authors = [
     "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
     "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
-    "Xincheng Miao <xincheng.miao@uni-wuerzburg.de>",
-    "Luca Nils Philipp <luca_nils.philipp@uni-wuerzburg.de>",
     "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
 ]
 edition = "2021"
 
 [workspace]
-members = ["dialect-dynamics"]
+members = [
+    "dialect-base",
+    "dialect-config",
+    "dialect-dftb-core",
+    "dialect-dynamics",
+    "dialect-utilities",
+    "dialect-xtb",
+    "dialect-solvers",
+    "dialect-state",
+    "dialect-xtb-core",
+]
 
 [dependencies]
+dialect-base = { path = "dialect-base" }
+dialect-config = { path = "dialect-config" }
+dialect-dftb-core = { path = "dialect-dftb-core" }
+dialect-utilities = { path = "dialect-utilities" }
+dialect-xtb = { path = "dialect-xtb" }
+dialect-solvers = { path = "dialect-solvers" }
+dialect-state = { path = "dialect-state" }
+dialect-xtb-core = { path = "dialect-xtb-core" }
 dialect-dynamics = { path = "dialect-dynamics" }
-rusty-dftd = { git = "https://github.com/dialect-rs/DFTD.git" }
-chemfiles = "0.10.3"
+rusty-dftd = { git = "https://github.com/einseler/DFTD" }
 ndarray = { version = "0.15.6", features = [
     "serde-1",
     "approx",
@@ -26,6 +41,8 @@ ndarray = { version = "0.15.6", features = [
 ndarray-npy = "0.8.1"
 approx = "0.5.1"
 ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
+lapack = { version = "0.19", default-features = false }
+lapack-src = {version = "0.13",features = ["openblas"]}
 ndarray-stats = "0.5.1"
 phf = { version = "0.11.1", features = ["macros"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -41,7 +58,7 @@ rusty-fitpack = { git = "https://github.com/einseler/Rusty-FITPACK" }
 petgraph = "0.6.3"
 nalgebra = "0.32.1"
 nshare = { version = "0.9", features = ["ndarray", "nalgebra"] }
-clap = "=3.0.0-beta.2"
+clap = "4.5"
 toml = "0.7.2"
 rand = "0.8.5"
 log = "0.4.17"
@@ -59,7 +76,9 @@ ndarray-rand = "0.14.0"
 rust_decimal = "1.26.1"
 serde_repr = "0.1.9"
 sphrs = { git = "https://github.com/einseler/sphrs" }
+xyz_parser = { git = "https://github.com/einseler/xyz_parser" }
 splines = "4.1.1"
 
 [profile.release]
 lto = true
+debug = true

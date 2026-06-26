@@ -1,0 +1,18 @@
+[package]
+name = "dialect-solvers"
+version = "1.0.0"
+authors = [
+    "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
+    "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
+]
+edition = "2021"
+
+[dependencies]
+approx = "0.5.1"
+dialect-utilities = { path = "../dialect-utilities" }
+log = "0.4.17"
+ndarray = { version = "0.15.6", features = ["approx", "rayon"] }
+ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
+ndarray-stats = "0.5.1"
+rayon = "1.10.0"

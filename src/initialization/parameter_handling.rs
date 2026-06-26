@@ -2,15 +2,15 @@ use crate::initialization::parameters::{
     RepulsivePotential, RepulsivePotentialTable, SkfHandler, SlaterKoster, SlaterKosterTable,
 };
 use crate::initialization::{get_unique_atoms_skf, Atom};
-use crate::io::{frame_to_atoms, frame_to_coordinates};
+use crate::io::{xyz_frame_to_atoms, xyz_frame_to_coordinates};
 use crate::param::Element;
 use crate::Configuration;
-use chemfiles::Frame;
+use xyz_parser::XyzFrame;
 use hashbrown::HashMap;
 use itertools::Itertools;
 
 pub fn generate_parameters(
-    frame: Frame,
+    frame: XyzFrame,
     config: Configuration,
 ) -> (SlaterKoster, RepulsivePotential, Vec<Atom>, Vec<Atom>) {
     // create mutable Vectors
@@ -22,7 +22,7 @@ pub fn generate_parameters(
         // get the unique [Atom]s and the HashMap with the mapping from the numbers to the [Atom]s
         // if use_mio is true, create a vector of homonuclear SkfHandlers and a vector
         // of heteronuclear SkfHandlers
-        let (numbers, coords) = frame_to_coordinates(frame);
+        let (numbers, coords) = xyz_frame_to_coordinates(frame.clone());
 
         let tmp: (Vec<Atom>, HashMap<u8, Atom>, Vec<SkfHandler>) =
             get_unique_atoms_skf(&numbers, &config);
@@ -40,7 +40,7 @@ pub fn generate_parameters(
         });
     } else {
         // get the unique [Atom]s and the HashMap with the mapping from the numbers to the [Atom]s
-        let tmp: (Vec<Atom>, Vec<Atom>) = frame_to_atoms(frame, &config.parameterization);
+        let tmp: (Vec<Atom>, Vec<Atom>) = xyz_frame_to_atoms(&frame, &config.parameterization);
         atoms = tmp.0;
         unique_atoms = tmp.1;
     }

@@ -27,6 +27,7 @@ impl Simulation {
     pub fn ehrenfest_tab_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
         let old_force_matrix: Array2<f64> = self.force_array.clone();
+        // let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         // calculate the gradient and the excitonic couplings
         let excitonic_couplings: Array2<f64> = self.get_ehrenfest_data_tab(interface, step);
 
@@ -141,6 +142,38 @@ impl Simulation {
                 index_vec.push((idx_i, idx_j));
             }
         }
+        // for ((idx1, mut rho_i), c_i) in rho_d
+        //     .outer_iter_mut()
+        //     .enumerate()
+        //     .zip(self.coefficients.iter())
+        // {
+        //     for ((idx2, rho_ij), c_j) in rho_i.iter_mut().enumerate().zip(self.coefficients.iter())
+        //     {
+        //         let c_val: c64 = c_i * c_j.conj();
+        //         let off_diag_factor: f64 = if idx1 != idx2 && c_val.norm_sqr() > 1.0e-10 {
+        //             // get the pair statewise decoherence time
+        //             // calculate the force difference
+        //             let force_diff_squared: Array1<f64> = (&avg_forces.slice(s![.., idx1])
+        //                 - &avg_forces.slice(s![.., idx2]))
+        //                 .map(|val| val.powi(2));
+        //             let mut force_diff_squared: Array2<f64> =
+        //                 force_diff_squared.into_shape([self.n_atoms, 3]).unwrap();
+        //             for idx in 0..3 {
+        //                 let tmp_force: Array1<f64> =
+        //                     &force_diff_squared.slice(s![.., idx]) / alpha_arr;
+        //                 force_diff_squared.slice_mut(s![.., idx]).assign(&tmp_force);
+        //             }
+        //             // divide the force difference by alpha and sum over the gradient dimension
+        //             let tau_ij_inv_2: f64 = force_diff_squared.sum();
+        //
+        //             (-self.stepsize * tau_ij_inv_2.sqrt()).exp()
+        //         } else {
+        //             1.0
+        //         };
+        //         *rho_ij = off_diag_factor * c_val;
+        //         rho_c[[idx1, idx2]] = c_val;
+        //     }
+        // }
         let (vec_c, vec_d): (Vec<c64>, Vec<c64>) = index_vec
             .par_iter()
             .map(|indices| {
@@ -172,7 +205,7 @@ impl Simulation {
                     // divide the force difference by alpha and sum over the gradient dimension
                     let tau_ij_inv_2: f64 = force_diff_squared.sum();
 
-                    d_val *= (-self.stepsize * tau_ij_inv_2).exp();
+                    d_val *= (-self.stepsize * tau_ij_inv_2.sqrt()).exp();
                 }
 
                 (c_val, d_val)
@@ -190,9 +223,10 @@ impl Simulation {
         let mut block_vector: Vec<Array2<c64>> = Vec::new();
         let mut weight_vector: Vec<f64> = Vec::new();
 
-        // do the TAB loop
-        'tab_loop: for _idx in 0..500 {
-            if _idx == 499 {
+        // do the TAB loop — guaranteed to converge in at most N(N+1)/2 iterations
+        let max_iter: usize = nstates * (nstates + 1) / 2;
+        'tab_loop: for _idx in 0..max_iter {
+            if _idx + 1 == max_iter {
                 println!("TAB iteration limit reached: {}", _idx);
             }
             // println!("Rho tmp:\n{:.3}", tmp_rho);
@@ -226,12 +260,12 @@ impl Simulation {
 
             for (idx_1, b_i) in b_mat.outer_iter().enumerate() {
                 for (idx_2, b_ij) in b_i.iter().enumerate() {
-                    let b_val: f64 = *b_ij;
-                    if b_val < smallest_value && b_val > threshold {
-                        smallest_value = b_val;
+                    let b_abs: f64 = b_ij.abs();
+                    if b_abs > threshold && b_abs < smallest_value {
+                        smallest_value = b_abs;
                         indices = (idx_1, idx_2);
                     }
-                    if b_val < threshold {
+                    if b_abs < threshold {
                         b_counter += 1;
                     }
                 }
@@ -248,29 +282,25 @@ impl Simulation {
             let mut beta: Vec<usize> = if k != l { vec![k, l] } else { vec![k] };
             for (idx_1, b_i) in b_mat.outer_iter().enumerate() {
                 if idx_1 != k && idx_1 != l {
-                    let b_val: f64 = b_i[k];
-                    if b_val > threshold {
-                        beta.push(idx_1);
-                    }
-                    let b_val: f64 = b_i[l];
-                    if b_val > threshold {
+                    if b_i[k].abs() > threshold && b_i[l].abs() > threshold {
                         beta.push(idx_1);
                     }
                 }
             }
             let mut excluded_states: Vec<usize> = Vec::new();
             // loop over beta
-            for idx1 in beta.iter() {
+            'outer: for idx1 in beta.iter() {
                 if *idx1 != k && *idx1 != l && !excluded_states.contains(idx1) {
                     for idx2 in beta.iter() {
                         if *idx2 != k && *idx2 != l && !excluded_states.contains(idx2) {
                             let b_val: f64 = b_mat[[*idx1, *idx2]];
-                            if b_val <= 1.0e-10 {
+                            if b_val.abs() <= threshold {
                                 // randomly choose between 1 and 2 and exclude it from beta
                                 let random_number: f64 = self.rng.sample(Standard);
                                 if random_number < 0.5 {
                                     // exclude idx1
                                     excluded_states.push(*idx1);
+                                    continue 'outer;
                                 } else {
                                     excluded_states.push(*idx2);
                                 }
@@ -307,7 +337,11 @@ impl Simulation {
                 }
             }
             // get the weight of the block matrix
-            let p_block: f64 = (tmp_rho[[k, l]] / rho_block[[k, l]]).re;
+            let mut p_block: f64 = (tmp_rho[[k, l]] / rho_block[[k, l]]).re;
+            // clip numerically-zero negative weights to exactly zero (Paper 1, step 5)
+            if p_block < 0.0 && p_block > -1.0e-9 {
+                p_block = 0.0;
+            }
             // update tmp_rho
             tmp_rho = tmp_rho - &rho_block * p_block;
 
@@ -382,6 +416,7 @@ impl Simulation {
                 self.coordinates.view(),
                 self.velocities.view(),
                 self.coefficients.view(),
+                // abs_coefficients.view(),
                 self.config.ehrenfest_config.state_threshold,
                 self.config.ehrenfest_config.tab_grad_threshold,
                 self.config.stepsize,

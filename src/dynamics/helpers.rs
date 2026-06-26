@@ -1,7 +1,6 @@
 use crate::fmo::{Monomer, ReducedBasisState, SuperSystem};
 use crate::initialization::System;
 use crate::scc::scc_routine::RestrictedSCC;
-use crate::xtb::initialization::system::XtbSystem;
 use ndarray::prelude::*;
 use ndarray_linalg::{c64, Scalar};
 use rayon::prelude::*;
@@ -215,7 +214,10 @@ impl SuperSystem<'_> {
                     match state {
                         ReducedBasisState::LE(ref a) => {
                             let mol: &Monomer = &self.monomers[a.monomer_index];
-                            mol.tda_gradient_lc(a.state_index)
+                            mol.tda_gradient_lc_accumulation(
+                                &self.atoms[mol.slice.atom_as_range()],
+                                a.state_index,
+                            )
                         }
                         ReducedBasisState::CT(ref a) => self.charge_transfer_pair_gradient(a),
                     }
@@ -305,7 +307,10 @@ impl SuperSystem<'_> {
                     match state {
                         ReducedBasisState::LE(ref a) => {
                             let mol: &Monomer = &self.monomers[a.monomer_index];
-                            mol.tda_gradient_lc(a.state_index)
+                            mol.tda_gradient_lc_accumulation(
+                                &self.atoms[mol.slice.atom_as_range()],
+                                a.state_index,
+                            )
                             // let mut mol: Monomer = self.monomers[a.monomer_index].clone();
                             // mol.prepare_excited_gradient(&self.atoms[mol.slice.atom_as_range()]);
                             // mol.tda_gradient_lc(a.state_index)
@@ -372,15 +377,3 @@ impl SuperSystem<'_> {
     }
 }
 
-impl XtbSystem {
-    pub fn calculate_energies_and_gradient(&mut self) -> (Array1<f64>, Array1<f64>) {
-        let mut energies: Array1<f64> = Array1::zeros(1);
-        // ground state energy
-        self.prepare_scc();
-        let gs_energy: f64 = self.run_scc().unwrap();
-        energies[0] = gs_energy;
-        let gradient = self.ground_state_gradient();
-
-        (energies, gradient)
-    }
-}

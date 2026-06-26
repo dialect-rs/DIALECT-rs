@@ -371,6 +371,80 @@ pub fn trans_charges_ao(
     (q_ov, q_oo, q_vv)
 }
 
+pub fn calculate_trans_charges_derivatives(
+    grad_s: ArrayView3<f64>,
+    s: ArrayView2<f64>,
+    orbs: ArrayView2<f64>,
+    dc_mo: ArrayView3<f64>,
+    n_atoms: usize,
+    atoms: &[Atom],
+    occ_indices: &[usize],
+    virt_indices: &[usize],
+    n_orbs: usize,
+) -> (Array4<f64>, Array4<f64>, Array4<f64>) {
+    let n_occ: usize = occ_indices.len();
+    let n_virt: usize = virt_indices.len();
+
+    let mut q_ov_deriv: Array4<f64> = Array4::zeros([3 * n_atoms, n_atoms, n_occ, n_virt]);
+    let mut q_oo_deriv: Array4<f64> = Array4::zeros([3 * n_atoms, n_atoms, n_occ, n_occ]);
+    let mut q_vv_deriv: Array4<f64> = Array4::zeros([3 * n_atoms, n_atoms, n_virt, n_virt]);
+    for nc in 0..(3 * n_atoms) {
+        let mut mu: usize = 0;
+        for (atom_a, z_a) in atoms.iter().enumerate() {
+            for _ in 0..z_a.n_orbs {
+                for (idx_o, _occ) in occ_indices.iter().enumerate() {
+                    for (idx_v, virt) in virt_indices.iter().enumerate() {
+                        for orb_2 in 0..n_orbs {
+                            q_ov_deriv[[nc, atom_a, idx_o, idx_v]] += 0.5
+                                * (grad_s[[nc, mu, orb_2]]
+                                    * (orbs[[mu, idx_o]] * orbs[[orb_2, *virt]]
+                                        + orbs[[orb_2, idx_o]] * orbs[[mu, *virt]])
+                                    + s[[mu, orb_2]]
+                                        * (dc_mo[[nc, mu, idx_o]] * orbs[[orb_2, *virt]]
+                                            + orbs[[mu, idx_o]] * dc_mo[[nc, orb_2, *virt]]
+                                            + dc_mo[[nc, mu, *virt]] * orbs[[orb_2, idx_o]]
+                                            + orbs[[mu, *virt]] * dc_mo[[nc, orb_2, idx_o]]));
+                        }
+                    }
+                    for (idx_o2, _occ2) in occ_indices.iter().enumerate() {
+                        for orb_2 in 0..n_orbs {
+                            q_oo_deriv[[nc, atom_a, idx_o, idx_o2]] += 0.5
+                                * (grad_s[[nc, mu, orb_2]]
+                                    * (orbs[[mu, idx_o]] * orbs[[orb_2, idx_o2]]
+                                        + orbs[[orb_2, idx_o]] * orbs[[mu, idx_o2]])
+                                    + s[[mu, orb_2]]
+                                        * (dc_mo[[nc, mu, idx_o]] * orbs[[orb_2, idx_o2]]
+                                            + orbs[[mu, idx_o]] * dc_mo[[nc, orb_2, idx_o2]]
+                                            + dc_mo[[nc, mu, idx_o2]] * orbs[[orb_2, idx_o]]
+                                            + orbs[[mu, idx_o2]] * dc_mo[[nc, orb_2, idx_o]]));
+                        }
+                    }
+                }
+                for (idx_v, virt) in virt_indices.iter().enumerate() {
+                    let v1: usize = *virt;
+                    for (idx_v2, virt2) in virt_indices.iter().enumerate() {
+                        let v2: usize = *virt2;
+
+                        for orb_2 in 0..n_orbs {
+                            q_vv_deriv[[nc, atom_a, idx_v, idx_v2]] += 0.5
+                                * (grad_s[[nc, mu, orb_2]]
+                                    * (orbs[[mu, v1]] * orbs[[orb_2, v2]]
+                                        + orbs[[orb_2, v1]] * orbs[[mu, v2]])
+                                    + s[[mu, orb_2]]
+                                        * (dc_mo[[nc, mu, v1]] * orbs[[orb_2, v2]]
+                                            + orbs[[mu, v1]] * dc_mo[[nc, orb_2, v2]]
+                                            + dc_mo[[nc, mu, v2]] * orbs[[orb_2, v1]]
+                                            + orbs[[mu, v2]] * dc_mo[[nc, orb_2, v1]]));
+                        }
+                    }
+                }
+                mu += 1;
+            }
+        }
+    }
+    (q_ov_deriv, q_oo_deriv, q_vv_deriv)
+}
+
 impl System {
     pub fn mulliken_atomic_transition_charges(&self, state: usize) -> Array1<f64> {
         // get CIS coefficients from properties

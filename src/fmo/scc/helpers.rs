@@ -1,5 +1,6 @@
 use crate::initialization::Atom;
 use crate::io::settings::DispersionConfig;
+use crate::io::Configuration;
 use nalgebra::Point3;
 use ndarray::prelude::*;
 use rusty_dftd_lib::*;
@@ -22,11 +23,7 @@ pub fn atomvec_to_aomat(
     esp_ao
 }
 
-pub fn aovec_to_aomat(esp_aowise: ArrayView1<f64>, n_orbs: usize) -> Array2<f64> {
-    let esp_ao_column: Array2<f64> = esp_aowise.clone().to_owned().insert_axis(Axis(1));
-    let esp_ao: Array2<f64> = &esp_ao_column.broadcast((n_orbs, n_orbs)).unwrap() + &esp_aowise;
-    esp_ao
-}
+pub use dialect_utilities::scc_helpers::aovec_to_aomat;
 
 pub fn atomvec_to_aomat_third_order(
     esp_atomwise: ArrayView1<f64>,
@@ -47,7 +44,8 @@ pub fn atomvec_to_aomat_third_order(
     esp_ao
 }
 
-pub fn get_dispersion_energy(atoms: &[Atom], config: &DispersionConfig) -> f64 {
+pub fn get_dispersion_energy(atoms: &[Atom], full_config: &Configuration) -> f64 {
+    let config: &DispersionConfig = &full_config.dispersion;
     let positions: Vec<Point3<f64>> = atoms
         .iter()
         .map(|atom| Point3::from(atom.xyz))
@@ -68,6 +66,14 @@ pub fn get_dispersion_energy(atoms: &[Atom], config: &DispersionConfig) -> f64 {
         .set_a2(config.a2)
         .build();
     let param: RationalDamping3Param = RationalDamping3Param::from((d3param, &disp_mol.num));
-    let disp_result = get_dispersion(&mut disp_mol, &disp, &param, &cutoff, false, false);
+    let disp_result = get_dispersion(
+        &mut disp_mol,
+        &disp,
+        &param,
+        &cutoff,
+        false,
+        false,
+        full_config.parallelization.number_of_cores,
+    );
     disp_result.energy
 }

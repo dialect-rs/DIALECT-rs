@@ -15,15 +15,14 @@ impl System {
         &mut self,
         dt: f64,
         step: usize,
-        n_states: usize,
     ) -> (Array2<f64>, Array2<f64>) {
         let old_system = if self.properties.old_system().is_some() {
             self.properties.old_system().unwrap().clone()
         } else {
-            println!("Create old system at first step!");
-            OldSystem::new(self, None, None)
+            crate::initialization::old_system::new_old_system(self, None, None)
         };
 
+        let n_states= self.config.excited.nstates+1;
         // scalar coupling matrix
         let s_ci: Array2<f64> = self.ci_overlap_system(
             &old_system.atoms,
@@ -86,7 +85,7 @@ impl System {
         // Because of the finite time-step it will not be completely antisymmetric,
         coupling = 0.5 * (&coupling - &coupling.t());
 
-        let old_system: OldSystem = OldSystem::new(self, Some(coupling.clone()), None);
+        let old_system: OldSystem = crate::initialization::old_system::new_old_system(self, Some(coupling.clone()), None);
         self.properties.set_old_system(old_system);
 
         // coupl = <Psi_A|d/dR Psi_B>*dR/dt * dt
@@ -170,16 +169,12 @@ impl SuperSystem<'_> {
 
         // coupl = <Psi_A|d/dR Psi_B>*dR/dt * dt
         coupling /= dt;
-        println!(
-            "Scalar couplings for monomer 1: {:.5}",
-            coupling.slice(s![1..5, 1..5])
-        );
 
         // align the CI coefficients
         self.scalar_coupling_align_coefficients(sign.view());
 
         // create the OldSupersystem and store it
-        let old_system = OldSupersystem::new(self);
+        let old_system = crate::fmo::old_supersystem::new_old_supersystem(self);
         self.properties.set_old_supersystem(old_system);
 
         (coupling, excitonic_coupling, s_ao, diag.to_owned(), sign)
@@ -194,7 +189,7 @@ impl SuperSystem<'_> {
         let old_system = if let Some(oldsystem) = old_supersystem {
             oldsystem.to_owned()
         } else {
-            OldSupersystem::new(self)
+            crate::fmo::old_supersystem::new_old_supersystem(self)
         };
 
         // calculate the overlap of the wavefunctions
@@ -206,29 +201,9 @@ impl SuperSystem<'_> {
         let sign: Array1<f64> = get_sign_of_array(sci_overlap_diag.view());
 
         // create 2D matrix from the sign array
-        // let p: Array2<f64> = Array::from_diag(&sign);
+        let p: Array2<f64> = Array::from_diag(&sign);
         // align the excitonic coupling matrix using the p matrix
-        // let excitonic_coupling: Array2<f64> = p.dot(&excitonic_coupling).dot(&p);
-        // alternative way of aligning
-        let mut excitonic_vec: Vec<f64> = Vec::new();
-        for ((_idx_i, val_i), exc_val_i) in
-            sign.iter().enumerate().zip(excitonic_coupling.outer_iter())
-        {
-            let mut tmp_vec: Vec<f64> = Vec::new();
-            for ((_idx_j, val_j), exc_val_ij) in sign.iter().enumerate().zip(exc_val_i.iter()) {
-                if *exc_val_ij > 1.0e-8 {
-                    let new_coupling: f64 = val_i * val_j * exc_val_ij;
-                    tmp_vec.push(new_coupling);
-                } else {
-                    tmp_vec.push(*exc_val_ij);
-                }
-            }
-            excitonic_vec.append(&mut tmp_vec);
-        }
-        // get the dimenions
-        let dim: usize = sign.len();
-        let excitonic_coupling: Array2<f64> =
-            Array::from(excitonic_vec).into_shape((dim, dim)).unwrap();
+        let excitonic_coupling: Array2<f64> = p.dot(&excitonic_coupling).dot(&p);
 
         let mut signs: Array1<f64> = Array1::zeros(sign.len() + 1);
         signs.slice_mut(s![1..]).assign(&sign);
@@ -237,7 +212,7 @@ impl SuperSystem<'_> {
         self.scalar_coupling_align_coefficients(signs.view());
 
         // create the OldSupersystem and store it
-        let old_system = OldSupersystem::new(self);
+        let old_system = crate::fmo::old_supersystem::new_old_supersystem(self);
         self.properties.set_old_supersystem(old_system);
 
         excitonic_coupling

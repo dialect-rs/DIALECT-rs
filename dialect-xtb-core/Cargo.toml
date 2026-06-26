@@ -1,0 +1,19 @@
+[package]
+name = "dialect-xtb-core"
+version = "1.0.0"
+authors = [
+    "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
+    "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
+]
+edition = "2021"
+
+[dependencies]
+dialect-base = { path = "../dialect-base" }
+hashbrown = "0.13.2"
+itertools = "0.10.5"
+libm = "0.2.5"
+nalgebra = "0.32.1"
+ndarray = { version = "0.15.6", features = ["rayon"] }
+ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
+rayon = "1.10.0"

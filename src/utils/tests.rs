@@ -78,6 +78,22 @@ fn load_2d(filename: &str) -> Array2<f64> {
     Array2::from_shape_vec(shape, results.results).unwrap()
 }
 
+// fn load_3d(filename: &str) -> Array3<f64> {
+//     let file = String::from(filename);
+//     let params = ReaderParams {
+//         comments: Some(b'%'),
+//         delimiter: Delimiter::WhiteSpace,
+//         skip_header: None,
+//         skip_footer: None,
+//         usecols: None,
+//         max_rows: None,
+//     };
+//     let results = load_txt_f64(&file, &params).unwrap();
+//     let last_axis: usize = (results.num_fields as f64).sqrt() as usize;
+//     let shape: (usize, usize, usize) = (results.num_lines, last_axis, last_axis);
+//     return Array3::from_shape_vec(shape, results.results).unwrap();
+// }
+
 fn get_properties(mol: &str) -> Properties {
     let mut properties: Properties = Properties::new();
     let path: String = format!("{}/{}", get_test_path_prefix(), mol);

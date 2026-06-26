@@ -1,8 +1,11 @@
 use crate::fmo::scc::helpers::*;
+use crate::scc::mixer::BuildMixer;
 use crate::fmo::{ESDPair, Monomer, Pair};
 use crate::initialization::Atom;
 use crate::io::settings::MixConfig;
 use crate::io::SccConfig;
+use crate::scc::lapack_eigh::compute_s_inv_sqrt;
+use crate::scc::mixer::BroydenMixerNew;
 use crate::scc::mulliken::{mulliken_aowise, mulliken_atomwise};
 use crate::scc::{
     calc_exchange, density_matrix, density_matrix_ref, get_electronic_energy_new,
@@ -56,7 +59,8 @@ impl Pair<'_> {
 
         // convert generalized eigenvalue problem H.C = S.C.e into eigenvalue problem H'.C' = C'.e
         // by Loewdin orthogonalization, H' = X^T.H.X, where X = S^(-1/2)
-        let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
+        // let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
+        let x: Array2<f64> = compute_s_inv_sqrt(s.view());
         // get the gamma matrix
         let (gamma, gamma_ab): (Array2<f64>, Array2<f64>) = if !shell_resolved {
             let mut gamma_tmp = Array2::zeros([self.n_atoms, self.n_atoms]);
@@ -204,6 +208,7 @@ impl Pair<'_> {
         config: SccConfig,
         shell_resolved: bool,
         mix_config: &MixConfig,
+        broyden_config: &crate::io::settings::BroydenConfig,
     ) {
         let scf_charge_conv: f64 = config.scf_charge_conv;
         let scf_energy_conv: f64 = config.scf_energy_conv;
@@ -212,17 +217,20 @@ impl Pair<'_> {
         let mut delta_p: Array2<f64> = Array2::zeros(p.raw_dim());
         let mut dq: Array1<f64> = self.properties.dq().unwrap().to_owned();
 
-        // Anderson mixer
+        // Mixer initialization
         let mix_config: MixConfig = *mix_config;
-        let dim: usize;
-        if self.gammafunction_lc.is_some() {
-            dim = self.n_orbs * self.n_orbs;
-        } else if !shell_resolved {
-            dim = self.n_atoms;
+        let mut accel = if self.gammafunction_lc.is_some() {
+            let dim = self.n_orbs * self.n_orbs;
+            Some(mix_config.build_mixer(dim).unwrap())
         } else {
-            dim = self.n_orbs;
-        }
-        let mut accel = mix_config.build_mixer(dim).unwrap();
+            None
+        };
+        let mut broyden_mixer = if self.gammafunction_lc.is_none() {
+            let dim = if !shell_resolved { self.n_atoms } else { self.n_orbs };
+            Some(BroydenMixerNew::from_config(dim, broyden_config))
+        } else {
+            None
+        };
 
         let x: ArrayView2<f64> = self.properties.x().unwrap();
         let s: ArrayView2<f64> = self.properties.s().unwrap();
@@ -270,6 +278,8 @@ impl Pair<'_> {
             let dp: Array2<f64> = &p - &p0;
 
             let dq_new: Array1<f64> = if self.gammafunction_lc.is_some() {
+                // LC case: mix density matrix with Anderson Acceleration
+                let accel = accel.as_mut().unwrap();
                 let dim: usize = self.n_orbs * self.n_orbs;
                 let dp_flat: ArrayView1<f64> = dp.view().into_shape(dim).unwrap();
 
@@ -297,13 +307,16 @@ impl Pair<'_> {
                     mulliken_aowise(delta_p.view(), s.view())
                 }
             } else {
-                // mulliken charges
+                // Non-LC case: mix charges with Broyden mixer
+                let mixer = broyden_mixer.as_mut().unwrap();
                 if !shell_resolved {
                     let dq1 = mulliken_atomwise(dp.view(), s.view(), atoms, self.n_atoms);
-                    accel.apply(dq.view(), dq1.view()).unwrap()
+                    let delta_dq: Array1<f64> = &dq1 - &dq;
+                    mixer.next(&dq, &delta_dq)
                 } else {
                     let dq1 = mulliken_aowise(dp.view(), s.view());
-                    accel.apply(dq.view(), dq1.view()).unwrap()
+                    let delta_dq: Array1<f64> = &dq1 - &dq;
+                    mixer.next(&dq, &delta_dq)
                 }
             };
 
@@ -349,8 +362,8 @@ impl Pair<'_> {
                 break 'scf_loop;
             }
             if !converged && iter == max_iter - 1 {
-                println!("Iteration {}", iter);
-                println!("Monomer indices: {},{}", self.i, self.j);
+                log::debug!("Iteration {}", iter);
+                log::debug!("Monomer indices: {},{}", self.i, self.j);
                 let string: String = String::from("dq.npy");
                 write_npy(Path::new(&string), &dq_saved.view()).unwrap();
                 write_npy(
@@ -564,8 +577,8 @@ impl ESDPair<'_> {
                 break 'scf_loop;
             }
             if !converged && iter == max_iter - 1 {
-                println!("Iteration {}", iter);
-                println!("Monomer indices: {},{}", self.i, self.j);
+                log::debug!("Iteration {}", iter);
+                log::debug!("Monomer indices: {},{}", self.i, self.j);
                 panic!("ESD Pair scc routine does not converge!");
             }
         }
@@ -692,8 +705,8 @@ impl ESDPair<'_> {
                 break 'scf_loop;
             }
             if !converged && iter == max_iter - 1 {
-                println!("Iteration {}", iter);
-                println!("Monomer indices: {},{}", self.i, self.j);
+                log::debug!("Iteration {}", iter);
+                log::debug!("Monomer indices: {},{}", self.i, self.j);
                 let string: String = String::from("dq.npy");
                 write_npy(Path::new(&string), &dq_saved.view()).unwrap();
                 write_npy(

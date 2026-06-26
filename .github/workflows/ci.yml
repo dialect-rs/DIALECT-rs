@@ -1,0 +1,48 @@
+name: CI
+
+# Build the program and run the test suite on every push and pull_request
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      # Several tests (and the built-in DFTB parameterization) require the
+      # path to the source tree.
+      DIALECT_SRC_DIR: ${{ github.workspace }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        # gfortran + cmake are needed to build the statically linked OpenBLAS
+        # backend; libssl-dev / pkg-config for the transitive dependencies.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake pkg-config libssl-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        # Caches ~/.cargo and target/ (incl. the static OpenBLAS + dependency
+        # builds, the bulk of the compile time) keyed on Cargo.lock + toolchain.
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Separate cache slot for the release profile artifacts.
+          key: release
+
+      - name: Build
+        # Release build: dependencies (OpenBLAS, ndarray, ...) come from the
+        # cache; only changed workspace crates recompile.
+        run: cargo build --release --workspace --verbose
+
+      - name: Test
+        # Release tests run much faster (e.g. the FMO-xTB gradient test is ~7x
+        # quicker than in debug).
+        run: cargo test --release --workspace --verbose

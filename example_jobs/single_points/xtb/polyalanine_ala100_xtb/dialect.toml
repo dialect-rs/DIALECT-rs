@@ -1,0 +1,14 @@
+jobtype = "sp"
+method = "xtb"
+verbose = 0
+n_cores = 4
+
+[molecule]
+charge = 0
+multiplicity = 1
+
+[scc]
+max_cycles = 500
+charge_conv = 1e-07
+energy_conv = 1e-10
+electronic_temperature = 300.0

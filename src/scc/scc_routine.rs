@@ -1,4 +1,5 @@
 use super::gamma_approximation::{gamma_ao_wise_shell_resolved, gamma_third_order};
+use crate::scc::mixer::BuildMixer;
 use super::mulliken::mulliken_aowise;
 use super::{
     calc_coulomb_third_order, construct_h_third_order, get_electronic_energy_gamma_shell_resolved,
@@ -14,8 +15,10 @@ use crate::scc::h0_and_s::h0_and_s;
 use crate::scc::helpers::density_matrix_ref;
 use crate::scc::level_shifting::LevelShifter;
 use crate::scc::logging::*;
-use crate::scc::mixer::BroydenMixer;
-use crate::scc::mixer::*;
+use crate::scc::mixer::anderson2::AndersonMixer;
+use crate::scc::mixer::BroydenMixerNew;
+// use crate::scc::mixer::*;
+use crate::scc::lapack_eigh::{compute_s_inv_sqrt, dsyevd_eigh};
 use crate::scc::mulliken::{mulliken, mulliken_atomwise};
 use crate::scc::{
     calc_exchange, construct_h1, density_matrix, enable_level_shifting, fermi_occupation,
@@ -27,52 +30,12 @@ use log::{log_enabled, Level};
 use ndarray::prelude::*;
 use ndarray_linalg::*;
 use ndarray_stats::DeviationExt;
-use std::fmt;
 
-#[derive(Debug, Clone)]
-pub struct SCCError {
-    pub message: String,
-    iteration: usize,
-    energy_diff: f64,
-    charge_diff: f64,
-}
-
-impl SCCError {
-    pub fn new(iter: usize, energy_diff: f64, charge_diff: f64) -> Self {
-        let message: String = format! {"SCC-Routine failed in Iteration: {}. The charge\
-         difference at the last iteration was {} and the energy\
-         difference was {}",
-        iter,
-        charge_diff,
-        charge_diff};
-        Self {
-            message,
-            iteration: iter,
-            energy_diff,
-            charge_diff,
-        }
-    }
-}
-
-impl fmt::Display for SCCError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write! {f, "{}", self.message.as_str()}
-    }
-}
-
-impl std::error::Error for SCCError {
-    fn description(&self) -> &str {
-        self.message.as_str()
-    }
-}
 
 /// Trait that optimizes the Kohn-Sham orbitals iteratively by employing the
 /// spin-restricted (spin-unpolarized) self-consistent charge scheme to find the ground state energy.
 /// Only one set of charges/charge differences is used
-pub trait RestrictedSCC {
-    fn prepare_scc(&mut self);
-    fn run_scc(&mut self) -> Result<f64, SCCError>;
-}
+pub use dialect_utilities::scc_interface::{RestrictedSCC, SCCError};
 
 impl RestrictedSCC for System {
     ///  To run the SCC calculation the following properties in the molecule need to be set:
@@ -220,11 +183,13 @@ impl System {
             dim = self.n_atoms;
         }
         let mut accel = mix_config.build_mixer(dim).unwrap();
-        let mut broyden_mixer: BroydenMixer = if self.config.tight_binding.use_shell_resolved_gamma {
-            BroydenMixer::new(self.n_orbs)
-        } else {
-            BroydenMixer::new(self.n_atoms)
-        };
+        let mut anderson_mixer = AndersonMixer::new(dim);
+        let mut broyden_mixer: BroydenMixerNew =
+            if self.config.tight_binding.use_shell_resolved_gamma {
+                BroydenMixerNew::from_config(self.n_orbs, &self.config.broyden)
+            } else {
+                BroydenMixerNew::from_config(self.n_atoms, &self.config.broyden)
+            };
 
         // molecular properties, we take all properties that are needed from the Properties type
         let s: ArrayView2<f64> = self.properties.s().unwrap();
@@ -253,11 +218,12 @@ impl System {
         }
         // convert generalized eigenvalue problem H.C = S.C.e into eigenvalue problem H'.C' = C'.e
         // by Loewdin orthogonalization, H' = X^T.H.X, where X = S^(-1/2)
-        let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
+        // let x: Array2<f64> = s.ssqrt(UPLO::Upper).unwrap().inv().unwrap();
+        let x: Array2<f64> = compute_s_inv_sqrt(s.view());
 
         let mut e_disp: f64 = 0.0;
         if self.config.dispersion.use_dispersion {
-            e_disp = get_dispersion_energy(&self.atoms, &self.config.dispersion);
+            e_disp = get_dispersion_energy(&self.atoms, &self.config);
         }
 
         'scf_loop: for i in 0..max_iter {
@@ -289,7 +255,8 @@ impl System {
 
             // H' = X^t.H.X
             h = x.t().dot(&h).dot(&x);
-            let tmp: (Array1<f64>, Array2<f64>) = h.eigh(UPLO::Upper).unwrap();
+            // let tmp: (Array1<f64>, Array2<f64>) = h.eigh(UPLO::Upper).unwrap();
+            let tmp: (Array1<f64>, Array2<f64>) = dsyevd_eigh(h.view());
             orbe = tmp.0;
             // C = X.C'
             orbs = x.dot(&tmp.1);
@@ -309,21 +276,37 @@ impl System {
                 let dim: usize = self.n_orbs * self.n_orbs;
                 let dp_flat: ArrayView1<f64> = dp.view().into_shape(dim).unwrap();
 
-                delta_p = match i {
-                    0 => accel
-                        .apply(Array1::zeros(dim).view(), dp_flat.view())
-                        .unwrap()
-                        .into_shape(p.raw_dim())
-                        .unwrap(),
-                    _ => {
-                        let dp0_flat: ArrayView1<f64> = delta_p.view().into_shape(dim).unwrap();
-                        accel
-                            .apply(dp0_flat.view(), dp_flat.view())
+                if self.config.mix_config.use_aa == false {
+                    delta_p = match i {
+                        0 => anderson_mixer
+                            .mix(&Array1::zeros(dim), &dp_flat.to_owned())
+                            .into_shape(p.raw_dim())
+                            .unwrap(),
+                        _ => {
+                            let dp0_flat: ArrayView1<f64> = delta_p.view().into_shape(dim).unwrap();
+                            anderson_mixer
+                                .mix(&dp0_flat.to_owned(), &dp_flat.to_owned())
+                                .into_shape(p.raw_dim())
+                                .unwrap()
+                        }
+                    };
+                } else {
+                    delta_p = match i {
+                        0 => accel
+                            .apply(Array1::zeros(dim).view(), dp_flat.view())
                             .unwrap()
                             .into_shape(p.raw_dim())
-                            .unwrap()
-                    }
-                };
+                            .unwrap(),
+                        _ => {
+                            let dp0_flat: ArrayView1<f64> = delta_p.view().into_shape(dim).unwrap();
+                            accel
+                                .apply(dp0_flat.view(), dp_flat.view())
+                                .unwrap()
+                                .into_shape(p.raw_dim())
+                                .unwrap()
+                        }
+                    };
+                }
                 p = &delta_p + &p0;
 
                 // mulliken charges
@@ -336,13 +319,13 @@ impl System {
                 // mulliken charges
                 let dq1 = mulliken_atomwise(dp.view(), s.view(), &self.atoms, self.n_atoms);
                 let delta_dq: Array1<f64> = &dq1 - &dq;
-                broyden_mixer.next(dq.clone(), delta_dq)
+                broyden_mixer.next(&dq, &delta_dq)
                 // accel.apply(dq.view(), dq1.view()).unwrap()
             } else {
                 // mulliken charges
                 let dq1 = mulliken_aowise(dp.view(), s.view());
                 let delta_dq: Array1<f64> = &dq1 - &dq;
-                broyden_mixer.next(dq.clone(), delta_dq)
+                broyden_mixer.next(&dq, &delta_dq)
                 // accel.apply(dq.view(), dq1.view()).unwrap()
             };
 
@@ -458,7 +441,7 @@ impl System {
         let rep_energy: f64 = get_repulsive_energy(&self.atoms, self.n_atoms, &self.vrep);
 
         // initialize the charge mixer
-        let mut broyden_mixer: BroydenMixer = BroydenMixer::new(self.n_orbs);
+        let mut broyden_mixer: BroydenMixerNew = BroydenMixerNew::from_config(self.n_orbs, &self.config.broyden);
         // initialize the orbital level shifter
         let mut level_shifter: LevelShifter = LevelShifter::default();
 
@@ -471,7 +454,7 @@ impl System {
 
         let mut e_disp: f64 = 0.0;
         if self.config.dispersion.use_dispersion {
-            e_disp = get_dispersion_energy(&self.atoms, &self.config.dispersion);
+            e_disp = get_dispersion_energy(&self.atoms, &self.config);
         }
 
         'scf_loop: for i in 0..max_iter {
@@ -540,7 +523,7 @@ impl System {
             }
 
             // Broyden mixing of Mulliken charges per orbital.
-            q_ao = broyden_mixer.next(q_ao, delta_dq);
+            q_ao = broyden_mixer.next(&q_ao, &delta_dq);
 
             // The density matrix is updated in accordance with the Mulliken charges.
             p *= &(&q_ao / &q_ao_n);

@@ -44,7 +44,7 @@ impl ExcitedState for ExcitonStates<'_> {
         self.dim.0
     }
 
-    fn get_mo_coefficients(&self) -> ArrayView2<f64> {
+    fn get_mo_coefficients(&self) -> ArrayView2<'_, f64> {
         self.orbs.view()
     }
 
@@ -90,11 +90,11 @@ impl ExcitedState for ExcitonStates<'_> {
         tdm
     }
 
-    fn get_energies(&self) -> ArrayView1<f64> {
+    fn get_energies(&self) -> ArrayView1<'_, f64> {
         self.energies.view()
     }
 
-    fn get_oscillator_strengths(&self) -> ArrayView1<f64> {
+    fn get_oscillator_strengths(&self) -> ArrayView1<'_, f64> {
         self.f.view()
     }
 

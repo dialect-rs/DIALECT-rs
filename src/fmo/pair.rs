@@ -4,24 +4,8 @@ use crate::initialization::parameters::{RepulsivePotential, SlaterKoster};
 use crate::initialization::Atom;
 use crate::properties::Properties;
 use crate::scc::gamma_approximation::GammaFunction;
-use std::fmt;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum PairType {
-    Pair,
-    ESD,
-    None,
-}
-
-impl fmt::Display for PairType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            PairType::Pair => write!(f, "Pair"),
-            PairType::ESD => write!(f, "ESD"),
-            PairType::None => write!(f, "None"),
-        }
-    }
-}
+pub use dialect_state::pair_type::PairType;
 
 /// Check if the monomers are close to each other or not.
 pub fn get_pair_type(mi_atoms: &[Atom], mj_atoms: &[Atom], vdw_scaling: f64) -> PairType {
@@ -123,7 +107,6 @@ pub struct Pair<'a> {
     pub n_atoms: usize,
     /// Number of atomic orbitals
     pub n_orbs: usize,
-    /// Number of valence electrons
     /// Type that holds the calculated properties e.g. gamma matrix, overlap matrix and so on.
     pub properties: Properties,
     /// Repulsive potential type. Type that contains the repulsion energy and its derivative

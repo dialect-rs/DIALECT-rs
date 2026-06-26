@@ -1,61 +1,54 @@
 jobtype = "opt"
+method = "dftb"
 verbose = 0
+n_cores = 1
 
-[tight_binding]
-use_dftb = true
-use_xtb1 = false
-use_gaussian_gamma = false
-use_shell_resolved_gamma = false
-
-[fmo]
-fmo = false
-vdw_scaling = 2.0
-
-[mol]
+[molecule]
 charge = 0
 multiplicity = 1
 
-[lc]
-long_range_correction = false
-long_range_radius = 3.03
+[scc]
+max_cycles = 250
+charge_conv = 1.0e-8
+energy_conv = 1.0e-8
 
-[scf]
-scf_max_cycles = 250
-scf_charge_conv = 1.0e-8
-scf_energy_conv = 1.0e-8
+[dftb]
+gaussian_gamma = false
+shell_resolved_gamma = false
 
-[dftb3]
-use_dftb3 = false
-use_gamma_damping = false
+[dftb.lc]
+enabled = false
+radius = 3.03
+
+[dftb.dftb3]
+enabled = false
+gamma_damping = false
 hubbard_derivatives = [-0.1857, -0.1492] # from the element with the lowest atomic number to the highest
 
+[dftb.slater_koster]
+use_external_skf = true
+skf_directory = "/home/einseler/slater_koster_files/3ob-3-1"
+
 [opt]
-state_to_optimize = 1
-geom_opt_max_cycles = 500
-geom_opt_tol_displacement = 1.0
-geom_opt_tol_gradient = 1.0
-geom_opt_tol_energy = 1.0e-1
-use_bfgs = true
-use_line_search = true
+state = 1
+max_cycles = 500
+algorithm = "damped_bfgs"
+convergence = "normal"
+line_search = true
 
 [excited]
-calculate_excited_states = true
+enabled = true
 nstates = 10
-davidson_iterations = 100
-davidson_subspace_multiplier = 10
-davidson_convergence = 0.00001
 use_casida = false
 get_all_states = false
 
-[slater_koster]
-use_external_skf = true
-skf_directory = "/Users/einseler/work/slater_koster_files/3ob-3-1"
-
-[parallelization]
-number_of_cores = 1
+[excited.davidson]
+iterations = 100
+convergence = 0.00001
+subspace_multiplier = 10
 
 [dispersion]
-use_dispersion = false
+enabled = false
 s6 = 1.0
 s8 = 0.01
 a1 = 0.497

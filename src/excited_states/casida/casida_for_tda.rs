@@ -3,13 +3,7 @@ use crate::fmo::Monomer;
 use crate::initialization::System;
 use ndarray::prelude::*;
 
-pub trait AlternateCasidaEngine {
-    /// Compute Matrix * trial vector products
-    /// Expected output:
-    ///  The product`A x X_{i}` and `B x X_{i}` for each `X_{i}` in `X`, in that order.
-    fn compute_products(&mut self, x: ArrayView2<f64>) -> (Array2<f64>, Array2<f64>);
-    fn compute_products_ao(&mut self, x: ArrayView2<f64>) -> (Array2<f64>, Array2<f64>);
-}
+pub use dialect_solvers::traits::AlternateCasidaEngine;
 
 impl AlternateCasidaEngine for System {
     /// The products of the TDA/CIS-Hamiltonian with the subspace vectors is computed.

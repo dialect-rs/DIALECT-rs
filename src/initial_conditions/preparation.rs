@@ -2,6 +2,7 @@ use crate::constants::{ATOMIC_MASSES, BOHR_TO_ANGS, HARTREE_TO_WAVENUMBERS};
 use crate::initial_conditions::wigner_distribution::WignerEnsemble;
 use crate::initialization::System;
 use crate::optimization::helpers::{write_xyz_wigner, XYZOutput};
+use crate::scc::scc_routine::RestrictedSCC;
 use log::{log_enabled, warn, Level};
 use ndarray::prelude::*;
 use ndarray_linalg::{c64, into_col, into_row, Eigh, UPLO};
@@ -36,7 +37,44 @@ impl System {
 
         // create wigner ensemble
         let mut wigner_ensemble: WignerEnsemble =
-            WignerEnsemble::new(self, omega2, modes.view(), masses.view(), coords.view());
+            WignerEnsemble::from_config(&self.config.wigner_config, self.n_atoms, omega2, modes.view(), masses.view(), coords.view());
+
+        // sample the distribution and generate ensemble
+        let (coord_vec, velocity_vec): (Vec<Array1<f64>>, Vec<Array1<f64>>) =
+            wigner_ensemble.get_ensemble();
+
+        // write the wigner ensemble
+        self.write_wigner_ensemble(coord_vec, velocity_vec);
+    }
+
+    pub fn create_wigner_geometries(&mut self) {
+        // do a ground state calculation
+        self.prepare_scc();
+        let _energy = self.run_scc().unwrap();
+
+        // next, the hessian of the electronic ground state is calculated
+        let hessian: Array2<f64> = self.calculate_num_hessian();
+
+        // get the masses of the molecule
+        let mut masses: Vec<f64> = Vec::new();
+        // get the masses to the corresponding atomic numbers
+        self.atoms.iter().for_each(|atom| {
+            for _i in 0..3 {
+                masses.push(ATOMIC_MASSES[&atom.number]);
+            }
+        });
+        let masses: Array1<f64> = Array::from(masses);
+
+        // get the vibrations and the modes from the mass weighted hessian
+        let (omega2, _freqs, modes): (Array1<f64>, Array1<c64>, Array2<f64>) =
+            calculate_vibrations_and_modes(hessian.view(), masses.view());
+
+        // get the coordinates
+        let coords: Array1<f64> = self.get_xyz();
+
+        // create wigner ensemble
+        let mut wigner_ensemble: WignerEnsemble =
+            WignerEnsemble::from_config(&self.config.wigner_config, self.n_atoms, omega2, modes.view(), masses.view(), coords.view());
 
         // sample the distribution and generate ensemble
         let (coord_vec, velocity_vec): (Vec<Array1<f64>>, Vec<Array1<f64>>) =

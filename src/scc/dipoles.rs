@@ -40,7 +40,9 @@ impl System {
         }
         // calculate the mulliken dipole moment
         let mulliken_dip: Array1<f64> = (&nuclear_charges - &atomic_charges).dot(&xyz);
-        let dipole_moment = nuclear_charges.dot(&xyz); // - &electronic_dipole_moment;
+
+        // calculate the dipole matrix
+        let dipole_moment = nuclear_charges.dot(&xyz);
 
         (mulliken_dip, dipole_moment, atomic_charge_diffs)
     }

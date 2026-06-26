@@ -1,0 +1,34 @@
+[package]
+name = "dialect-xtb"
+version = "1.0.0"
+authors = [
+    "Richard Einsele <richard.einsele@uni-wuerzburg.de>",
+    "Joscha Hoche <joscha.hoche@uni-wuerzburg.de>",
+    "Roland Mitric <roland.mitric@uni-wuerzburg.de>",
+]
+edition = "2021"
+
+[dependencies]
+xyz_parser = { git = "https://github.com/einseler/xyz_parser" }
+anyhow = "1.0.95"
+dialect-base = { path = "../dialect-base" }
+dialect-config = { path = "../dialect-config" }
+dialect-dftb-core = { path = "../dialect-dftb-core" }
+dialect-dynamics = { path = "../dialect-dynamics" }
+dialect-state = { path = "../dialect-state" }
+dialect-utilities = { path = "../dialect-utilities" }
+dialect-xtb-core = { path = "../dialect-xtb-core" }
+hashbrown = "0.13.2"
+itertools = "0.10.5"
+libm = "0.2.5"
+log = "0.4.17"
+nalgebra = "0.32.1"
+ndarray = { version = "0.15.6", features = ["serde-1", "approx", "rayon"] }
+ndarray-linalg = { version = "0.16", features = ["openblas-static"] }
+ndarray-npy = "0.8.1"
+ndarray-stats = "0.5.1"
+petgraph = "0.6.3"
+rayon = "1.10.0"
+rusty-dftd = { git = "https://github.com/einseler/DFTD" }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.7.2"

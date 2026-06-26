@@ -3,12 +3,14 @@ pub use geometry::*;
 pub use helpers::*;
 pub use system::*;
 
-pub mod atom;
-pub mod geometry;
+pub use dialect_dftb_core::atom;
+pub use dialect_dftb_core::geometry;
 mod helpers;
 mod input_check;
 mod molecular_orbital;
 pub mod old_system;
 pub mod parameter_handling;
-pub mod parameters;
+pub use dialect_dftb_core::parameters;
 pub mod system;
+
+//, AtomRef, AtomRefMut, AtomSlice, AtomSliceMut, AtomVec};

@@ -31,7 +31,7 @@ pub struct Simulation {
     pub force_array: Array2<f64>,
     pub energies: Array1<f64>,
     pub nonadiabatic_scalar: Array2<f64>,
-    pub nonadiabatic_vectors: Vec<Array1<f64>>,
+    pub nonadiabatic_vectors: Option<Vec<Array1<f64>>>,
     pub s_mat: Array2<f64>,
     pub state: usize,
     pub saved_p_rand: Array2<f64>,
@@ -53,15 +53,47 @@ impl Simulation {
 
         // initialize coefficients
         let mut coefficients: Array1<c64> = Array1::zeros(config.nstates);
-        for val in config.initial_state.iter() {
-            let initial_states_length: f64 = config.initial_state.len() as f64;
-            coefficients[*val] = c64::from(1.0 / initial_states_length.sqrt());
+        if config.ehrenfest_config.load_adiabatic_coefficients {
+            // Start the Ehrenfest wavefunction from a saved FMO-LC-TDDFTB
+            // adiabatic eigenvector. The `.npy` file stores the (signed)
+            // eigenvector coefficients — the amplitudes of the adiabatic
+            // state over the diabatic basis — which become the initial
+            // electronic amplitudes directly (preserving relative phases).
+            let file: &str = &config.ehrenfest_config.adiabatic_coefficients_file;
+            let raw: Array1<f64> = read_npy(file).unwrap_or_else(|e| {
+                panic!("Failed to read adiabatic coefficients from '{file}': {e}")
+            });
+            assert_eq!(
+                raw.len(),
+                config.nstates,
+                "adiabatic coefficient file '{}' has length {} but nstates = {}",
+                file,
+                raw.len(),
+                config.nstates
+            );
+            for (i, &c) in raw.iter().enumerate() {
+                coefficients[i] = c64::from(c);
+            }
+            // Renormalize defensively (Davidson eigenvectors converge to a
+            // finite residual, so Σc² may be ~1 ± ε).
+            let norm: f64 = coefficients.iter().map(|c| c.norm_sqr()).sum::<f64>().sqrt();
+            if norm > 0.0 {
+                coefficients.mapv_inplace(|c| c / norm);
+            }
+        } else {
+            for val in config.initial_state.iter() {
+                let initial_states_length: f64 = config.initial_state.len() as f64;
+                coefficients[*val] = c64::from(1.0 / initial_states_length.sqrt());
+            }
         }
         // calculate total mass of the system
         let total_mass: f64 = system.masses.sum();
 
-        // force gs dynamics if initial state is 0
-        if config.initial_state[0] == 0 {
+        // force gs dynamics if initial state is 0 — but not when the
+        // electronic coefficients are loaded from a saved adiabatic
+        // eigenvector (the populated state comes from the file, not
+        // `initial_state`).
+        if config.initial_state[0] == 0 && !config.ehrenfest_config.load_adiabatic_coefficients {
             config.gs_dynamic = true;
         }
 
@@ -71,7 +103,6 @@ impl Simulation {
         let energies: Array1<f64> = Array1::zeros(config.nstates);
         let force_array: Array2<f64> = Array2::zeros([3 * system.n_atoms, config.nstates]);
         let nonad_scalar: Array2<f64> = Array2::zeros((config.nstates, config.nstates));
-        let nacvs: Vec<Array1<f64>> = Vec::new();
         let s_mat: Array2<f64> = Array2::zeros((config.nstates, config.nstates));
         let efactor: Array1<f64> = Array1::zeros(system.n_atoms);
         let saved_p_rand: Array2<f64> = Array2::zeros((system.n_atoms, 3));
@@ -148,7 +179,7 @@ impl Simulation {
             energies,
             force_array,
             nonadiabatic_scalar: nonad_scalar,
-            nonadiabatic_vectors: nacvs,
+            nonadiabatic_vectors: None,
             s_mat,
             saved_efactor: efactor,
             saved_p_rand,

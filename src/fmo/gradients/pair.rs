@@ -1,11 +1,14 @@
 use crate::fmo::gradients::*;
 use crate::fmo::scc::helpers::*;
 use crate::fmo::Pair;
-use crate::gradients::helpers::f_lr;
+use crate::gradients::helpers::{f_lr, f_lr_atom_specific};
 use crate::initialization::Atom;
-use crate::scc::gamma_approximation::{gamma_gradients_ao_wise, gamma_gradients_atomwise};
-use crate::scc::h0_and_s::{h0_gradient, s_gradient};
-use std::ops::AddAssign;
+use crate::scc::gamma_approximation::{
+    gamma_gradients_ao_wise, gamma_gradients_ao_wise_atom_specific, gamma_gradients_atomwise,
+    gamma_gradients_atomwise_atom_specific,
+};
+use crate::scc::h0_and_s::{h0_and_s_gradients_atom_specific, h0_gradient, s_gradient};
+use std::ops::{AddAssign, SubAssign};
 
 impl GroundStateGradient for Pair<'_> {
     fn scc_gradient(&mut self, atoms: &[Atom]) -> Array1<f64> {
@@ -194,5 +197,143 @@ impl GroundStateGradient for Pair<'_> {
 
         // Shape of returned Array: [f, n_atoms], f = 3 * n_atoms
         grad_dq
+    }
+}
+
+impl Pair<'_> {
+    pub fn scc_gradient_low_memory(&mut self, atoms: &[Atom]) -> Array1<f64> {
+        let mut gradient = Array1::zeros(3 * self.n_atoms);
+        let mut grad_dq_full: Array2<f64> = Array2::zeros((3 * self.n_atoms, self.n_atoms));
+
+        // iterate over the atoms
+        for (atom_idx, atom) in atoms.iter().enumerate() {
+            // calculate the xyz gradient of the atom
+            // get the contributions of H0 and S
+            let (grad_s, grad_h0) =
+                h0_and_s_gradients_atom_specific(atom_idx, atom, atoms, self.n_orbs, self.slako);
+            let grad_h_flat: Array2<f64> =
+                grad_h0.into_shape([3, self.n_orbs * self.n_orbs]).unwrap();
+
+            let p: ArrayView2<f64> = self.properties.p().unwrap();
+            let p_flat: ArrayView1<f64> = p.into_shape([self.n_orbs * self.n_orbs]).unwrap();
+
+            // calculation of the gradient
+            // 1st part:  dH0 / dR . P
+            gradient
+                .slice_mut(s![3 * atom_idx..3 * atom_idx + 3])
+                .add_assign(&grad_h_flat.dot(&p_flat));
+            drop(grad_h_flat);
+
+            // charge differences
+            let dq: ArrayView1<f64> = self.properties.dq().unwrap();
+            // derivative of the gamma matrix and transform it in the same way to a 2D array
+            let grad_gamma: Array2<f64> = gamma_gradients_atomwise_atom_specific(
+                &self.gammafunction,
+                atom_idx,
+                atom,
+                atoms,
+                self.n_atoms,
+            )
+            .into_shape([3, self.n_atoms * self.n_atoms])
+            .unwrap();
+            // the gradient part which involves the gradient of the gamma matrix is given by:
+            // 1/2 * dq . dGamma / dR . dq
+            // the dq's are element wise multiplied into a 2D array and reshaped into a flat one, that
+            // has the length of natoms^2. this allows to do only a single matrix vector product of
+            // 'grad_gamma' with 'dq_x_dq' and avoids to reshape dGamma multiple times
+            let dq_column: ArrayView2<f64> = dq.insert_axis(Axis(1));
+            let dq_x_dq: Array1<f64> =
+                (&dq_column.broadcast((self.n_atoms, self.n_atoms)).unwrap() * &dq)
+                    .into_shape([self.n_atoms * self.n_atoms])
+                    .unwrap();
+
+            // 4th part: 1/2 * dq . dGamma / dR . dq
+            gradient
+                .slice_mut(s![3 * atom_idx..3 * atom_idx + 3])
+                .add_assign(&grad_gamma.dot(&dq_x_dq));
+            drop(grad_gamma);
+
+            // the derivatives of the charge (difference)s are computed at this point, since they depend
+            // on the derivative of S and this is available here at no additional cost.
+            let s: ArrayView2<f64> = self.properties.s().unwrap();
+            let grad_dq: Array2<f64> = self.get_grad_dq(atoms, s.view(), grad_s.view(), p.view());
+            grad_dq_full
+                .slice_mut(s![3 * atom_idx..3 * atom_idx + 3, ..])
+                .assign(&grad_dq);
+
+            // and reshape them into a 2D array. the last two dimension (number of orbitals) are compressed
+            // into one dimension to be able to just matrix-matrix products for the computation of the gradient
+            let grad_s: Array2<f64> = grad_s.into_shape([3, self.n_orbs * self.n_orbs]).unwrap();
+
+            // take references/views to the necessary properties from the scc calculation
+            let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
+            let dq: ArrayView1<f64> = self.properties.dq().unwrap();
+
+            // transform the expression Sum_c_in_X (gamma_AC + gamma_aC) * dq_C
+            // into matrix of the dimension (norb, norb) to do an element wise multiplication with P
+            let esp_mat: Array2<f64> =
+                atomvec_to_aomat(gamma.dot(&dq).view(), self.n_orbs, atoms) * 0.5;
+            let esp_x_p: Array1<f64> = (&p * &esp_mat)
+                .into_shape([self.n_orbs * self.n_orbs])
+                .unwrap();
+
+            // compute the energy weighted density matrix: W = 1/2 * D . (H + H_Coul) . D
+            let w: Array1<f64> = 0.5
+                * p.dot(&self.properties.h_coul_x().unwrap())
+                    .dot(&p)
+                    .into_shape([self.n_orbs * self.n_orbs])
+                    .unwrap();
+
+            // 2nd part: dS / dR . W
+            gradient
+                .slice_mut(s![3 * atom_idx..3 * atom_idx + 3])
+                .sub_assign(&grad_s.dot(&w));
+
+            // 3rd part: 1/2 * dS / dR * sum_c_in_X (gamma_ac + gamma_bc) * dq
+            gradient
+                .slice_mut(s![3 * atom_idx..3 * atom_idx + 3])
+                .add_assign(&grad_s.dot(&esp_x_p));
+
+            // long-range contribution to the gradient
+            if self.gammafunction_lc.is_some() {
+                // reshape gradS
+                let grad_s: Array3<f64> = grad_s.into_shape([3, self.n_orbs, self.n_orbs]).unwrap();
+                // calculate the gamma gradient matrix in AO basis
+                let g1_lr_ao: Array3<f64> = gamma_gradients_ao_wise_atom_specific(
+                    self.gammafunction_lc.as_ref().unwrap(),
+                    atom_idx,
+                    atom,
+                    atoms,
+                    self.n_atoms,
+                    self.n_orbs,
+                );
+                // calculate the difference density matrix
+                let diff_p: Array2<f64> = &p - &self.properties.p_ref().unwrap();
+                // calculate the matrix F_lr[diff_p]
+                let flr_dmd0: Array3<f64> = f_lr_atom_specific(
+                    diff_p.view(),
+                    self.properties.s().unwrap(),
+                    grad_s.view(),
+                    self.properties.gamma_lr_ao().unwrap(),
+                    g1_lr_ao.view(),
+                    self.n_orbs,
+                );
+                // -0.25 * F_lr[diff_p] * diff_p
+                let arr_temp = -0.25
+                    * flr_dmd0
+                        .view()
+                        .into_shape((3, self.n_orbs * self.n_orbs))
+                        .unwrap()
+                        .dot(&diff_p.into_shape(self.n_orbs * self.n_orbs).unwrap());
+                gradient
+                    .slice_mut(s![3 * atom_idx..3 * atom_idx + 3])
+                    .add_assign(&arr_temp);
+            }
+        }
+        // last part: dV_rep / dR
+        gradient = gradient + gradient_v_rep(atoms, self.vrep);
+        self.properties.set_grad_dq(grad_dq_full);
+
+        gradient
     }
 }

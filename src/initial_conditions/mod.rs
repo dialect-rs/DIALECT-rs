@@ -1,2 +1,2 @@
 mod preparation;
-pub mod wigner_distribution;
+pub use dialect_utilities::wigner as wigner_distribution;

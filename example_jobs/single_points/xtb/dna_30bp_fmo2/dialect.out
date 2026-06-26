@@ -1,0 +1,81 @@
+                               -----------------                                
+                                    DIALECT                                     
+                               -----------------                                
+                                 version: 1.1.0                                 
+                                                                                
+            :::::::::::::::::::::::::::::::::::::::::::::::::::::::             
+            ::                   Roland Mitric                   ::             
+            ::  Institute of Physical and Theoretical Chemistry  ::             
+            ::              University of Wuerzburg              ::             
+        ::::::...................................................::::::         
+        :: Contributors:                                             ::         
+        :: --------                                                  ::         
+        :: Richard Einsele       <richard.einsele@uni-wuerzburg.de>  ::         
+        :: Joscha Hoche             <joscha.hoche@uni-wuerzburg.de>  ::         
+        :: Xincheng Miao           <xincheng.miao@uni-wuerzburg.de>  ::         
+        :: Luca Nils Philipp   <luca_nils.philipp@uni-wuerzburg.de>  ::         
+        :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::         
+                                                                                
+                                                      fragmentation:     0.00 s
+                                               detached bonds (HOP):       56
+Number of Pairs: 71
+Number of ESD Pairs: 364
+Number of Trimers: 0
+HOP boundary treatment:                       28 bond(s), 2000 extended atoms
+                                                                                
+                                FMO SCC-Routine                                 
+--------------------------------------------------------------------------------
+max. iterations:          500
+                                                                                
+Monomer SCC Iterations:                       
+--------------------------------------------- 
+Iter.    #conv. Monomers          #Monomers
+--------------------------------------------------------------------------- 
+    1                  0                 30
+    2                  0                 30
+    3                  0                 30
+    4                  0                 30
+    5                  0                 30
+    6                  0                 30
+    7                  0                 30
+    8                  0                 30
+    9                  0                 30
+   10                  0                 30
+   11                  0                 30
+   12                  0                 30
+   13                  0                 30
+   14                  0                 30
+   15                  0                 30
+   16                  0                 30
+   17                  0                 30
+   18                  0                 30
+   19                  0                 30
+   20                  0                 30
+   21                  0                 30
+   22                  0                 30
+   23                  0                 30
+   24                  0                 30
+   25                  6                 30
+   26                 20                 30
+   27                 29                 30
+   28                 30                 30
+--------------------------------------------------------------------------- 
+                             FMO SCC converged                             
+                                                                                 
+sum of monomer energies:          -4220.04974200583274 Hartree
+sum of pair energies:                -1.85257744209608 Hartree
+sum of embedding energies:            0.00837516819130 Hartree
+sum of ESD pair energies:             0.01892055487682 Hartree
+sum of D3 dispersion energy:         -2.41997795689910 Hartree
+
+total energy:                     -4224.29500168175946 Hartree
+-------------------------------------------------------------------------------- 
+                                                       elapsed time:    50.77 s
+                                                                                
+-------------------------------------------------------------------------------- 
+                                                 total elapsed time:    50.83 s
+                                                                                
+                    :::::::::::::::::::::::::::::::::::::::                     
+                    ::    Thank you for using DIALECT    ::                     
+                    :::::::::::::::::::::::::::::::::::::::                     
+                                                                                

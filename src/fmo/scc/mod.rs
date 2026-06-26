@@ -1,6 +1,6 @@
 mod fragmented_matrices;
 pub(crate) mod helpers;
-mod logging;
+pub use dialect_utilities::fmo_logging as logging;
 mod monomer;
 mod pair;
 mod supersystem;
@@ -31,11 +31,13 @@ impl RestrictedSCC for SuperSystem<'_> {
         // prepare all individual monomers
         let atoms: &[Atom] = &self.atoms;
 
+        let broyden_config = &self.config.broyden;
         self.monomers.par_iter_mut().for_each(|mol: &mut Monomer| {
             mol.prepare_scc(
                 &atoms[mol.slice.atom_as_range()],
                 self.config.tight_binding.use_shell_resolved_gamma,
                 self.config.mix_config.clone(),
+                broyden_config,
             );
         });
         if self.properties.s().is_none() {
@@ -55,7 +57,7 @@ impl RestrictedSCC for SuperSystem<'_> {
                 // Compute the Gamma function between all atoms
                 self.properties
                     .set_gamma(gamma_atomwise(&gf, atoms, atoms.len()));
-                // Comupate the Gamma function with long-range correction
+                // Compute the Gamma function with long-range correction
                 if self.config.lc.long_range_correction {
                     self.properties.set_gamma_lr(gamma_atomwise(
                         &gf_lc.unwrap(),
@@ -82,7 +84,7 @@ impl RestrictedSCC for SuperSystem<'_> {
             // Compute the Gamma function between all atoms
             self.properties
                 .set_gamma_ao(gamma_ao_wise_shell_resolved(&gf, atoms, n_orbs));
-            // Comupate the Gamma function with long-range correction
+            // Compute the Gamma function with long-range correction
             if self.config.lc.long_range_correction {
                 self.properties
                     .set_gamma_lr_ao(gamma_ao_wise_shell_resolved(&gf_lc.unwrap(), atoms, n_orbs));
@@ -99,7 +101,7 @@ impl RestrictedSCC for SuperSystem<'_> {
 
         let mut e_disp: f64 = 0.0;
         if self.config.dispersion.use_dispersion {
-            e_disp = get_dispersion_energy(&self.atoms, &self.config.dispersion);
+            e_disp = get_dispersion_energy(&self.atoms, &self.config);
         }
 
         // Assembling of the energy following Eq. 11 in

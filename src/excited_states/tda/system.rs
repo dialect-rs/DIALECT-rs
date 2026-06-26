@@ -47,6 +47,7 @@ impl System {
                         self.config.excited.davidson_iterations,
                         self.config.excited.davidson_convergence,
                         self.config.excited.davidson_subspace_multiplier,
+                        print_states,
                     );
                 }
             } else {
@@ -80,6 +81,9 @@ impl System {
                 for state in self.config.tddftb.states_to_analyse.iter() {
                     self.get_ntos_for_state(*state);
                 }
+            }
+            if self.config.tddftb.tdm_fragment_analysis {
+                self.tdm_fragment_analysis();
             }
         }
     }

@@ -1,7 +1,7 @@
+pub use dialect_utilities::scc_helpers::{density_matrix, density_matrix_ref, outer_sum};
 use crate::defaults;
 use crate::initialization::parameters::RepulsivePotential;
 use crate::initialization::Atom;
-use itertools::Itertools;
 use log::debug;
 use ndarray::prelude::*;
 
@@ -179,48 +179,43 @@ pub fn calc_coulomb_third_order(gamma_third_order: ArrayView2<f64>, dq: ArrayVie
 pub fn calc_exchange(s: ArrayView2<f64>, g0_lr_ao: ArrayView2<f64>, dp: ArrayView2<f64>) -> f64 {
     let dp_s: Array2<f64> = dp.dot(&s);
     let ex = (s.dot(&dp_s) * dp * g0_lr_ao).sum() + (&dp_s.t() * &dp_s * g0_lr_ao).sum();
+    // let ex2 =
+    //     ((s.dot(&dp.dot(&s))) * dp * g0_lr_ao).sum() + (s.dot(&dp) * dp.dot(&s) * g0_lr_ao).sum();
+    // assert_eq!(ex, ex2);
     -0.125 * ex
 }
 
 /// Construct the density matrix
 /// P_mn = sum_a f_a C_ma* C_na
-pub fn density_matrix(orbs: ArrayView2<f64>, f: &[f64]) -> Array2<f64> {
-    let occ_indx: Vec<usize> = f.iter().positions(|&x| x > 0.0).collect();
-    let occ_orbs: Array2<f64> = orbs.select(Axis(1), &occ_indx);
-    let f_occ: Vec<f64> = f.iter().filter(|&&x| x > 0.0).cloned().collect();
-    // THIS IS NOT AN EFFICIENT WAY TO BUILD THE LEFT HAND SIDE
-    let mut f_occ_mat: Vec<f64> = Vec::new();
-    for _ in 0..occ_orbs.nrows() {
-        for val in f_occ.iter() {
-            f_occ_mat.push(*val);
-        }
-    }
-    let f_occ_mat: Array2<f64> = Array2::from_shape_vec(occ_orbs.raw_dim(), f_occ_mat).unwrap();
-    let p: Array2<f64> = (f_occ_mat * &occ_orbs).dot(&occ_orbs.t());
-    p
-}
 
 /// Construct reference density matrix
 /// all atoms should be neutral
-pub fn density_matrix_ref(n_orbs: usize, atoms: &[Atom]) -> Array2<f64> {
-    let mut p0: Array2<f64> = Array2::zeros((n_orbs, n_orbs));
-    // iterate over orbitals on center i
-    let mut idx: usize = 0;
-    for atomi in atoms.iter() {
-        // how many electrons are put into the nl-shell
-        for occ in atomi.valorbs_occupation.iter() {
-            p0[[idx, idx]] = *occ;
-            idx += 1;
-        }
-    }
-    p0
-}
 
-pub fn outer_sum(vec: ArrayView1<f64>) -> Array2<f64> {
-    let vec_column: Array2<f64> = vec.to_owned().insert_axis(Axis(1));
-    let result: Array2<f64> = &vec_column.broadcast((vec.dim(), vec.dim())).unwrap() + &vec;
-    result
-}
+
+// pub fn construct_h1(
+//     n_orbs: usize,
+//     atoms: &[Atom],
+//     gamma: ArrayView2<f64>,
+//     dq: ArrayView1<f64>,
+// ) -> Array2<f64> {
+//     let e_stat_pot: Array1<f64> = gamma.dot(&dq);
+//     let mut h1: Array2<f64> = Array2::zeros([n_orbs, n_orbs]);
+//     let mut mu: usize = 0;
+//     let mut nu: usize;
+//     for (i, atomi) in atoms.iter().enumerate() {
+//         for _ in 0..(atomi.n_orbs) {
+//             nu = 0;
+//             for (j, atomj) in atoms.iter().enumerate() {
+//                 for _ in 0..(atomj.n_orbs) {
+//                     h1[[mu, nu]] = 0.5 * (e_stat_pot[i] + e_stat_pot[j]);
+//                     nu += 1;
+//                 }
+//             }
+//             mu += 1;
+//         }
+//     }
+//     h1
+// }
 
 pub fn construct_h1(
     n_orbs: usize,

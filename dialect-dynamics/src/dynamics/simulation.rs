@@ -1,4 +1,5 @@
 use std::time::Instant;
+
 use crate::initialization::restart::read_restart_parameters;
 use crate::initialization::Simulation;
 use crate::interface::QCInterface;
@@ -103,6 +104,8 @@ impl Simulation {
     /// Calculate a single step of the velocity-verlet dynamics utilizing the [QCInterface]
     /// for the calculation of the required properties
     pub fn verlet_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
+        // let old_forces: Array2<f64> = self.forces.clone();
+        // let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         let old_kinetic: f64 = self.kinetic_energy;
         let old_potential_energy: f64 = self.energies[self.state];
         let last_energies: Array1<f64> = self.energies.clone();
@@ -192,6 +195,7 @@ impl Simulation {
     /// Calculate a single step of the langevin dynamics
     pub fn langevin_step(&mut self, interface: &mut dyn QCInterface, step: usize) {
         let old_forces: Array2<f64> = self.forces.clone();
+        // let old_energy: f64 = self.energies[self.state] + self.kinetic_energy;
         let last_energies: Array1<f64> = self.energies.clone();
         let old_state: usize = self.state;
 
@@ -264,7 +268,7 @@ impl Simulation {
         if self.config.use_surface_hopping && !self.config.gs_dynamic {
             self.nonadiabatic_scalar = tmp.2.unwrap();
             self.s_mat = tmp.3.unwrap();
-            self.nonadiabatic_vectors = tmp.4.unwrap();
+            self.nonadiabatic_vectors = tmp.4;
         }
 
         if self.config.ehrenfest_config.use_restraint {

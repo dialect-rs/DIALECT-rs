@@ -411,11 +411,7 @@ impl SuperSystem<'_> {
                 let n_orbs_ct_virt: usize = self.monomers[b.m_l].n_orbs;
                 let n_orbs_virt: usize = n_orbs_le + n_orbs_ct_virt;
 
-                // get the atoms of the hole
-                // let atoms_l: &[Atom] = &self.atoms[self.monomers[b.m_l].slice.atom_as_range()];
-
                 // get virtual orbitals of the LE state
-                // let virts_le: ArrayView2<f64> = a.virts;
                 let virts_le = if self.config.fmo_lc_tddftb.restrict_active_space {
                     let mut arr: Array2<f64> =
                         Array2::zeros((a.virts.dim().0, a.virt_indices.len()));
@@ -433,10 +429,7 @@ impl SuperSystem<'_> {
                     self.monomers[b.m_l].properties.virt_indices().unwrap();
                 // The index of the LUMO (zero based).
                 let lumo: usize = virt_indices[0];
-                // let virts_ct:ArrayView2<f64> = self.monomers[b.m_l].properties.orbs_slice(lumo, None).unwrap();
                 let virts_ct = if self.config.fmo_lc_tddftb.restrict_active_space {
-                    // self.monomers[b.m_l].properties
-                    //     .orbs_slice(lumo, Some(lumo+self.config.lcmo.active_space_ct)).unwrap()
                     let monomer_orbs: ArrayView2<f64> =
                         self.monomers[b.m_l].properties.orbs().unwrap();
                     let mut arr: Array2<f64> =
@@ -530,13 +523,9 @@ impl SuperSystem<'_> {
                 // The index of the HOMO (zero based).
                 let homo_a: usize = occ_indices_a[occ_indices_a.len() - 1];
                 let homo_b: usize = occ_indices_b[occ_indices_b.len() - 1];
-                // let occs_ct_a:ArrayView2<f64> = self.monomers[a.m_h].properties.orbs_slice(0, Some(homo_a + 1)).unwrap();
-                // let occs_ct_b:ArrayView2<f64> = self.monomers[b.m_h].properties.orbs_slice(0, Some(homo_b + 1)).unwrap();
                 let restrict_space: bool = self.config.fmo_lc_tddftb.restrict_active_space;
-                // let active_space:usize = self.config.lcmo.active_space_ct;
 
                 let occs_ct_a = if restrict_space {
-                    // self.monomers[a.m_h].properties.orbs_slice((homo_a-active_space+1), Some(homo_a + 1)).unwrap()
                     let monomer_orbs: ArrayView2<f64> =
                         self.monomers[a.m_h].properties.orbs().unwrap();
                     let mut arr: Array2<f64> =
@@ -647,13 +636,9 @@ impl SuperSystem<'_> {
                 // The index of the LUMO (zero based).
                 let lumo_a: usize = virt_indices_a[0];
                 let lumo_b: usize = virt_indices_b[0];
-                // let virts_ct_a:ArrayView2<f64> = self.monomers[a.m_l].properties.orbs_slice(lumo_a, None).unwrap();
-                // let virts_ct_b:ArrayView2<f64> = self.monomers[b.m_l].properties.orbs_slice(lumo_b, None).unwrap();
                 let restrict_space: bool = self.config.fmo_lc_tddftb.restrict_active_space;
-                // let active_space:usize = self.config.lcmo.active_space_ct;
 
                 let virts_ct_a = if restrict_space {
-                    // self.monomers[a.m_l].properties.orbs_slice(lumo_a, Some(lumo_a + active_space)).unwrap()
                     let monomer_orbs: ArrayView2<f64> =
                         self.monomers[a.m_l].properties.orbs().unwrap();
                     let mut arr: Array2<f64> =
@@ -773,7 +758,6 @@ impl SuperSystem<'_> {
                 let restrict_space: bool = self.config.fmo_lc_tddftb.restrict_active_space;
 
                 let occs_ct_a = if restrict_space {
-                    // self.monomers[a.m_h].properties.orbs_slice((homo_a-active_space+1), Some(homo_a + 1)).unwrap()
                     let monomer_orbs: ArrayView2<f64> =
                         self.monomers[a.m_h].properties.orbs().unwrap();
                     let mut arr: Array2<f64> =

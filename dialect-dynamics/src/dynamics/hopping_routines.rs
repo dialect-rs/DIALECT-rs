@@ -168,7 +168,8 @@ impl Simulation {
             }
             let nac_idx: usize = nac_idx.unwrap();
             // get the nac vector
-            let nac_vector: Array1<f64> = self.nonadiabatic_vectors[nac_idx].clone();
+            let nacvs = self.nonadiabatic_vectors.as_ref().unwrap();
+            let nac_vector: Array1<f64> = nacvs[nac_idx].clone();
             // reshape the nac vector
             let nac_vector: Array2<f64> = nac_vector.into_shape([self.n_atoms, 3]).unwrap();
 

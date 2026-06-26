@@ -63,6 +63,14 @@ impl SuperSystem<'_> {
                 PairType::ESD => 0.0,
                 PairType::Pair => {
                     // Reference to the overlap matrix between both sets of orbitals.
+                    // let bool_val: bool = self.properties.bool_ij(i.monomer.index, j.monomer.index);
+                    // let s_ab: Array2<f64> = if bool_val {
+                    //     self.properties
+                    //         .overlap_ij(i.monomer.index, j.monomer.index)
+                    //         .to_owned()
+                    // } else {
+                    //     Array2::zeros((i.monomer.n_orbs, j.monomer.n_orbs))
+                    // };
                     let s_ab: ArrayView2<f64> = self
                         .properties
                         .s()
@@ -127,23 +135,24 @@ impl SuperSystem<'_> {
                     let (n_a, n_b): (usize, usize) = (q_ab.dim().1, q_ab.dim().2);
 
                     // The lrc-Gamma matrix of the dimer.
-                    let gamma_lc_ab: Array2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-                        self.gamma_ab_cd(
-                            i.monomer.index,
-                            j.monomer.index,
-                            i.monomer.index,
-                            j.monomer.index,
-                            LRC::ON,
-                        )
-                    } else {
-                        self.gamma_ab_cd_ao(
-                            i.monomer.index,
-                            j.monomer.index,
-                            i.monomer.index,
-                            j.monomer.index,
-                            LRC::ON,
-                        )
-                    };
+                    let gamma_lc_ab: Array2<f64> =
+                        if !self.config.tight_binding.use_shell_resolved_gamma {
+                            self.gamma_ab_cd(
+                                i.monomer.index,
+                                j.monomer.index,
+                                i.monomer.index,
+                                j.monomer.index,
+                                LRC::ON,
+                            )
+                        } else {
+                            self.gamma_ab_cd_ao(
+                                i.monomer.index,
+                                j.monomer.index,
+                                i.monomer.index,
+                                j.monomer.index,
+                                LRC::ON,
+                            )
+                        };
 
                     // Contract the product b_ia^I b_jb^J ( i^I j^J | a^I b^J)
                     let bia_ij = q_ij

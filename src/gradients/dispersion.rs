@@ -1,11 +1,13 @@
 use crate::initialization::Atom;
 use crate::io::settings::DispersionConfig;
+use crate::io::Configuration;
 use nalgebra::Point3;
 use ndarray::prelude::*;
 use rusty_dftd_lib::model::*;
 use rusty_dftd_lib::*;
 
-pub fn gradient_disp(atoms: &[Atom], config: &DispersionConfig) -> Array1<f64> {
+pub fn gradient_disp(atoms: &[Atom], full_config: &Configuration) -> Array1<f64> {
+    let config: &DispersionConfig = &full_config.dispersion;
     let positions: Vec<Point3<f64>> = atoms
         .iter()
         .map(|atom| Point3::from(atom.xyz))
@@ -26,6 +28,14 @@ pub fn gradient_disp(atoms: &[Atom], config: &DispersionConfig) -> Array1<f64> {
         .set_a2(config.a2)
         .build();
     let param: RationalDamping3Param = RationalDamping3Param::from((d3param, &disp_mol.num));
-    let disp_result = get_dispersion(&mut disp_mol, &disp, &param, &cutoff, false, true);
+    let disp_result = get_dispersion(
+        &mut disp_mol,
+        &disp,
+        &param,
+        &cutoff,
+        false,
+        true,
+        full_config.parallelization.number_of_cores,
+    );
     Array1::from_iter(disp_result.gradient.unwrap())
 }

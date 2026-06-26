@@ -2,14 +2,14 @@ use crate::initialization::atom::Atom;
 use crate::initialization::geometry::*;
 use crate::initialization::parameters::*;
 use crate::initialization::{get_unique_atoms, get_unique_atoms_skf, initialize_gamma_function};
-use crate::io::{frame_to_coordinates, read_file_to_frame, Configuration};
+use crate::io::{xyz_frame_to_coordinates, Configuration};
 use crate::param::Element;
 use crate::properties::Properties;
 use crate::scc::gamma_approximation::GammaFunction;
-use chemfiles::Frame;
 use hashbrown::HashMap;
 use itertools::Itertools;
 use ndarray::prelude::*;
+use xyz_parser::{parse_xyz_file, XyzFrame};
 
 /// Type that holds a molecular system that contains all data for the quantum chemical routines.
 /// This type is only used for non-FMO calculations. In the case of FMO based calculation
@@ -36,8 +36,7 @@ pub struct System {
     /// structs are not trivial to implement in Rust. There are ways to do this by using crates like
     /// `owning_ref`, `rental`, or `ouroboros` or by using the [Pin](std::marker::Pin) type. The other
     /// crates does not fit exactly to our purpose and the [Pin](std::marker::Pin) requires a lot of
-    /// extra effort. The computational cost for the clones was measured to be on the order of
-    /// ~ 0.003 seconds (on a mac mini with M1) and to consume about 9 MB of memory for 20.000 [Atoms]
+    /// extra effort.
     pub atoms: Vec<Atom>,
     /// Type that stores the  coordinates and matrices that depend on the position of the atoms
     pub geometry: Geometry,
@@ -204,22 +203,24 @@ impl From<(Vec<u8>, Array2<f64>, Configuration)> for System {
     }
 }
 
-impl From<(Frame, Configuration)> for System {
-    /// Creates a new [System] from a [Frame](chemfiles::Frame) and
-    /// the global configuration as [Configuration](crate::io::settings::Configuration).
-    fn from(frame: (Frame, Configuration)) -> Self {
-        let (numbers, coords) = frame_to_coordinates(frame.0);
-        Self::from((numbers, coords, frame.1))
-    }
-}
 
 impl From<(&str, Configuration)> for System {
     /// Creates a new [System] from a &str and
     /// the global configuration as [Configuration](crate::io::settings::Configuration).
     fn from(filename_and_config: (&str, Configuration)) -> Self {
-        let frame: Frame = read_file_to_frame(filename_and_config.0);
-        let (numbers, coords) = frame_to_coordinates(frame);
+        let frame = parse_xyz_file(filename_and_config.0).unwrap();
+        let (numbers, coords) = xyz_frame_to_coordinates(frame);
+
+        // let frame: Frame = read_file_to_frame(filename_and_config.0);
+        // let (numbers, coords) = frame_to_coordinates(frame);
         Self::from((numbers, coords, filename_and_config.1))
+    }
+}
+
+impl From<(XyzFrame, Configuration)> for System {
+    fn from(frame: (XyzFrame, Configuration)) -> Self {
+        let (numbers, coords) = xyz_frame_to_coordinates(frame.0);
+        Self::from((numbers, coords, frame.1))
     }
 }
 

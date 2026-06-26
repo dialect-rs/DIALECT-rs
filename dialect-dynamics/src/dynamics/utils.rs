@@ -1,6 +1,7 @@
 use crate::initialization::Simulation;
 use crate::output::*;
 use ndarray::Array1;
+use ndarray_linalg::c64;
 use ndarray_npy::write_npy;
 
 impl Simulation {
@@ -38,6 +39,7 @@ impl Simulation {
             let temperature: f64 = self.thermostat.get_temperature(self.kinetic_energy);
             write_temperature(temperature, first_call);
         }
+
         if self.config.use_surface_hopping {
             let coeff_abs = self.coefficients.map(|val| val.norm_sqr());
             self.coeff_writer
@@ -79,16 +81,22 @@ impl Simulation {
         }
 
         if self.config.use_ehrenfest {
-            let out: EhrenfestOutput = EhrenfestOutput::new(self.coefficients.view());
+            // let out: EhrenfestOutput = EhrenfestOutput::new(self.coefficients.view());
+            let abs_coefficients: Array1<f64> = self.coefficients.map(|val| val.norm_sqr());
             self.coeff_writer
-                .add_array(step.to_string(), &out.coefficients_abs)
+                .add_array(step.to_string(), &abs_coefficients)
                 .unwrap();
             if self.config.ehrenfest_config.print_coefficients {
                 let abs_coefficients: Array1<f64> = self.coefficients.map(|val| val.norm_sqr());
-                let mut string: String = String::from("coefficients_");
+                let mut string: String = String::from("abs_coefficients_");
                 string = string + &step.to_string();
                 string = string + &String::from(".npy");
                 write_npy(string, &abs_coefficients).unwrap();
+                let coefficients: Array1<c64> = self.coefficients.clone();
+                let mut string: String = String::from("coefficients_");
+                string = string + &step.to_string();
+                string = string + &String::from(".npy");
+                write_npy(string, &coefficients).unwrap();
             }
         }
     }

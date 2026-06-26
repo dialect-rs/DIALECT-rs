@@ -1,10 +1,13 @@
+use crate::defaults::PROXIMITY_CUTOFF;
 use crate::fmo::helpers::get_pair_slice;
-use crate::fmo::old_supersystem::OldSupersystem;
 use crate::fmo::{
     ChargeTransferPair, ESDPair, Monomer, Pair, PairType, ReducedBasisState, SuperSystem,
 };
 use crate::gradients::helpers::*;
 use crate::initialization::*;
+use crate::param::slako_transformations::{
+    directional_cosines, slako_transformation_gradients_fast, SplineCache,
+};
 use crate::utils::ToOwnedF;
 use hashbrown::HashMap;
 use ndarray::{s, Array, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
@@ -12,2116 +15,38 @@ use ndarray_linalg::{into_col, into_row, IntoTriangular, Norm, UPLO};
 use rayon::prelude::*;
 
 impl System {
-    pub fn nac_tddftb_gs(&self, state: usize) -> Array1<f64> {
-        // The index of the HOMO (zero based).
-        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
-
-        // The index of the LUMO (zero based).
-        let lumo: usize = self.virt_indices[0];
-
-        // get number of occupied and virtual orbitals
-        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
-            let n_occ = (self.occ_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-            let n_virt = (self.virt_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-
-            (n_occ, n_virt)
-        } else {
-            let n_occ: usize = self.occ_indices.len();
-            let n_virt: usize = self.virt_indices.len();
-
-            (n_occ, n_virt)
-        };
-
-        // set the occupied and virtual orbital energies
-        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        // Energies of the occupied orbitals.
-        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
-        // Energies of the virtual orbitals.
-        let _orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
-
-        // transform the energies to a diagonal 2d matrix
-        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
-
-        // take state specific values from the excitation vectors
-        let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
-        let xpy_state: ArrayView3<f64> = self.properties.xpy().unwrap();
-        let xmy_state: ArrayView2<f64> = xmy_state.slice(s![state, .., ..]);
-        let xpy_state: ArrayView2<f64> = xpy_state.slice(s![state, .., ..]);
-        // excitation energy of the state
-        let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
-
-        // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_virt))
-                .unwrap()
-        };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_occ))
-                .unwrap()
-        } else {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_occ))
-                .unwrap()
-        };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_atoms, n_virt, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_orbs, n_virt, n_virt))
-                .unwrap()
-        };
-        let qtrans_vo: Array3<f64> = qtrans_ov
-            .permuted_axes([0, 2, 1])
-            .as_standard_layout()
-            .to_owned();
-
-        // create struct hplus
-        let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
-
-        // set gamma matrices
-        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma().unwrap()
-        } else {
-            self.properties.gamma_ao().unwrap()
-        };
-        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_lr().unwrap()
-        } else {
-            self.properties.gamma_lr_ao().unwrap()
-        };
-
-        // get matrix P_ia
-        let p_ia: Array2<f64> = (1.0 / omega_state) * &xpy_state;
-
-        // calculate w_ij
-        let mut w_ij: Array2<f64> = hplus.compute(g0, g0_lr, p_ia.view(), HplusType::Wij);
-        for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] /= 2.0;
-        }
-        // w_ia
-        let w_ia: Array2<f64> = 0.5 * &xmy_state + &ei.dot(&p_ia);
-
-        // w_ai
-        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
-
-        // build w matrix: combine w_ij, w_ia, w_ai and w_ab
-        let length: usize = n_occ + n_virt;
-        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
-        for i in 0..w_ij.dim().0 {
-            w_matrix
-                .slice_mut(s![i, ..w_ij.dim().1])
-                .assign(&w_ij.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![i, w_ij.dim().1..])
-                .assign(&w_ia.slice(s![i, ..]));
-        }
-        for i in 0..w_ai.dim().0 {
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
-                .assign(&w_ai.slice(s![i, ..]));
-        }
-
-        // get arrays from properties
-        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_ao().unwrap()
-        } else {
-            g0.view()
-        };
-        let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
-        let flr_dmd0: ArrayView3<f64> = self.properties.f_lr_dmd0().unwrap();
-        let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
-        let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
-
-        // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> = f_v(
-            diff_p.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let grad_h: Array3<f64> = &grad_h + &f_dmd0 - 0.5 * &flr_dmd0;
-
-        // set the occupied and virtuals orbital coefficients
-        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
-        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
-
-        // transform w matrix and excited state vectors to AO basis
-        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
-            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
-            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
-        } else {
-            orbs.dot(&w_triangular.dot(&orbs.t()))
-        };
-        let p_ao: Array2<f64> = orbs_occ.dot(&p_ia.dot(&orbs_virt.t()));
-
-        // assemble the excited gradient
-        let mut nac: Array1<f64> = Array::zeros(3 * self.n_atoms);
-        // gradH * (T + Z)
-        nac = nac
-            + grad_h
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&(p_ao).into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // - gradS * W
-        nac = nac
-            - grad_s
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&w_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-
-        nac
-    }
-
-    pub fn nac_tddftb_gs_no_lc(&self, state: usize) -> Array1<f64> {
-        // The index of the HOMO (zero based).
-        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
-
-        // The index of the LUMO (zero based).
-        let lumo: usize = self.virt_indices[0];
-
-        // get number of occupied and virtual orbitals
-        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
-            let n_occ = (self.occ_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-            let n_virt = (self.virt_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-
-            (n_occ, n_virt)
-        } else {
-            let n_occ: usize = self.occ_indices.len();
-            let n_virt: usize = self.virt_indices.len();
-
-            (n_occ, n_virt)
-        };
-
-        // set the occupied and virtual orbital energies
-        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        // Energies of the occupied orbitals.
-        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
-        // Energies of the virtual orbitals.
-        let _orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
-
-        // transform the energies to a diagonal 2d matrix
-        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
-
-        // take state specific values from the excitation vectors
-        let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
-        let xpy_state: ArrayView3<f64> = self.properties.xpy().unwrap();
-        let xmy_state: ArrayView2<f64> = xmy_state.slice(s![state, .., ..]);
-        let xpy_state: ArrayView2<f64> = xpy_state.slice(s![state, .., ..]);
-        // excitation energy of the state
-        let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
-
-        // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_virt))
-                .unwrap()
-        };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_occ))
-                .unwrap()
-        } else {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_occ))
-                .unwrap()
-        };
-        // let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-        //     self.properties
-        //         .q_vv()
-        //         .unwrap()
-        //         .into_shape((self.n_atoms, n_virt, n_virt))
-        //         .unwrap()
-        // } else {
-        //     self.properties
-        //         .q_vv()
-        //         .unwrap()
-        //         .into_shape((self.n_orbs, n_virt, n_virt))
-        //         .unwrap()
-        // };
-
-        // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma().unwrap()
-        } else {
-            self.properties.gamma_ao().unwrap()
-        };
-
-        // get matrix P_ia
-        let p_ia: Array2<f64> = (1.0 / omega_state) * &xpy_state;
-
-        // calculate w_ij
-        let mut w_ij: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_ov, p_ia.view());
-        for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] /= 2.0;
-        }
-        // w_ia
-        let w_ia: Array2<f64> = 0.5 * &xmy_state + &ei.dot(&p_ia);
-
-        // w_ai
-        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
-
-        // build w matrix: combine w_ij, w_ia, w_ai and w_ab
-        let length: usize = n_occ + n_virt;
-        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
-        for i in 0..w_ij.dim().0 {
-            w_matrix
-                .slice_mut(s![i, ..w_ij.dim().1])
-                .assign(&w_ij.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![i, w_ij.dim().1..])
-                .assign(&w_ia.slice(s![i, ..]));
-        }
-        for i in 0..w_ai.dim().0 {
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
-                .assign(&w_ai.slice(s![i, ..]));
-        }
-
-        // get arrays from properties
-        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_ao().unwrap()
-        } else {
-            g0.view()
-        };
-        let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
-        let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
-        let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
-
-        // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> = f_v(
-            diff_p.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let grad_h: Array3<f64> = &grad_h + &f_dmd0;
-
-        // set the occupied and virtuals orbital coefficients
-        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
-        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
-
-        // transform w matrix and excited state vectors to AO basis
-        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
-            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
-            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
-        } else {
-            orbs.dot(&w_triangular.dot(&orbs.t()))
-        };
-        let p_ao: Array2<f64> = orbs_occ.dot(&p_ia.dot(&orbs_virt.t()));
-
-        // assemble the excited gradient
-        let mut nac: Array1<f64> = Array::zeros(3 * self.n_atoms);
-        // gradH * (T + Z)
-        nac = nac
-            + grad_h
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&(p_ao).into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // - gradS * W
-        nac = nac
-            - grad_s
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&w_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-
-        nac
-    }
-
-    pub fn nac_tda_dftb_gs(&self, state: usize) -> Array1<f64> {
-        // The index of the HOMO (zero based).
-        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
-
-        // The index of the LUMO (zero based).
-        let lumo: usize = self.virt_indices[0];
-
-        // get number of occupied and virtual orbitals
-        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
-            let n_occ = (self.occ_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-            let n_virt = (self.virt_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-
-            (n_occ, n_virt)
-        } else {
-            let n_occ: usize = self.occ_indices.len();
-            let n_virt: usize = self.virt_indices.len();
-
-            (n_occ, n_virt)
-        };
-
-        // set the occupied and virtual orbital energies
-        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        // Energies of the occupied orbitals.
-        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
-        // Energies of the virtual orbitals.
-        let _orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
-
-        // transform the energies to a diagonal 2d matrix
-        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
-
-        // excitation energy of the state
-        let n_states = self.config.excited.nstates;
-        let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
-
-        // take state specific values from the excitation vectors
-        let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
-        let x_state: Array3<f64> = x_state
-            .t()
-            .as_standard_layout()
-            .to_owned()
-            .into_shape([n_states, n_occ, n_virt])
-            .unwrap();
-        let x_state: ArrayView2<f64> = x_state.slice(s![state, .., ..]);
-
-        // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_virt))
-                .unwrap()
-        };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_occ))
-                .unwrap()
-        } else {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_occ))
-                .unwrap()
-        };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_atoms, n_virt, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_orbs, n_virt, n_virt))
-                .unwrap()
-        };
-        let qtrans_vo: Array3<f64> = qtrans_ov
-            .permuted_axes([0, 2, 1])
-            .as_standard_layout()
-            .to_owned();
-
-        // create struct hplus
-        let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
-
-        // set gamma matrices
-        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma().unwrap()
-        } else {
-            self.properties.gamma_ao().unwrap()
-        };
-        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_lr().unwrap()
-        } else {
-            self.properties.gamma_lr_ao().unwrap()
-        };
-
-        // get matrix P_ia
-        let p_ia: Array2<f64> = (1.0 / omega_state) * &x_state;
-
-        // calculate w_ij
-        let mut w_ij: Array2<f64> = hplus.compute(g0, g0_lr, p_ia.view(), HplusType::Wij);
-        for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] /= 2.0;
-        }
-        // w_ia
-        let w_ia: Array2<f64> = 0.5 * &x_state + &ei.dot(&p_ia);
-
-        // w_ai
-        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
-
-        // build w matrix: combine w_ij, w_ia, w_ai and w_ab
-        let length: usize = n_occ + n_virt;
-        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
-        for i in 0..w_ij.dim().0 {
-            w_matrix
-                .slice_mut(s![i, ..w_ij.dim().1])
-                .assign(&w_ij.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![i, w_ij.dim().1..])
-                .assign(&w_ia.slice(s![i, ..]));
-        }
-        for i in 0..w_ai.dim().0 {
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
-                .assign(&w_ai.slice(s![i, ..]));
-        }
-
-        // get arrays from properties
-        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_ao().unwrap()
-        } else {
-            g0.view()
-        };
-        let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
-        let flr_dmd0: ArrayView3<f64> = self.properties.f_lr_dmd0().unwrap();
-        let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
-        let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
-
-        // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> = f_v(
-            diff_p.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let grad_h: Array3<f64> = &grad_h + &f_dmd0 - 0.5 * &flr_dmd0;
-
-        // set the occupied and virtuals orbital coefficients
-        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
-        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
-
-        // transform w matrix and excited state vectors to AO basis
-        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
-            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
-            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
-        } else {
-            orbs.dot(&w_triangular.dot(&orbs.t()))
-        };
-        let p_ao: Array2<f64> = orbs_occ.dot(&p_ia.dot(&orbs_virt.t()));
-
-        // assemble the excited gradient
-        let mut nac: Array1<f64> = Array::zeros(3 * self.n_atoms);
-        // gradH * (T + Z)
-        nac = nac
-            + grad_h
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&(p_ao).into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // - gradS * W
-        nac = nac
-            - grad_s
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&w_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-
-        nac
-    }
-
-    pub fn nac_tda_dftb_gs_no_lc(&self, state: usize) -> Array1<f64> {
-        // The index of the HOMO (zero based).
-        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
-
-        // The index of the LUMO (zero based).
-        let lumo: usize = self.virt_indices[0];
-
-        // get number of occupied and virtual orbitals
-        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
-            let n_occ = (self.occ_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-            let n_virt = (self.virt_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-
-            (n_occ, n_virt)
-        } else {
-            let n_occ: usize = self.occ_indices.len();
-            let n_virt: usize = self.virt_indices.len();
-
-            (n_occ, n_virt)
-        };
-
-        // set the occupied and virtual orbital energies
-        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        // Energies of the occupied orbitals.
-        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
-        // Energies of the virtual orbitals.
-        let _orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
-
-        // transform the energies to a diagonal 2d matrix
-        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
-        // let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        // excitation energy of the state
-        let n_states = self.config.excited.nstates;
-        let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
-
-        // take state specific values from the excitation vectors
-        let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
-        let x_state: Array3<f64> = x_state
-            .t()
-            .as_standard_layout()
-            .to_owned()
-            .into_shape([n_states, n_occ, n_virt])
-            .unwrap();
-        let x_state: ArrayView2<f64> = x_state.slice(s![state, .., ..]);
-
-        // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_virt))
-                .unwrap()
-        };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_occ))
-                .unwrap()
-        } else {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_occ))
-                .unwrap()
-        };
-        // let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-        //     self.properties
-        //         .q_vv()
-        //         .unwrap()
-        //         .into_shape((self.n_atoms, n_virt, n_virt))
-        //         .unwrap()
-        // } else {
-        //     self.properties
-        //         .q_vv()
-        //         .unwrap()
-        //         .into_shape((self.n_orbs, n_virt, n_virt))
-        //         .unwrap()
-        // };
-
-        // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma().unwrap()
-        } else {
-            self.properties.gamma_ao().unwrap()
-        };
-
-        // get matrix P_ia
-        let p_ia: Array2<f64> = (1.0 / omega_state) * &x_state;
-
-        // calculate w_ij
-        let mut w_ij: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_ov, p_ia.view());
-        for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] /= 2.0;
-        }
-        // w_ia
-        let w_ia: Array2<f64> = 0.5 * &x_state + &ei.dot(&p_ia);
-
-        // w_ai
-        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
-
-        // build w matrix: combine w_ij, w_ia, w_ai and w_ab
-        let length: usize = n_occ + n_virt;
-        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
-        for i in 0..w_ij.dim().0 {
-            w_matrix
-                .slice_mut(s![i, ..w_ij.dim().1])
-                .assign(&w_ij.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![i, w_ij.dim().1..])
-                .assign(&w_ia.slice(s![i, ..]));
-        }
-        for i in 0..w_ai.dim().0 {
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
-                .assign(&w_ai.slice(s![i, ..]));
-        }
-
-        // get arrays from properties
-        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_ao().unwrap()
-        } else {
-            g0.view()
-        };
-        let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
-        let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
-        let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
-
-        // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> = f_v(
-            diff_p.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let grad_h: Array3<f64> = &grad_h + &f_dmd0;
-
-        // set the occupied and virtuals orbital coefficients
-        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
-        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
-
-        // transform w matrix and excited state vectors to AO basis
-        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
-            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
-            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
-        } else {
-            orbs.dot(&w_triangular.dot(&orbs.t()))
-        };
-        let p_ao: Array2<f64> = orbs_occ.dot(&p_ia.dot(&orbs_virt.t()));
-
-        // assemble the excited gradient
-        let mut nac: Array1<f64> = Array::zeros(3 * self.n_atoms);
-        // gradH * (T + Z)
-        nac = nac
-            + grad_h
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&(p_ao).into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // - gradS * W
-        nac = nac
-            - grad_s
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&w_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-
-        nac
-    }
-
-    pub fn nac_tddft_excited(&self, state_1: usize, state_2: usize) -> Array1<f64> {
-        // The index of the HOMO (zero based).
-        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
-
-        // The index of the LUMO (zero based).
-        let lumo: usize = self.virt_indices[0];
-
-        // get number of occupied and virtual orbitals
-        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
-            let n_occ = (self.occ_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-            let n_virt = (self.virt_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-
-            (n_occ, n_virt)
-        } else {
-            let n_occ: usize = self.occ_indices.len();
-            let n_virt: usize = self.virt_indices.len();
-
-            (n_occ, n_virt)
-        };
-
-        // set the occupied and virtual orbital energies
-        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        // Energies of the occupied orbitals.
-        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
-        // Energies of the virtual orbitals.
-        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
-
-        // transform the energies to a diagonal 2d matrix
-        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
-        let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        // take state specific values from the excitation vectors
-        let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
-        let xpy_state: ArrayView3<f64> = self.properties.xpy().unwrap();
-        let xmy_state_1: ArrayView2<f64> = xmy_state.slice(s![state_1, .., ..]);
-        let xpy_state_1: ArrayView2<f64> = xpy_state.slice(s![state_1, .., ..]);
-        // excitation energy of the state
-        let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
-
-        // take state specific values from the excitation vectors
-        let xmy_state_2: ArrayView2<f64> = xmy_state.slice(s![state_2, .., ..]);
-        let xpy_state_2: ArrayView2<f64> = xpy_state.slice(s![state_2, .., ..]);
-        // excitation energy of the state
-        let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
-        let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
-        let omega_diff: f64 = omega_state_1 - omega_state_2;
-
-        // calculate the vectors u, v and t
-        let u_ab: Array2<f64> = xpy_state_1.t().dot(&xmy_state_2)
-            + xmy_state_1.t().dot(&xpy_state_2)
-            + xpy_state_2.t().dot(&xmy_state_1)
-            + xmy_state_2.t().dot(&xpy_state_1);
-        let u_ij: Array2<f64> = xpy_state_1.dot(&xmy_state_2.t())
-            + xmy_state_1.dot(&xpy_state_2.t())
-            + xpy_state_2.dot(&xmy_state_1.t())
-            + xmy_state_2.dot(&xpy_state_1.t());
-
-        let v_ab: Array2<f64> = ei.dot(&xpy_state_1).t().dot(&xpy_state_2)
-            + ei.dot(&xmy_state_1).t().dot(&xmy_state_2)
-            + ei.dot(&xpy_state_2).t().dot(&xpy_state_1)
-            + ei.dot(&xmy_state_2).t().dot(&xmy_state_1);
-        let v_ij: Array2<f64> = xpy_state_1.dot(&ea).dot(&xpy_state_2.t())
-            + xmy_state_1.dot(&ea).dot(&xmy_state_2.t())
-            + xpy_state_2.dot(&ea).dot(&xpy_state_1.t())
-            + xmy_state_2.dot(&ea).dot(&xmy_state_1.t());
-
-        let t_ab: Array2<f64> = 0.25
-            * (xpy_state_1.t().dot(&xpy_state_2)
-                + xpy_state_2.t().dot(&xpy_state_1)
-                + xmy_state_1.t().dot(&xmy_state_2)
-                + xmy_state_2.t().dot(&xmy_state_1));
-        let t_ij: Array2<f64> = 0.25
-            * (xpy_state_1.dot(&xpy_state_2.t())
-                + xpy_state_2.dot(&xpy_state_1.t())
-                + xmy_state_1.dot(&xmy_state_2.t())
-                + xmy_state_2.dot(&xmy_state_1.t()));
-
-        // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_virt))
-                .unwrap()
-        };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_occ))
-                .unwrap()
-        } else {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_occ))
-                .unwrap()
-        };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_atoms, n_virt, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_orbs, n_virt, n_virt))
-                .unwrap()
-        };
-        let qtrans_vo: Array3<f64> = qtrans_ov
-            .permuted_axes([0, 2, 1])
-            .as_standard_layout()
-            .to_owned();
-
-        // create struct hplus
-        let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
-
-        // set gamma matrices
-        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma().unwrap()
-        } else {
-            self.properties.gamma_ao().unwrap()
-        };
-        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_lr().unwrap()
-        } else {
-            self.properties.gamma_lr_ao().unwrap()
-        };
-
-        // compute hplus of tab and tij
-        let hplus_tab: Array2<f64> = hplus.compute(g0, g0_lr, t_ab.view(), HplusType::Tab);
-        let hplus_tij: Array2<f64> = hplus.compute(g0, g0_lr, t_ij.view(), HplusType::Tij);
-
-        // calculate q_ij
-        let g_ij: Array2<f64> = hplus_tab - hplus_tij;
-        let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
-
-        // calculate q_ab
-        let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
-
-        // calculate q_ia
-        // first term
-        let mut q_ia: Array2<f64> =
-            0.5 * xpy_state_1.dot(&hplus.compute(g0, g0_lr, xpy_state_2, HplusType::QiaXpy).t());
-        // second term
-        q_ia = q_ia
-            + 0.5 * xpy_state_2.dot(&hplus.compute(g0, g0_lr, xpy_state_1, HplusType::QiaXpy).t());
-        // first term
-        q_ia = q_ia
-            + 0.5
-                * xmy_state_1.dot(
-                    &h_minus(
-                        g0_lr,
-                        qtrans_vv,
-                        qtrans_vo.view(),
-                        qtrans_vo.view(),
-                        qtrans_vv,
-                        xmy_state_2,
-                    )
-                    .t(),
-                );
-        // second term
-        q_ia = q_ia
-            + 0.5
-                * xmy_state_2.dot(
-                    &h_minus(
-                        g0_lr,
-                        qtrans_vv,
-                        qtrans_vo.view(),
-                        qtrans_vo.view(),
-                        qtrans_vv,
-                        xmy_state_1,
-                    )
-                    .t(),
-                );
-        q_ia = q_ia + hplus.compute(g0, g0_lr, t_ab.view(), HplusType::QiaTab);
-        q_ia = q_ia - hplus.compute(g0, g0_lr, t_ij.view(), HplusType::QiaTij);
-
-        // calculate q_ai
-        let mut q_ai: Array2<f64> = 0.5
-            * xpy_state_1
-                .t()
-                .dot(&hplus.compute(g0, g0_lr, xpy_state_2, HplusType::Qai));
-        q_ai = q_ai
-            + 0.5
-                * xpy_state_2
-                    .t()
-                    .dot(&hplus.compute(g0, g0_lr, xpy_state_1, HplusType::Qai));
-        q_ai = q_ai
-            + 0.5
-                * xmy_state_1.t().dot(&h_minus(
-                    g0_lr,
-                    qtrans_ov,
-                    qtrans_oo,
-                    qtrans_oo,
-                    qtrans_ov,
-                    xmy_state_2,
-                ));
-        q_ai = q_ai
-            + 0.5
-                * xmy_state_2.t().dot(&h_minus(
-                    g0_lr,
-                    qtrans_ov,
-                    qtrans_oo,
-                    qtrans_oo,
-                    qtrans_ov,
-                    xmy_state_1,
-                ));
-
-        // calculate right hand side of the z-vector equation
-        let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
-
-        // input for zvector routine
-        let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
-            .dot(&into_row(orbe_virt.clone()))
-            - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
-        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
-        let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
-
-        // calculate the z-vector
-        let z_ia: Array2<f64> = zvector_lc(
-            omega_input.view(),
-            r_matrix.view(),
-            g0,
-            g0_lr,
-            qtrans_oo,
-            qtrans_vv,
-            qtrans_ov,
-        );
-
-        // calculate w_ij
-        let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
-        for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] /= 2.0;
-        }
-        // w_ia
-        let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
-
-        // w_ai
-        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
-
-        // w_ab
-        let mut w_ab: Array2<f64> = q_ab;
-        for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] /= 2.0;
-        }
-
-        // build w matrix: combine w_ij, w_ia, w_ai and w_ab
-        let length: usize = n_occ + n_virt;
-        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
-        for i in 0..w_ij.dim().0 {
-            w_matrix
-                .slice_mut(s![i, ..w_ij.dim().1])
-                .assign(&w_ij.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![i, w_ij.dim().1..])
-                .assign(&w_ia.slice(s![i, ..]));
-        }
-        for i in 0..w_ai.dim().0 {
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
-                .assign(&w_ai.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
-                .assign(&w_ab.slice(s![i, ..]));
-        }
-
-        // get arrays from properties
-        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_ao().unwrap()
-        } else {
-            g0.view()
-        };
-        let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
-        let flr_dmd0: ArrayView3<f64> = self.properties.f_lr_dmd0().unwrap();
-        let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
-        let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
-
-        // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> = f_v(
-            diff_p.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let grad_h: Array3<f64> = &grad_h + &f_dmd0 - 0.5 * &flr_dmd0;
-
-        // set the occupied and virtuals orbital coefficients
-        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
-        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
-
-        // transform t and z vectors to AO basis
-        let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
-        let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
-        let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
-
-        // transform w matrix and excited state vectors to AO basis
-        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
-            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
-            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
-        } else {
-            orbs.dot(&w_triangular.dot(&orbs.t()))
-        };
-        let xpy_ao_1: Array2<f64> = orbs_occ.dot(&xpy_state_1.dot(&orbs_virt.t()));
-        let xpy_ao_2: Array2<f64> = orbs_occ.dot(&xpy_state_2.dot(&orbs_virt.t()));
-        let xmy_ao_1: Array2<f64> = orbs_occ.dot(&xmy_state_1.dot(&orbs_virt.t()));
-        let xmy_ao_2: Array2<f64> = orbs_occ.dot(&xmy_state_2.dot(&orbs_virt.t()));
-
-        // set g0lr_ao and g1lr_ao
-        let g0lr_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_lr_ao().unwrap()
-        } else {
-            g0_lr.view()
-        };
-        let g1lr_ao: ArrayView3<f64> = self.properties.grad_gamma_lr_ao().unwrap();
-
-        // calculate contributions to the excited gradient
-        let f: Array3<f64> = f_v(
-            xpy_ao_2.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let flr_p = f_lr(
-            (&xpy_ao_2 + &xpy_ao_2.t()).view(),
-            s,
-            grad_s,
-            g0lr_ao,
-            g1lr_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let flr_m = -f_lr(
-            (&xmy_ao_2 - &xmy_ao_2.t()).view(),
-            s,
-            grad_s,
-            g0lr_ao,
-            g1lr_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-
-        // assemble the excited gradient
-        let mut nac: Array1<f64> = Array::zeros(3 * self.n_atoms);
-        // gradH * (T + Z)
-        nac = nac
-            + grad_h
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(
-                    &(t_vv - t_oo + z_ao)
-                        .into_shape(self.n_orbs * self.n_orbs)
-                        .unwrap(),
-                );
-        // - gradS * W
-        nac = nac
-            - grad_s
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&w_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // 2.0 * sum (X+Y) F (X+Y)
-        nac = nac
-            + 2.0
-                * f.into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                    .unwrap()
-                    .dot(
-                        &xpy_ao_1
-                            .view()
-                            .into_shape(self.n_orbs * self.n_orbs)
-                            .unwrap(),
-                    );
-        // - 0.5 * sum (X+Y) F_lr (X+Y)(X+Y)
-        nac = nac
-            - 0.5
-                * flr_p
-                    .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                    .unwrap()
-                    .dot(&xpy_ao_1.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // - 0.5 * sum (X-Y) F_lr (X-Y)(X-Y)
-        nac = nac
-            - 0.5
-                * flr_m
-                    .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                    .unwrap()
-                    .dot(
-                        &xmy_ao_1
-                            .view()
-                            .into_shape(self.n_orbs * self.n_orbs)
-                            .unwrap(),
-                    );
-        if state_1 == state_2 {
-            nac
-        } else {
-            (1.0 / omega_diff) * nac
-        }
-    }
-
-    pub fn nac_tddft_excited_no_lc(&self, state_1: usize, state_2: usize) -> Array1<f64> {
-        // The index of the HOMO (zero based).
-        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
-
-        // The index of the LUMO (zero based).
-        let lumo: usize = self.virt_indices[0];
-
-        // get number of occupied and virtual orbitals
-        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
-            let n_occ = (self.occ_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-            let n_virt = (self.virt_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-
-            (n_occ, n_virt)
-        } else {
-            let n_occ: usize = self.occ_indices.len();
-            let n_virt: usize = self.virt_indices.len();
-
-            (n_occ, n_virt)
-        };
-
-        // set the occupied and virtual orbital energies
-        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        // Energies of the occupied orbitals.
-        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
-        // Energies of the virtual orbitals.
-        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
-
-        // transform the energies to a diagonal 2d matrix
-        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
-        let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        // take state specific values from the excitation vectors
-        let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
-        let xpy_state: ArrayView3<f64> = self.properties.xpy().unwrap();
-        let xmy_state_1: ArrayView2<f64> = xmy_state.slice(s![state_1, .., ..]);
-        let xpy_state_1: ArrayView2<f64> = xpy_state.slice(s![state_1, .., ..]);
-        // excitation energy of the state
-        let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
-
-        // take state specific values from the excitation vectors
-        let xmy_state_2: ArrayView2<f64> = xmy_state.slice(s![state_2, .., ..]);
-        let xpy_state_2: ArrayView2<f64> = xpy_state.slice(s![state_2, .., ..]);
-        // excitation energy of the state
-        let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
-        let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
-        let omega_diff: f64 = omega_state_1 - omega_state_2;
-
-        // calculate the vectors u, v and t
-        let u_ab: Array2<f64> = xpy_state_1.t().dot(&xmy_state_2)
-            + xmy_state_1.t().dot(&xpy_state_2)
-            + xpy_state_2.t().dot(&xmy_state_1)
-            + xmy_state_2.t().dot(&xpy_state_1);
-        let u_ij: Array2<f64> = xpy_state_1.dot(&xmy_state_2.t())
-            + xmy_state_1.dot(&xpy_state_2.t())
-            + xpy_state_2.dot(&xmy_state_1.t())
-            + xmy_state_2.dot(&xpy_state_1.t());
-
-        let v_ab: Array2<f64> = ei.dot(&xpy_state_1).t().dot(&xpy_state_2)
-            + ei.dot(&xmy_state_1).t().dot(&xmy_state_2)
-            + ei.dot(&xpy_state_2).t().dot(&xpy_state_1)
-            + ei.dot(&xmy_state_2).t().dot(&xmy_state_1);
-        let v_ij: Array2<f64> = xpy_state_1.dot(&ea).dot(&xpy_state_2.t())
-            + xmy_state_1.dot(&ea).dot(&xmy_state_2.t())
-            + xpy_state_2.dot(&ea).dot(&xpy_state_1.t())
-            + xmy_state_2.dot(&ea).dot(&xmy_state_1.t());
-
-        let t_ab: Array2<f64> = 0.25
-            * (xpy_state_1.t().dot(&xpy_state_2)
-                + xpy_state_2.t().dot(&xpy_state_1)
-                + xmy_state_1.t().dot(&xmy_state_2)
-                + xmy_state_2.t().dot(&xmy_state_1));
-        let t_ij: Array2<f64> = 0.25
-            * (xpy_state_1.dot(&xpy_state_2.t())
-                + xpy_state_2.dot(&xpy_state_1.t())
-                + xmy_state_1.dot(&xmy_state_2.t())
-                + xmy_state_2.dot(&xmy_state_1.t()));
-
-        // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_virt))
-                .unwrap()
-        };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_occ))
-                .unwrap()
-        } else {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_occ))
-                .unwrap()
-        };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_atoms, n_virt, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_orbs, n_virt, n_virt))
-                .unwrap()
-        };
-
-        // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma().unwrap()
-        } else {
-            self.properties.gamma_ao().unwrap()
-        };
-
-        // compute hplus of tab and tij
-        let hplus_tab: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_vv, t_ab.view());
-        let hplus_tij: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_oo, t_ij.view());
-
-        // calculate q_ij
-        let g_ij: Array2<f64> = hplus_tab - hplus_tij;
-        let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
-
-        // calculate q_ab
-        let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
-
-        // calculate q_ia
-        let mut q_ia: Array2<f64> = 0.5
-            * (xpy_state_1.dot(&h_plus_no_lr(g0, qtrans_vv, qtrans_ov, xpy_state_2).t())
-                + xpy_state_2.dot(&h_plus_no_lr(g0, qtrans_vv, qtrans_ov, xpy_state_1).t()));
-        q_ia = q_ia + h_plus_no_lr(g0, qtrans_ov, qtrans_vv, t_ab.view());
-        q_ia = q_ia - h_plus_no_lr(g0, qtrans_ov, qtrans_oo, t_ij.view());
-
-        // calculate q_ai
-        let q_ai: Array2<f64> = 0.5
-            * (xpy_state_1
-                .t()
-                .dot(&h_plus_no_lr(g0, qtrans_oo, qtrans_ov, xpy_state_2))
-                + xpy_state_2
-                    .t()
-                    .dot(&h_plus_no_lr(g0, qtrans_oo, qtrans_ov, xpy_state_1)));
-
-        // calculate right hand side of the z-vector equation
-        let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
-
-        // input for zvector routine
-        let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
-            .dot(&into_row(orbe_virt.clone()))
-            - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
-        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
-        let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
-
-        // calculate the z-vector
-        let z_ia: Array2<f64> = zvector_no_lc(omega_input.view(), r_matrix.view(), g0, qtrans_ov);
-
-        // calculate w_ij
-        let mut w_ij: Array2<f64> = q_ij + h_plus_no_lr(g0, qtrans_oo, qtrans_ov, z_ia.view());
-        for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] /= 2.0;
-        }
-        // w_ia
-        let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
-
-        // w_ai
-        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
-
-        // w_ab
-        let mut w_ab: Array2<f64> = q_ab;
-        for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] /= 2.0;
-        }
-
-        // build w matrix: combine w_ij, w_ia, w_ai and w_ab
-        let length: usize = n_occ + n_virt;
-        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
-        for i in 0..w_ij.dim().0 {
-            w_matrix
-                .slice_mut(s![i, ..w_ij.dim().1])
-                .assign(&w_ij.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![i, w_ij.dim().1..])
-                .assign(&w_ia.slice(s![i, ..]));
-        }
-        for i in 0..w_ai.dim().0 {
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
-                .assign(&w_ai.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
-                .assign(&w_ab.slice(s![i, ..]));
-        }
-
-        // get arrays from properties
-        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_ao().unwrap()
-        } else {
-            g0.view()
-        };
-        let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
-        let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
-        let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
-
-        // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> = f_v(
-            diff_p.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let grad_h: Array3<f64> = &grad_h + &f_dmd0;
-
-        // set the occupied and virtuals orbital coefficients
-        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
-        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
-
-        // transform t and z vectors to AO basis
-        let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
-        let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
-        let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
-
-        // transform w matrix and excited state vectors to AO basis
-        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
-            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
-            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
-        } else {
-            orbs.dot(&w_triangular.dot(&orbs.t()))
-        };
-        let xpy_ao_1: Array2<f64> = orbs_occ.dot(&xpy_state_1.dot(&orbs_virt.t()));
-        let xpy_ao_2: Array2<f64> = orbs_occ.dot(&xpy_state_2.dot(&orbs_virt.t()));
-
-        // calculate contributions to the excited gradient
-        let f: Array3<f64> = f_v(
-            xpy_ao_2.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-
-        // assemble the excited gradient
-        let mut nac: Array1<f64> = Array::zeros(3 * self.n_atoms);
-        // gradH * (T + Z)
-        nac = nac
-            + grad_h
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(
-                    &(t_vv - t_oo + z_ao)
-                        .into_shape(self.n_orbs * self.n_orbs)
-                        .unwrap(),
-                );
-        // - gradS * W
-        nac = nac
-            - grad_s
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&w_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // 2.0 * sum (X+Y) F (X+Y)
-        nac = nac
-            + 2.0
-                * f.into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                    .unwrap()
-                    .dot(
-                        &xpy_ao_1
-                            .view()
-                            .into_shape(self.n_orbs * self.n_orbs)
-                            .unwrap(),
-                    );
-
-        if state_1 == state_2 {
-            nac
-        } else {
-            (1.0 / omega_diff) * nac
-        }
-    }
-
-    pub fn nac_tda_dftb_excited(&self, state_1: usize, state_2: usize) -> Array1<f64> {
-        // The index of the HOMO (zero based).
-        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
-
-        // The index of the LUMO (zero based).
-        let lumo: usize = self.virt_indices[0];
-
-        // get number of occupied and virtual orbitals
-        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
-            let n_occ = (self.occ_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-            let n_virt = (self.virt_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-
-            (n_occ, n_virt)
-        } else {
-            let n_occ: usize = self.occ_indices.len();
-            let n_virt: usize = self.virt_indices.len();
-
-            (n_occ, n_virt)
-        };
-
-        // set the occupied and virtual orbital energies
-        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        // Energies of the occupied orbitals.
-        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
-        // Energies of the virtual orbitals.
-        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
-
-        // transform the energies to a diagonal 2d matrix
-        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
-        let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        // get the ci eigenvalues
-        let omega_state: ArrayView1<f64> = self.properties.ci_eigenvalues().unwrap();
-        let n_states: usize = omega_state.len();
-
-        // take state specific values from the excitation vectors
-        let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
-        let x_state: Array3<f64> = x_state
-            .t()
-            .as_standard_layout()
-            .to_owned()
-            .into_shape([n_states, n_occ, n_virt])
-            .unwrap();
-        let x_state_1: ArrayView2<f64> = x_state.slice(s![state_1, .., ..]);
-        let x_state_2: ArrayView2<f64> = x_state.slice(s![state_2, .., ..]);
-        // excitation energy of the state
-        let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
-
-        // excitation energy of the state
-        let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
-        let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
-        let omega_diff: f64 = omega_state_1 - omega_state_2;
-
-        // calculate the vectors u, v and t
-        let u_ab: Array2<f64> =
-            2.0 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
-        let u_ij: Array2<f64> =
-            2.0 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
-        let v_ab: Array2<f64> =
-            2.0 * (ei.dot(&x_state_1).t().dot(&x_state_2) + ei.dot(&x_state_2).t().dot(&x_state_1));
-        let v_ij: Array2<f64> =
-            2.0 * (x_state_1.dot(&ea).dot(&x_state_2.t()) + x_state_2.dot(&ea).dot(&x_state_1.t()));
-
-        let t_ab: Array2<f64> =
-            0.5 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
-        let t_ij: Array2<f64> =
-            0.5 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
-
-        // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_virt))
-                .unwrap()
-        };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_occ))
-                .unwrap()
-        } else {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_occ))
-                .unwrap()
-        };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_atoms, n_virt, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_orbs, n_virt, n_virt))
-                .unwrap()
-        };
-        let qtrans_vo: Array3<f64> = qtrans_ov
-            .permuted_axes([0, 2, 1])
-            .as_standard_layout()
-            .to_owned();
-
-        // create struct hplus
-        let hav: Hav = Hav::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
-        let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
-
-        // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma().unwrap()
-        } else {
-            self.properties.gamma_ao().unwrap()
-        };
-        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_lr().unwrap()
-        } else {
-            self.properties.gamma_lr_ao().unwrap()
-        };
-
-        // compute hplus of tab and tij
-        let hplus_tab: Array2<f64> = hav.compute(g0, g0_lr, t_ab.view(), HplusType::Tab);
-        let hplus_tij: Array2<f64> = hav.compute(g0, g0_lr, t_ij.view(), HplusType::Tij);
-
-        // calculate q_ij
-        let g_ij: Array2<f64> = hplus_tab - hplus_tij;
-        let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
-
-        // calculate q_ab
-        let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
-
-        // calculate q_ia
-        // first term
-        let mut q_ia: Array2<f64> =
-            0.5 * x_state_1.dot(&hav.compute(g0, g0_lr, x_state_2, HplusType::QiaXpy).t());
-        // second term
-        q_ia =
-            q_ia + 0.5 * x_state_2.dot(&hav.compute(g0, g0_lr, x_state_1, HplusType::QiaXpy).t());
-        q_ia = q_ia + hav.compute(g0, g0_lr, t_ab.view(), HplusType::QiaTab);
-        q_ia = q_ia - hav.compute(g0, g0_lr, t_ij.view(), HplusType::QiaTij);
-
-        // calculate q_ai
-        let mut q_ai: Array2<f64> = 0.5
-            * x_state_1
-                .t()
-                .dot(&hav.compute(g0, g0_lr, x_state_2, HplusType::Qai));
-        q_ai = q_ai
-            + 0.5
-                * x_state_2
-                    .t()
-                    .dot(&hav.compute(g0, g0_lr, x_state_1, HplusType::Qai));
-
-        // calculate right hand side of the z-vector equation
-        let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
-
-        // input for zvector routine
-        let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
-            .dot(&into_row(orbe_virt.clone()))
-            - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
-        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
-        let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
-
-        // calculate the z-vector
-        let z_ia: Array2<f64> = zvector_lc(
-            omega_input.view(),
-            r_matrix.view(),
-            g0,
-            g0_lr,
-            qtrans_oo,
-            qtrans_vv,
-            qtrans_ov,
-        );
-
-        // calculate w_ij
-        let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
-        for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] /= 2.0;
-        }
-        // w_ia
-        let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
-
-        // w_ai
-        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
-
-        // w_ab
-        let mut w_ab: Array2<f64> = q_ab;
-        for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] /= 2.0;
-        }
-
-        // build w matrix: combine w_ij, w_ia, w_ai and w_ab
-        let length: usize = n_occ + n_virt;
-        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
-        for i in 0..w_ij.dim().0 {
-            w_matrix
-                .slice_mut(s![i, ..w_ij.dim().1])
-                .assign(&w_ij.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![i, w_ij.dim().1..])
-                .assign(&w_ia.slice(s![i, ..]));
-        }
-        for i in 0..w_ai.dim().0 {
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
-                .assign(&w_ai.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
-                .assign(&w_ab.slice(s![i, ..]));
-        }
-
-        // get arrays from properties
-        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_ao().unwrap()
-        } else {
-            g0.view()
-        };
-        let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
-        let flr_dmd0: ArrayView3<f64> = self.properties.f_lr_dmd0().unwrap();
-        let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
-        let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
-
-        // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> = f_v(
-            diff_p.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let grad_h: Array3<f64> = &grad_h + &f_dmd0 - 0.5 * &flr_dmd0;
-
-        // set the occupied and virtuals orbital coefficients
-        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
-        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
-        // set the occupied and virtuals orbital coefficients
-
-        // transform t and z vectors to AO basis
-        let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
-        let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
-        let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
-
-        // transform w matrix and excited state vectors to AO basis
-        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
-            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
-            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
-        } else {
-            orbs.dot(&w_triangular.dot(&orbs.t()))
-        };
-        let x_ao_1: Array2<f64> = orbs_occ.dot(&x_state_1.dot(&orbs_virt.t()));
-        let x_ao_2: Array2<f64> = orbs_occ.dot(&x_state_2.dot(&orbs_virt.t()));
-
-        // set g0lr_ao and g1lr_ao
-        let g0lr_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_lr_ao().unwrap()
-        } else {
-            g0_lr.view()
-        };
-        let g1lr_ao: ArrayView3<f64> = self.properties.grad_gamma_lr_ao().unwrap();
-
-        // calculate contributions to the excited gradient
-        let f: Array3<f64> = f_v(
-            x_ao_2.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let flr_p = f_lr(
-            x_ao_2.t(),
-            s,
-            grad_s,
-            g0lr_ao,
-            g1lr_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-
-        // assemble the excited gradient
-        let mut nac: Array1<f64> = Array::zeros(3 * self.n_atoms);
-        // gradH * (T + Z)
-        nac = nac
-            + grad_h
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(
-                    &(t_vv - t_oo + z_ao)
-                        .into_shape(self.n_orbs * self.n_orbs)
-                        .unwrap(),
-                );
-        // - gradS * W
-        nac = nac
-            - grad_s
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&w_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // 2.0 * sum (X+Y) F (X+Y)
-        nac = nac
-            + 2.0
-                * f.into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                    .unwrap()
-                    .dot(&x_ao_1.view().into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // - 0.5 * sum (X+Y) F_lr (X+Y)(X+Y)
-        nac = nac
-            - flr_p
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&x_ao_1.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        if state_1 == state_2 {
-            nac
-        } else {
-            (1.0 / omega_diff) * nac
-        }
-    }
-
-    pub fn nac_tda_dftb_excited_no_lc(&self, state_1: usize, state_2: usize) -> Array1<f64> {
-        // The index of the HOMO (zero based).
-        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
-
-        // The index of the LUMO (zero based).
-        let lumo: usize = self.virt_indices[0];
-
-        // get number of occupied and virtual orbitals
-        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
-            let n_occ = (self.occ_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-            let n_virt = (self.virt_indices.len() as f64
-                * self.config.tddftb.active_orbital_threshold) as usize;
-
-            (n_occ, n_virt)
-        } else {
-            let n_occ: usize = self.occ_indices.len();
-            let n_virt: usize = self.virt_indices.len();
-
-            (n_occ, n_virt)
-        };
-
-        // set the occupied and virtual orbital energies
-        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
-        // Energies of the occupied orbitals.
-        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
-        // Energies of the virtual orbitals.
-        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
-
-        // transform the energies to a diagonal 2d matrix
-        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
-        let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
-
-        // get the ci eigenvalues
-        let omega_state: ArrayView1<f64> = self.properties.ci_eigenvalues().unwrap();
-        let n_states: usize = omega_state.len();
-
-        // take state specific values from the excitation vectors
-        let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
-        let x_state: Array3<f64> = x_state
-            .t()
-            .as_standard_layout()
-            .to_owned()
-            .into_shape([n_states, n_occ, n_virt])
-            .unwrap();
-        let x_state_1: ArrayView2<f64> = x_state.slice(s![state_1, .., ..]);
-        let x_state_2: ArrayView2<f64> = x_state.slice(s![state_2, .., ..]);
-        // excitation energy of the state
-        let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
-
-        // excitation energy of the state
-        let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
-        let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
-        let omega_diff: f64 = omega_state_1 - omega_state_2;
-
-        // calculate the vectors u, v and t
-        let u_ab: Array2<f64> =
-            2.0 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
-        let u_ij: Array2<f64> =
-            2.0 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
-        let v_ab: Array2<f64> =
-            2.0 * (ei.dot(&x_state_1).t().dot(&x_state_2) + ei.dot(&x_state_2).t().dot(&x_state_1));
-        let v_ij: Array2<f64> =
-            2.0 * (x_state_1.dot(&ea).dot(&x_state_2.t()) + x_state_2.dot(&ea).dot(&x_state_1.t()));
-
-        let t_ab: Array2<f64> =
-            0.5 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
-        let t_ij: Array2<f64> =
-            0.5 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
-
-        // get the transition charges
-        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_ov()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_virt))
-                .unwrap()
-        };
-        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_atoms, n_occ, n_occ))
-                .unwrap()
-        } else {
-            self.properties
-                .q_oo()
-                .unwrap()
-                .into_shape((self.n_orbs, n_occ, n_occ))
-                .unwrap()
-        };
-        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_atoms, n_virt, n_virt))
-                .unwrap()
-        } else {
-            self.properties
-                .q_vv()
-                .unwrap()
-                .into_shape((self.n_orbs, n_virt, n_virt))
-                .unwrap()
-        };
-
-        // set gamma matrix
-        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma().unwrap()
-        } else {
-            self.properties.gamma_ao().unwrap()
-        };
-
-        // compute hplus of tab and tij
-        let hplus_tab: Array2<f64> = h_a_nolr(g0, qtrans_oo, qtrans_vv, t_ab.view());
-        let hplus_tij: Array2<f64> = h_a_nolr(g0, qtrans_oo, qtrans_oo, t_ij.view());
-
-        // calculate q_ij
-        let g_ij: Array2<f64> = hplus_tab - hplus_tij;
-        let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
-
-        // calculate q_ab
-        let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
-
-        // calculate q_ia
-        // first term
-        let mut q_ia: Array2<f64> =
-            0.5 * x_state_1.dot(&h_a_nolr(g0, qtrans_vv, qtrans_ov, x_state_2).t());
-        // second term
-        q_ia = q_ia + 0.5 * x_state_2.dot(&h_a_nolr(g0, qtrans_vv, qtrans_ov, x_state_1).t());
-        q_ia = q_ia + h_a_nolr(g0, qtrans_ov, qtrans_vv, t_ab.view());
-        q_ia = q_ia - h_a_nolr(g0, qtrans_ov, qtrans_oo, t_ij.view());
-
-        // calculate q_ai
-        let mut q_ai: Array2<f64> = 0.5
-            * x_state_1
-                .t()
-                .dot(&h_a_nolr(g0, qtrans_oo, qtrans_ov, x_state_2));
-        q_ai = q_ai
-            + 0.5
-                * x_state_2
-                    .t()
-                    .dot(&h_a_nolr(g0, qtrans_oo, qtrans_ov, x_state_1));
-
-        // calculate right hand side of the z-vector equation
-        let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
-
-        // input for zvector routine
-        let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
-            .dot(&into_row(orbe_virt.clone()))
-            - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
-        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
-        let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
-
-        // calculate the z-vector
-        let z_ia: Array2<f64> =
-            tda_zvector_no_lc(omega_input.view(), r_matrix.view(), g0, qtrans_ov);
-
-        // calculate w_ij
-        let mut w_ij: Array2<f64> = q_ij + h_a_nolr(g0, qtrans_oo, qtrans_ov, z_ia.view());
-        for i in 0..w_ij.dim().0 {
-            w_ij[[i, i]] /= 2.0;
-        }
-        // w_ia
-        let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
-
-        // w_ai
-        let w_ai: Array2<f64> = &q_ai + &ei.dot(&z_ia).t();
-
-        // w_ab
-        let mut w_ab: Array2<f64> = q_ab;
-        for i in 0..w_ab.dim().0 {
-            w_ab[[i, i]] /= 2.0;
-        }
-
-        // build w matrix: combine w_ij, w_ia, w_ai and w_ab
-        let length: usize = n_occ + n_virt;
-        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
-        for i in 0..w_ij.dim().0 {
-            w_matrix
-                .slice_mut(s![i, ..w_ij.dim().1])
-                .assign(&w_ij.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![i, w_ij.dim().1..])
-                .assign(&w_ia.slice(s![i, ..]));
-        }
-        for i in 0..w_ai.dim().0 {
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
-                .assign(&w_ai.slice(s![i, ..]));
-            w_matrix
-                .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
-                .assign(&w_ab.slice(s![i, ..]));
-        }
-
-        // get arrays from properties
-        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
-        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
-            self.properties.gamma_ao().unwrap()
-        } else {
-            g0.view()
-        };
-        let g1_ao: ArrayView3<f64> = self.properties.grad_gamma_ao().unwrap();
-        let grad_h: ArrayView3<f64> = self.properties.grad_h0().unwrap();
-        let grad_s: ArrayView3<f64> = self.properties.grad_s().unwrap();
-        let s: ArrayView2<f64> = self.properties.s().unwrap();
-
-        // calculate gradH: gradH0 + gradHexc
-        let f_dmd0: Array3<f64> = f_v(
-            diff_p.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-        let grad_h: Array3<f64> = &grad_h + &f_dmd0;
-
-        // set the occupied and virtuals orbital coefficients
-        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
-        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
-        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
-
-        // transform t and z vectors to AO basis
-        let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
-        let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
-        let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
-
-        // transform w matrix and excited state vectors to AO basis
-        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
-        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
-            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
-            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
-        } else {
-            orbs.dot(&w_triangular.dot(&orbs.t()))
-        };
-        let x_ao_1: Array2<f64> = orbs_occ.dot(&x_state_1.dot(&orbs_virt.t()));
-        let x_ao_2: Array2<f64> = orbs_occ.dot(&x_state_2.dot(&orbs_virt.t()));
-
-        // calculate contributions to the excited gradient
-        let f: Array3<f64> = f_v(
-            x_ao_2.view(),
-            s,
-            grad_s,
-            g0_ao,
-            g1_ao,
-            self.n_atoms,
-            self.n_orbs,
-        );
-
-        // assemble the excited gradient
-        let mut nac: Array1<f64> = Array::zeros(3 * self.n_atoms);
-        // gradH * (T + Z)
-        nac = nac
-            + grad_h
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(
-                    &(t_vv - t_oo + z_ao)
-                        .into_shape(self.n_orbs * self.n_orbs)
-                        .unwrap(),
-                );
-        // - gradS * W
-        nac = nac
-            - grad_s
-                .into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                .unwrap()
-                .dot(&w_ao.into_shape(self.n_orbs * self.n_orbs).unwrap());
-        // 2.0 * sum (X+Y) F (X+Y)
-        nac = nac
-            + 2.0
-                * f.into_shape([3 * self.n_atoms, self.n_orbs * self.n_orbs])
-                    .unwrap()
-                    .dot(&x_ao_1.view().into_shape(self.n_orbs * self.n_orbs).unwrap());
-
-        if state_1 == state_2 {
-            nac
-        } else {
-            (1.0 / omega_diff) * nac
-        }
-    }
-
     pub fn get_nonadiabatic_coupling_vectors(&self, state_1: usize, state_2: usize) -> Array1<f64> {
         let vector: Array1<f64> = if state_1 == 0 {
             let m: usize = state_2 - 1;
 
             if self.config.excited.use_casida {
                 if self.config.lc.long_range_correction {
-                    self.nac_tddftb_gs(m)
+                    self.nac_tddftb_gs_accumulation(m)
                 } else {
-                    self.nac_tddftb_gs_no_lc(m)
+                    self.nac_tddftb_gs_no_lc_accumulation(m)
                 }
             } else if self.config.lc.long_range_correction {
-                self.nac_tda_dftb_gs(m)
+                self.nac_tda_dftb_gs_accumulation(m)
             } else {
-                self.nac_tda_dftb_gs_no_lc(m)
+                self.nac_tda_dftb_gs_no_lc_accumulation(m)
             }
         } else if self.config.excited.use_casida {
             let n: usize = state_1 - 1;
             let m: usize = state_2 - 1;
 
             if self.config.lc.long_range_correction {
-                self.nac_tddft_excited(n, m)
+                self.nac_tddft_excited_accumulation(n, m)
             } else {
-                self.nac_tddft_excited_no_lc(n, m)
+                self.nac_tddft_excited_no_lc_accumulation(n, m)
             }
         } else {
             let n: usize = state_1 - 1;
             let m: usize = state_2 - 1;
 
             if self.config.lc.long_range_correction {
-                self.nac_tda_dftb_excited(n, m)
+                self.nac_tda_dftb_excited_accumulation(n, m)
             } else {
-                self.nac_tda_dftb_excited_no_lc(n, m)
+                self.nac_tda_dftb_excited_no_lc_accumulation(n, m)
             }
         };
         vector
@@ -2155,6 +80,7 @@ impl System {
         if old_system.is_some() {
             let old_sys = old_system.unwrap();
             let old_vectors: Vec<Array1<f64>> = old_sys.old_nacv.clone().unwrap();
+            // let mut count: usize = 0;
 
             // new iteration
             let result: Vec<(f64, Array1<f64>)> = iter_indices
@@ -2163,6 +89,7 @@ impl System {
                 .map(|(idx, (i, j))| {
                     let vector: Array1<f64> = self.get_nonadiabatic_coupling_vectors(*i, *j);
                     let normed_vector: Array1<f64> = &vector / (vector.norm());
+                    // let old_vec: ArrayView1<f64> = old_vectors.slice(s![i, j, ..]);
                     let old_vec: ArrayView1<f64> = old_vectors[idx].view();
                     let normed_old_vec: Array1<f64> = &old_vec / (old_vec.norm());
                     let sign: f64 = normed_old_vec.dot(&normed_vector);
@@ -2186,6 +113,40 @@ impl System {
                 coupling[[j, i]] = -1.0 * val;
                 coupling_vectors.push(vec.to_owned());
             }
+
+            // for i in 0..nstates {
+            //     for j in 0..nstates {
+            //         if i < j {
+            //             let vector: Array1<f64> = self.get_nonadiabatic_coupling_vectors(i, j);
+            //             let normed_vector: Array1<f64> = &vector / (vector.norm());
+            //             // let old_vec: ArrayView1<f64> = old_vectors.slice(s![i, j, ..]);
+            //             let old_vec: ArrayView1<f64> = old_vectors[count].view();
+            //             let normed_old_vec: Array1<f64> = &old_vec / (old_vec.norm());
+            //             let sign: f64 = normed_old_vec.dot(&normed_vector);
+            //
+            //             // check for positive or negative sign
+            //             if sign > 0.0 {
+            //                 // coupling_vectors.slice_mut(s![i, j, ..]).assign(&vector);
+            //                 let val: f64 = vector.dot(&velocities_1d);
+            //                 coupling_vectors.push(vector);
+            //
+            //                 coupling[[i, j]] = val;
+            //                 coupling[[j, i]] = -1.0 * val;
+            //             } else {
+            //                 let vec_changed_sign: Array1<f64> = -1.0 * &vector;
+            //                 // coupling_vectors
+            //                 //     .slice_mut(s![i, j, ..])
+            //                 //     .assign(&vec_changed_sign);
+            //                 let val: f64 = vec_changed_sign.dot(&velocities_1d);
+            //                 coupling_vectors.push(vec_changed_sign);
+            //
+            //                 coupling[[i, j]] = val;
+            //                 coupling[[j, i]] = -1.0 * val;
+            //             }
+            //             count += 1;
+            //         }
+            //     }
+            // }
         } else {
             // new iteration
             let result: Vec<(f64, Array1<f64>)> = iter_indices
@@ -2204,13 +165,2968 @@ impl System {
                 coupling[[j, i]] = -1.0 * val;
                 coupling_vectors.push(vec.to_owned());
             }
+
+            // for i in 0..nstates {
+            //     for j in 0..nstates {
+            //         if i < j {
+            //             let vector: Array1<f64> = self.get_nonadiabatic_coupling_vectors(i, j);
+            //             // coupling_vectors.slice_mut(s![i, j, ..]).assign(&vector);
+            //             let val: f64 = vector.dot(&velocities_1d);
+            //             coupling_vectors.push(vector);
+            //
+            //             coupling[[i, j]] = val;
+            //             coupling[[j, i]] = -1.0 * val;
+            //         }
+            //     }
+            // }
         }
 
         (coupling, coupling_vectors)
     }
+
+    /// On-the-fly accumulation version of nac_tda_dftb_gs_no_lc.
+    /// Computes grad_h0 and grad_s contributions on-the-fly without loading 3D arrays.
+    pub fn nac_tda_dftb_gs_no_lc_accumulation(&self, state: usize) -> Array1<f64> {
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+        let lumo: usize = self.virt_indices[0];
+
+        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
+            let n_occ = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+            let n_virt = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+            (n_occ, n_virt)
+        } else {
+            (self.occ_indices.len(), self.virt_indices.len())
+        };
+
+        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+
+        let n_states = self.config.excited.nstates;
+        let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
+
+        let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
+        let x_state: Array3<f64> = x_state
+            .t()
+            .as_standard_layout()
+            .to_owned()
+            .into_shape([n_states, n_occ, n_virt])
+            .unwrap();
+        let x_state: ArrayView2<f64> = x_state.slice(s![state, .., ..]);
+
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+
+        let p_ia: Array2<f64> = (1.0 / omega_state) * &x_state;
+
+        let mut w_ij: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_ov, p_ia.view());
+        for i in 0..w_ij.dim().0 {
+            w_ij[[i, i]] /= 2.0;
+        }
+        let w_ia: Array2<f64> = 0.5 * &x_state + &ei.dot(&p_ia);
+        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
+
+        let length: usize = n_occ + n_virt;
+        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+        for i in 0..w_ij.dim().0 {
+            w_matrix
+                .slice_mut(s![i, ..w_ij.dim().1])
+                .assign(&w_ij.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![i, w_ij.dim().1..])
+                .assign(&w_ia.slice(s![i, ..]));
+        }
+        for i in 0..w_ai.dim().0 {
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                .assign(&w_ai.slice(s![i, ..]));
+        }
+
+        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
+        let p_ao: Array2<f64> = orbs_occ.dot(&p_ia.dot(&orbs_virt.t()));
+
+        // ======= On-the-fly gradient accumulation =======
+        let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+        orbital_offsets.push(0);
+        for atom in &self.atoms {
+            orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+        }
+
+        // Precompute f_v coefficient for dS contribution
+        let coeff_fv = compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, p_ao.view());
+
+        // Collect valid atom pairs
+        let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in 0..self.n_atoms {
+            for j in (i + 1)..self.n_atoms {
+                let distance = (&self.atoms[i] - &self.atoms[j]).norm();
+                if distance < PROXIMITY_CUTOFF {
+                    atom_pairs.push((i, j));
+                }
+            }
+        }
+
+        // Parallel compute H0/S gradient contributions
+        let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let atomi = &self.atoms[i];
+                let atomj = &self.atoms[j];
+                let mu_start = orbital_offsets[i];
+                let nu_start = orbital_offsets[j];
+
+                let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                    directional_cosines(&atomi.xyz, &atomj.xyz)
+                } else {
+                    directional_cosines(&atomj.xyz, &atomi.xyz)
+                };
+
+                let skt = self.slako.get(atomi.kind, atomj.kind);
+                let s_cache = SplineCache::new(r, &skt.s_spline);
+                let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                let mut grad_i = [0.0_f64; 3];
+                let mut grad_j = [0.0_f64; 3];
+
+                let mut mu = mu_start;
+                for orbi in atomi.valorbs.iter() {
+                    let mut nu = nu_start;
+                    for orbj in atomj.valorbs.iter() {
+                        let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                        ) = if atomi <= atomj {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            (
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                s_grad,
+                                h0_grad,
+                            )
+                        } else {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            (
+                                s_grad,
+                                h0_grad,
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                            )
+                        };
+
+                        let p_ao_mu_nu = p_ao[[mu, nu]];
+                        let p_ao_nu_mu = p_ao[[nu, mu]];
+                        let w_ao_mu_nu = w_ao[[mu, nu]];
+                        let w_ao_nu_mu = w_ao[[nu, mu]];
+                        let coeff_mu_nu = coeff_fv[[mu, nu]];
+                        let coeff_nu_mu = coeff_fv[[nu, mu]];
+
+                        for dir in 0..3 {
+                            // H0 contribution
+                            grad_i[dir] +=
+                                h0_deriv_i[dir] * p_ao_mu_nu + h0_deriv_i[dir] * p_ao_nu_mu;
+                            grad_j[dir] +=
+                                h0_deriv_j[dir] * p_ao_mu_nu + h0_deriv_j[dir] * p_ao_nu_mu;
+                            // -grad_S * W contribution
+                            grad_i[dir] -=
+                                s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                            grad_j[dir] -=
+                                s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                            // f_v dS contribution
+                            grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                            grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                        }
+                        nu += 1;
+                    }
+                    mu += 1;
+                }
+                (grad_i, grad_j, i, j)
+            })
+            .collect();
+
+        let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+        for (grad_i, grad_j, i, j) in pair_contributions {
+            for dir in 0..3 {
+                grad_h0_s[3 * i + dir] += grad_i[dir];
+                grad_h0_s[3 * j + dir] += grad_j[dir];
+            }
+        }
+
+        // dG contributions
+        let gammafunction = &self.gammafunction;
+        let fv_dg = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            p_ao.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+
+        &grad_h0_s + &fv_dg
+    }
+
+    /// On-the-fly accumulation version of nac_tddftb_gs_no_lc.
+    pub fn nac_tddftb_gs_no_lc_accumulation(&self, state: usize) -> Array1<f64> {
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+        let lumo: usize = self.virt_indices[0];
+
+        let (n_occ, n_virt): (usize, usize) = if self.config.tddftb.restrict_active_orbitals {
+            let n_occ = (self.occ_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+            let n_virt = (self.virt_indices.len() as f64
+                * self.config.tddftb.active_orbital_threshold) as usize;
+            (n_occ, n_virt)
+        } else {
+            (self.occ_indices.len(), self.virt_indices.len())
+        };
+
+        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+
+        let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
+        let xpy_state: ArrayView3<f64> = self.properties.xpy().unwrap();
+        let xmy_state: ArrayView2<f64> = xmy_state.slice(s![state, .., ..]);
+        let xpy_state: ArrayView2<f64> = xpy_state.slice(s![state, .., ..]);
+        let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
+
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+
+        let p_ia: Array2<f64> = (1.0 / omega_state) * &xpy_state;
+
+        let mut w_ij: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_ov, p_ia.view());
+        for i in 0..w_ij.dim().0 {
+            w_ij[[i, i]] /= 2.0;
+        }
+        let w_ia: Array2<f64> = 0.5 * &xmy_state + &ei.dot(&p_ia);
+        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
+
+        let length: usize = n_occ + n_virt;
+        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+        for i in 0..w_ij.dim().0 {
+            w_matrix
+                .slice_mut(s![i, ..w_ij.dim().1])
+                .assign(&w_ij.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![i, w_ij.dim().1..])
+                .assign(&w_ia.slice(s![i, ..]));
+        }
+        for i in 0..w_ai.dim().0 {
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                .assign(&w_ai.slice(s![i, ..]));
+        }
+
+        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
+        let p_ao: Array2<f64> = orbs_occ.dot(&p_ia.dot(&orbs_virt.t()));
+
+        // ======= On-the-fly gradient accumulation =======
+        let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+        orbital_offsets.push(0);
+        for atom in &self.atoms {
+            orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+        }
+
+        let coeff_fv = compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, p_ao.view());
+
+        let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in 0..self.n_atoms {
+            for j in (i + 1)..self.n_atoms {
+                let distance = (&self.atoms[i] - &self.atoms[j]).norm();
+                if distance < PROXIMITY_CUTOFF {
+                    atom_pairs.push((i, j));
+                }
+            }
+        }
+
+        let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let atomi = &self.atoms[i];
+                let atomj = &self.atoms[j];
+                let mu_start = orbital_offsets[i];
+                let nu_start = orbital_offsets[j];
+
+                let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                    directional_cosines(&atomi.xyz, &atomj.xyz)
+                } else {
+                    directional_cosines(&atomj.xyz, &atomi.xyz)
+                };
+
+                let skt = self.slako.get(atomi.kind, atomj.kind);
+                let s_cache = SplineCache::new(r, &skt.s_spline);
+                let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                let mut grad_i = [0.0_f64; 3];
+                let mut grad_j = [0.0_f64; 3];
+
+                let mut mu = mu_start;
+                for orbi in atomi.valorbs.iter() {
+                    let mut nu = nu_start;
+                    for orbj in atomj.valorbs.iter() {
+                        let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                        ) = if atomi <= atomj {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            (
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                s_grad,
+                                h0_grad,
+                            )
+                        } else {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            (
+                                s_grad,
+                                h0_grad,
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                            )
+                        };
+
+                        let p_ao_mu_nu = p_ao[[mu, nu]];
+                        let p_ao_nu_mu = p_ao[[nu, mu]];
+                        let w_ao_mu_nu = w_ao[[mu, nu]];
+                        let w_ao_nu_mu = w_ao[[nu, mu]];
+                        let coeff_mu_nu = coeff_fv[[mu, nu]];
+                        let coeff_nu_mu = coeff_fv[[nu, mu]];
+
+                        for dir in 0..3 {
+                            grad_i[dir] +=
+                                h0_deriv_i[dir] * p_ao_mu_nu + h0_deriv_i[dir] * p_ao_nu_mu;
+                            grad_j[dir] +=
+                                h0_deriv_j[dir] * p_ao_mu_nu + h0_deriv_j[dir] * p_ao_nu_mu;
+                            grad_i[dir] -=
+                                s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                            grad_j[dir] -=
+                                s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                            grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                            grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                        }
+                        nu += 1;
+                    }
+                    mu += 1;
+                }
+                (grad_i, grad_j, i, j)
+            })
+            .collect();
+
+        let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+        for (grad_i, grad_j, i, j) in pair_contributions {
+            for dir in 0..3 {
+                grad_h0_s[3 * i + dir] += grad_i[dir];
+                grad_h0_s[3 * j + dir] += grad_j[dir];
+            }
+        }
+
+        let gammafunction = &self.gammafunction;
+        let fv_dg = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            p_ao.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+
+        &grad_h0_s + &fv_dg
+    }
+
+    /// On-the-fly accumulation version of nac_tda_dftb_gs (with LC).
+    pub fn nac_tda_dftb_gs_accumulation(&self, state: usize) -> Array1<f64> {
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+        let lumo: usize = self.virt_indices[0];
+        let n_occ: usize = self.occ_indices.len();
+        let n_virt: usize = self.virt_indices.len();
+
+        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+
+        let n_states = self.config.excited.nstates;
+        let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
+
+        let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
+        let x_state: Array3<f64> = x_state
+            .t()
+            .as_standard_layout()
+            .to_owned()
+            .into_shape([n_states, n_occ, n_virt])
+            .unwrap();
+        let x_state: ArrayView2<f64> = x_state.slice(s![state, .., ..]);
+
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
+        let qtrans_vo: Array3<f64> = qtrans_ov
+            .permuted_axes([0, 2, 1])
+            .as_standard_layout()
+            .to_owned();
+
+        let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
+
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_lr().unwrap()
+        } else {
+            self.properties.gamma_lr_ao().unwrap()
+        };
+
+        let p_ia: Array2<f64> = (1.0 / omega_state) * &x_state;
+
+        let mut w_ij: Array2<f64> = hplus.compute(g0, g0_lr, p_ia.view(), HplusType::Wij);
+        for i in 0..w_ij.dim().0 {
+            w_ij[[i, i]] /= 2.0;
+        }
+        let w_ia: Array2<f64> = 0.5 * &x_state + &ei.dot(&p_ia);
+        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
+
+        let length: usize = n_occ + n_virt;
+        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+        for i in 0..w_ij.dim().0 {
+            w_matrix
+                .slice_mut(s![i, ..w_ij.dim().1])
+                .assign(&w_ij.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![i, w_ij.dim().1..])
+                .assign(&w_ia.slice(s![i, ..]));
+        }
+        for i in 0..w_ai.dim().0 {
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                .assign(&w_ai.slice(s![i, ..]));
+        }
+
+        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
+        let g0lr_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_lr_ao().unwrap()
+        } else {
+            g0_lr.view()
+        };
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
+        let p_ao: Array2<f64> = orbs_occ.dot(&p_ia.dot(&orbs_virt.t()));
+
+        // ======= On-the-fly gradient accumulation =======
+        let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+        orbital_offsets.push(0);
+        for atom in &self.atoms {
+            orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+        }
+
+        let coeff_fv = compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, p_ao.view());
+        let coeff_flr = compute_flr_s_coefficients(diff_p.view(), s, g0lr_ao, p_ao.view());
+        let coeff_ds_total: Array2<f64> = &coeff_fv - 0.5 * &coeff_flr;
+
+        let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in 0..self.n_atoms {
+            for j in (i + 1)..self.n_atoms {
+                let distance = (&self.atoms[i] - &self.atoms[j]).norm();
+                if distance < PROXIMITY_CUTOFF {
+                    atom_pairs.push((i, j));
+                }
+            }
+        }
+
+        let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let atomi = &self.atoms[i];
+                let atomj = &self.atoms[j];
+                let mu_start = orbital_offsets[i];
+                let nu_start = orbital_offsets[j];
+
+                let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                    directional_cosines(&atomi.xyz, &atomj.xyz)
+                } else {
+                    directional_cosines(&atomj.xyz, &atomi.xyz)
+                };
+
+                let skt = self.slako.get(atomi.kind, atomj.kind);
+                let s_cache = SplineCache::new(r, &skt.s_spline);
+                let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                let mut grad_i = [0.0_f64; 3];
+                let mut grad_j = [0.0_f64; 3];
+
+                let mut mu = mu_start;
+                for orbi in atomi.valorbs.iter() {
+                    let mut nu = nu_start;
+                    for orbj in atomj.valorbs.iter() {
+                        let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                        ) = if atomi <= atomj {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            (
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                s_grad,
+                                h0_grad,
+                            )
+                        } else {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            (
+                                s_grad,
+                                h0_grad,
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                            )
+                        };
+
+                        let p_ao_mu_nu = p_ao[[mu, nu]];
+                        let p_ao_nu_mu = p_ao[[nu, mu]];
+                        let w_ao_mu_nu = w_ao[[mu, nu]];
+                        let w_ao_nu_mu = w_ao[[nu, mu]];
+                        let coeff_mu_nu = coeff_ds_total[[mu, nu]];
+                        let coeff_nu_mu = coeff_ds_total[[nu, mu]];
+
+                        for dir in 0..3 {
+                            grad_i[dir] +=
+                                h0_deriv_i[dir] * p_ao_mu_nu + h0_deriv_i[dir] * p_ao_nu_mu;
+                            grad_j[dir] +=
+                                h0_deriv_j[dir] * p_ao_mu_nu + h0_deriv_j[dir] * p_ao_nu_mu;
+                            grad_i[dir] -=
+                                s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                            grad_j[dir] -=
+                                s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                            grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                            grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                        }
+                        nu += 1;
+                    }
+                    mu += 1;
+                }
+                (grad_i, grad_j, i, j)
+            })
+            .collect();
+
+        let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+        for (grad_i, grad_j, i, j) in pair_contributions {
+            for dir in 0..3 {
+                grad_h0_s[3 * i + dir] += grad_i[dir];
+                grad_h0_s[3 * j + dir] += grad_j[dir];
+            }
+        }
+
+        let gammafunction = &self.gammafunction;
+        let gammafunction_lr = self.gammafunction_lc.as_ref().unwrap();
+
+        let fv_dg = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            p_ao.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dg = compute_flr_dg_contributions(
+            gammafunction_lr,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            p_ao.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+
+        let grad_dg_contrib: Array1<f64> = &fv_dg - 0.5 * &flr_dg;
+        &grad_h0_s + &grad_dg_contrib
+    }
+
+    /// On-the-fly accumulation version of nac_tddftb_gs (with LC).
+    pub fn nac_tddftb_gs_accumulation(&self, state: usize) -> Array1<f64> {
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+        let lumo: usize = self.virt_indices[0];
+        let n_occ: usize = self.occ_indices.len();
+        let n_virt: usize = self.virt_indices.len();
+
+        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+
+        let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
+        let xpy_state: ArrayView3<f64> = self.properties.xpy().unwrap();
+        let xmy_state: ArrayView2<f64> = xmy_state.slice(s![state, .., ..]);
+        let xpy_state: ArrayView2<f64> = xpy_state.slice(s![state, .., ..]);
+        let omega_state: f64 = self.properties.ci_eigenvalue(state).unwrap();
+
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
+        let qtrans_vo: Array3<f64> = qtrans_ov
+            .permuted_axes([0, 2, 1])
+            .as_standard_layout()
+            .to_owned();
+
+        let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
+
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_lr().unwrap()
+        } else {
+            self.properties.gamma_lr_ao().unwrap()
+        };
+
+        let p_ia: Array2<f64> = (1.0 / omega_state) * &xpy_state;
+
+        let mut w_ij: Array2<f64> = hplus.compute(g0, g0_lr, p_ia.view(), HplusType::Wij);
+        for i in 0..w_ij.dim().0 {
+            w_ij[[i, i]] /= 2.0;
+        }
+        let w_ia: Array2<f64> = 0.5 * &xmy_state + &ei.dot(&p_ia);
+        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
+
+        let length: usize = n_occ + n_virt;
+        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+        for i in 0..w_ij.dim().0 {
+            w_matrix
+                .slice_mut(s![i, ..w_ij.dim().1])
+                .assign(&w_ij.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![i, w_ij.dim().1..])
+                .assign(&w_ia.slice(s![i, ..]));
+        }
+        for i in 0..w_ai.dim().0 {
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                .assign(&w_ai.slice(s![i, ..]));
+        }
+
+        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
+        let g0lr_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_lr_ao().unwrap()
+        } else {
+            g0_lr.view()
+        };
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
+        let p_ao: Array2<f64> = orbs_occ.dot(&p_ia.dot(&orbs_virt.t()));
+
+        // ======= On-the-fly gradient accumulation =======
+        let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+        orbital_offsets.push(0);
+        for atom in &self.atoms {
+            orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+        }
+
+        let coeff_fv = compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, p_ao.view());
+        let coeff_flr = compute_flr_s_coefficients(diff_p.view(), s, g0lr_ao, p_ao.view());
+        let coeff_ds_total: Array2<f64> = &coeff_fv - 0.5 * &coeff_flr;
+
+        let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in 0..self.n_atoms {
+            for j in (i + 1)..self.n_atoms {
+                let distance = (&self.atoms[i] - &self.atoms[j]).norm();
+                if distance < PROXIMITY_CUTOFF {
+                    atom_pairs.push((i, j));
+                }
+            }
+        }
+
+        let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let atomi = &self.atoms[i];
+                let atomj = &self.atoms[j];
+                let mu_start = orbital_offsets[i];
+                let nu_start = orbital_offsets[j];
+
+                let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                    directional_cosines(&atomi.xyz, &atomj.xyz)
+                } else {
+                    directional_cosines(&atomj.xyz, &atomi.xyz)
+                };
+
+                let skt = self.slako.get(atomi.kind, atomj.kind);
+                let s_cache = SplineCache::new(r, &skt.s_spline);
+                let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                let mut grad_i = [0.0_f64; 3];
+                let mut grad_j = [0.0_f64; 3];
+
+                let mut mu = mu_start;
+                for orbi in atomi.valorbs.iter() {
+                    let mut nu = nu_start;
+                    for orbj in atomj.valorbs.iter() {
+                        let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                        ) = if atomi <= atomj {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            (
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                s_grad,
+                                h0_grad,
+                            )
+                        } else {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            (
+                                s_grad,
+                                h0_grad,
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                            )
+                        };
+
+                        let p_ao_mu_nu = p_ao[[mu, nu]];
+                        let p_ao_nu_mu = p_ao[[nu, mu]];
+                        let w_ao_mu_nu = w_ao[[mu, nu]];
+                        let w_ao_nu_mu = w_ao[[nu, mu]];
+                        let coeff_mu_nu = coeff_ds_total[[mu, nu]];
+                        let coeff_nu_mu = coeff_ds_total[[nu, mu]];
+
+                        for dir in 0..3 {
+                            grad_i[dir] +=
+                                h0_deriv_i[dir] * p_ao_mu_nu + h0_deriv_i[dir] * p_ao_nu_mu;
+                            grad_j[dir] +=
+                                h0_deriv_j[dir] * p_ao_mu_nu + h0_deriv_j[dir] * p_ao_nu_mu;
+                            grad_i[dir] -=
+                                s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                            grad_j[dir] -=
+                                s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                            grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                            grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                        }
+                        nu += 1;
+                    }
+                    mu += 1;
+                }
+                (grad_i, grad_j, i, j)
+            })
+            .collect();
+
+        let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+        for (grad_i, grad_j, i, j) in pair_contributions {
+            for dir in 0..3 {
+                grad_h0_s[3 * i + dir] += grad_i[dir];
+                grad_h0_s[3 * j + dir] += grad_j[dir];
+            }
+        }
+
+        let gammafunction = &self.gammafunction;
+        let gammafunction_lr = self.gammafunction_lc.as_ref().unwrap();
+
+        let fv_dg = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            p_ao.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dg = compute_flr_dg_contributions(
+            gammafunction_lr,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            p_ao.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+
+        let grad_dg_contrib: Array1<f64> = &fv_dg - 0.5 * &flr_dg;
+        &grad_h0_s + &grad_dg_contrib
+    }
+
+    /// On-the-fly accumulation version of nac_tddft_excited_no_lc (excited state, no LC, with z-vector).
+    pub fn nac_tddft_excited_no_lc_accumulation(
+        &self,
+        state_1: usize,
+        state_2: usize,
+    ) -> Array1<f64> {
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+        let lumo: usize = self.virt_indices[0];
+        let n_occ: usize = self.occ_indices.len();
+        let n_virt: usize = self.virt_indices.len();
+
+        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
+        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+        let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
+
+        let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
+        let xpy_state: ArrayView3<f64> = self.properties.xpy().unwrap();
+        let xmy_state_1: ArrayView2<f64> = xmy_state.slice(s![state_1, .., ..]);
+        let xpy_state_1: ArrayView2<f64> = xpy_state.slice(s![state_1, .., ..]);
+        let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
+        let xmy_state_2: ArrayView2<f64> = xmy_state.slice(s![state_2, .., ..]);
+        let xpy_state_2: ArrayView2<f64> = xpy_state.slice(s![state_2, .., ..]);
+        let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
+        let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
+        let omega_diff: f64 = omega_state_1 - omega_state_2;
+
+        let u_ab: Array2<f64> = xpy_state_1.t().dot(&xmy_state_2)
+            + xmy_state_1.t().dot(&xpy_state_2)
+            + xpy_state_2.t().dot(&xmy_state_1)
+            + xmy_state_2.t().dot(&xpy_state_1);
+        let u_ij: Array2<f64> = xpy_state_1.dot(&xmy_state_2.t())
+            + xmy_state_1.dot(&xpy_state_2.t())
+            + xpy_state_2.dot(&xmy_state_1.t())
+            + xmy_state_2.dot(&xpy_state_1.t());
+        let v_ab: Array2<f64> = ei.dot(&xpy_state_1).t().dot(&xpy_state_2)
+            + ei.dot(&xmy_state_1).t().dot(&xmy_state_2)
+            + ei.dot(&xpy_state_2).t().dot(&xpy_state_1)
+            + ei.dot(&xmy_state_2).t().dot(&xmy_state_1);
+        let v_ij: Array2<f64> = xpy_state_1.dot(&ea).dot(&xpy_state_2.t())
+            + xmy_state_1.dot(&ea).dot(&xmy_state_2.t())
+            + xpy_state_2.dot(&ea).dot(&xpy_state_1.t())
+            + xmy_state_2.dot(&ea).dot(&xmy_state_1.t());
+        let t_ab: Array2<f64> = 0.25
+            * (xpy_state_1.t().dot(&xpy_state_2)
+                + xpy_state_2.t().dot(&xpy_state_1)
+                + xmy_state_1.t().dot(&xmy_state_2)
+                + xmy_state_2.t().dot(&xmy_state_1));
+        let t_ij: Array2<f64> = 0.25
+            * (xpy_state_1.dot(&xpy_state_2.t())
+                + xpy_state_2.dot(&xpy_state_1.t())
+                + xmy_state_1.dot(&xmy_state_2.t())
+                + xmy_state_2.dot(&xmy_state_1.t()));
+
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
+
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+
+        let hplus_tab: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_vv, t_ab.view());
+        let hplus_tij: Array2<f64> = h_plus_no_lr(g0, qtrans_oo, qtrans_oo, t_ij.view());
+        let g_ij: Array2<f64> = hplus_tab - hplus_tij;
+        let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
+        let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
+
+        let mut q_ia: Array2<f64> = 0.5
+            * (xpy_state_1.dot(&h_plus_no_lr(g0, qtrans_vv, qtrans_ov, xpy_state_2).t())
+                + xpy_state_2.dot(&h_plus_no_lr(g0, qtrans_vv, qtrans_ov, xpy_state_1).t()));
+        q_ia = q_ia + h_plus_no_lr(g0, qtrans_ov, qtrans_vv, t_ab.view());
+        q_ia = q_ia - h_plus_no_lr(g0, qtrans_ov, qtrans_oo, t_ij.view());
+
+        let q_ai: Array2<f64> = 0.5
+            * (xpy_state_1
+                .t()
+                .dot(&h_plus_no_lr(g0, qtrans_oo, qtrans_ov, xpy_state_2))
+                + xpy_state_2
+                    .t()
+                    .dot(&h_plus_no_lr(g0, qtrans_oo, qtrans_ov, xpy_state_1)));
+
+        let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
+        let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
+            .dot(&into_row(orbe_virt.clone()))
+            - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
+        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
+        let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
+        let z_ia: Array2<f64> = zvector_no_lc(omega_input.view(), r_matrix.view(), g0, qtrans_ov);
+
+        let mut w_ij: Array2<f64> = q_ij + h_plus_no_lr(g0, qtrans_oo, qtrans_ov, z_ia.view());
+        for i in 0..w_ij.dim().0 {
+            w_ij[[i, i]] /= 2.0;
+        }
+        let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
+        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
+        let mut w_ab: Array2<f64> = q_ab;
+        for i in 0..w_ab.dim().0 {
+            w_ab[[i, i]] /= 2.0;
+        }
+
+        let length: usize = n_occ + n_virt;
+        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+        for i in 0..w_ij.dim().0 {
+            w_matrix
+                .slice_mut(s![i, ..w_ij.dim().1])
+                .assign(&w_ij.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![i, w_ij.dim().1..])
+                .assign(&w_ia.slice(s![i, ..]));
+        }
+        for i in 0..w_ai.dim().0 {
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                .assign(&w_ai.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
+                .assign(&w_ab.slice(s![i, ..]));
+        }
+
+        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
+        let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
+        let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
+        let t_plus_z: Array2<f64> = &t_vv - &t_oo + &z_ao;
+
+        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
+        let xpy_ao_1: Array2<f64> = orbs_occ.dot(&xpy_state_1.dot(&orbs_virt.t()));
+        let xpy_ao_2: Array2<f64> = orbs_occ.dot(&xpy_state_2.dot(&orbs_virt.t()));
+
+        // ======= On-the-fly gradient accumulation =======
+        let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+        orbital_offsets.push(0);
+        for atom in &self.atoms {
+            orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+        }
+
+        let coeff_fv_dmd0 =
+            compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, t_plus_z.view());
+        let coeff_fv_xpy =
+            compute_fv_coefficients_onthefly(xpy_ao_2.view(), s, g0_ao, xpy_ao_1.view());
+        let coeff_ds_total: Array2<f64> = &coeff_fv_dmd0 + 2.0 * &coeff_fv_xpy;
+
+        let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in 0..self.n_atoms {
+            for j in (i + 1)..self.n_atoms {
+                let distance = (&self.atoms[i] - &self.atoms[j]).norm();
+                if distance < PROXIMITY_CUTOFF {
+                    atom_pairs.push((i, j));
+                }
+            }
+        }
+
+        let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let atomi = &self.atoms[i];
+                let atomj = &self.atoms[j];
+                let mu_start = orbital_offsets[i];
+                let nu_start = orbital_offsets[j];
+
+                let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                    directional_cosines(&atomi.xyz, &atomj.xyz)
+                } else {
+                    directional_cosines(&atomj.xyz, &atomi.xyz)
+                };
+
+                let skt = self.slako.get(atomi.kind, atomj.kind);
+                let s_cache = SplineCache::new(r, &skt.s_spline);
+                let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                let mut grad_i = [0.0_f64; 3];
+                let mut grad_j = [0.0_f64; 3];
+
+                let mut mu = mu_start;
+                for orbi in atomi.valorbs.iter() {
+                    let mut nu = nu_start;
+                    for orbj in atomj.valorbs.iter() {
+                        let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                        ) = if atomi <= atomj {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            (
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                s_grad,
+                                h0_grad,
+                            )
+                        } else {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            (
+                                s_grad,
+                                h0_grad,
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                            )
+                        };
+
+                        let t_plus_z_mu_nu = t_plus_z[[mu, nu]];
+                        let t_plus_z_nu_mu = t_plus_z[[nu, mu]];
+                        let w_ao_mu_nu = w_ao[[mu, nu]];
+                        let w_ao_nu_mu = w_ao[[nu, mu]];
+                        let coeff_mu_nu = coeff_ds_total[[mu, nu]];
+                        let coeff_nu_mu = coeff_ds_total[[nu, mu]];
+
+                        for dir in 0..3 {
+                            grad_i[dir] +=
+                                h0_deriv_i[dir] * t_plus_z_mu_nu + h0_deriv_i[dir] * t_plus_z_nu_mu;
+                            grad_j[dir] +=
+                                h0_deriv_j[dir] * t_plus_z_mu_nu + h0_deriv_j[dir] * t_plus_z_nu_mu;
+                            grad_i[dir] -=
+                                s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                            grad_j[dir] -=
+                                s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                            grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                            grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                        }
+                        nu += 1;
+                    }
+                    mu += 1;
+                }
+                (grad_i, grad_j, i, j)
+            })
+            .collect();
+
+        let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+        for (grad_i, grad_j, i, j) in pair_contributions {
+            for dir in 0..3 {
+                grad_h0_s[3 * i + dir] += grad_i[dir];
+                grad_h0_s[3 * j + dir] += grad_j[dir];
+            }
+        }
+
+        let gammafunction = &self.gammafunction;
+        let fv_dg_dmd0 = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            t_plus_z.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let fv_dg_xpy = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            xpy_ao_2.view(),
+            xpy_ao_1.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let grad_dg_contrib: Array1<f64> = &fv_dg_dmd0 + 2.0 * &fv_dg_xpy;
+
+        let nac: Array1<f64> = &grad_h0_s + &grad_dg_contrib;
+        if state_1 == state_2 {
+            nac
+        } else {
+            (1.0 / omega_diff) * nac
+        }
+    }
+
+    /// On-the-fly accumulation version of nac_tda_dftb_excited_no_lc (excited state TDA, no LC, with z-vector).
+    pub fn nac_tda_dftb_excited_no_lc_accumulation(
+        &self,
+        state_1: usize,
+        state_2: usize,
+    ) -> Array1<f64> {
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+        let lumo: usize = self.virt_indices[0];
+        let n_occ: usize = self.occ_indices.len();
+        let n_virt: usize = self.virt_indices.len();
+
+        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
+        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+        let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
+
+        let omega_state: ArrayView1<f64> = self.properties.ci_eigenvalues().unwrap();
+        let n_states: usize = omega_state.len();
+        let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
+        let x_state: Array3<f64> = x_state
+            .t()
+            .as_standard_layout()
+            .to_owned()
+            .into_shape([n_states, n_occ, n_virt])
+            .unwrap();
+        let x_state_1: ArrayView2<f64> = x_state.slice(s![state_1, .., ..]);
+        let x_state_2: ArrayView2<f64> = x_state.slice(s![state_2, .., ..]);
+        let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
+        let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
+        let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
+        let omega_diff: f64 = omega_state_1 - omega_state_2;
+
+        let u_ab: Array2<f64> =
+            2.0 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
+        let u_ij: Array2<f64> =
+            2.0 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
+        let v_ab: Array2<f64> =
+            2.0 * (ei.dot(&x_state_1).t().dot(&x_state_2) + ei.dot(&x_state_2).t().dot(&x_state_1));
+        let v_ij: Array2<f64> =
+            2.0 * (x_state_1.dot(&ea).dot(&x_state_2.t()) + x_state_2.dot(&ea).dot(&x_state_1.t()));
+        let t_ab: Array2<f64> =
+            0.5 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
+        let t_ij: Array2<f64> =
+            0.5 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
+
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
+
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+
+        let hplus_tab: Array2<f64> = h_a_nolr(g0, qtrans_oo, qtrans_vv, t_ab.view());
+        let hplus_tij: Array2<f64> = h_a_nolr(g0, qtrans_oo, qtrans_oo, t_ij.view());
+        let g_ij: Array2<f64> = hplus_tab - hplus_tij;
+        let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
+        let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
+
+        let mut q_ia: Array2<f64> =
+            0.5 * x_state_1.dot(&h_a_nolr(g0, qtrans_vv, qtrans_ov, x_state_2).t());
+        q_ia = q_ia + 0.5 * x_state_2.dot(&h_a_nolr(g0, qtrans_vv, qtrans_ov, x_state_1).t());
+        q_ia = q_ia + h_a_nolr(g0, qtrans_ov, qtrans_vv, t_ab.view());
+        q_ia = q_ia - h_a_nolr(g0, qtrans_ov, qtrans_oo, t_ij.view());
+
+        let mut q_ai: Array2<f64> = 0.5
+            * x_state_1
+                .t()
+                .dot(&h_a_nolr(g0, qtrans_oo, qtrans_ov, x_state_2));
+        q_ai = q_ai
+            + 0.5
+                * x_state_2
+                    .t()
+                    .dot(&h_a_nolr(g0, qtrans_oo, qtrans_ov, x_state_1));
+
+        let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
+        let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
+            .dot(&into_row(orbe_virt.clone()))
+            - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
+        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
+        let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
+        let z_ia: Array2<f64> =
+            tda_zvector_no_lc(omega_input.view(), r_matrix.view(), g0, qtrans_ov);
+
+        let mut w_ij: Array2<f64> = q_ij + h_a_nolr(g0, qtrans_oo, qtrans_ov, z_ia.view());
+        for i in 0..w_ij.dim().0 {
+            w_ij[[i, i]] /= 2.0;
+        }
+        let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
+        let w_ai: Array2<f64> = &q_ai + &ei.dot(&z_ia).t();
+        let mut w_ab: Array2<f64> = q_ab;
+        for i in 0..w_ab.dim().0 {
+            w_ab[[i, i]] /= 2.0;
+        }
+
+        let length: usize = n_occ + n_virt;
+        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+        for i in 0..w_ij.dim().0 {
+            w_matrix
+                .slice_mut(s![i, ..w_ij.dim().1])
+                .assign(&w_ij.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![i, w_ij.dim().1..])
+                .assign(&w_ia.slice(s![i, ..]));
+        }
+        for i in 0..w_ai.dim().0 {
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                .assign(&w_ai.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
+                .assign(&w_ab.slice(s![i, ..]));
+        }
+
+        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
+        let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
+        let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
+        let t_plus_z: Array2<f64> = &t_vv - &t_oo + &z_ao;
+
+        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
+        let x_ao_1: Array2<f64> = orbs_occ.dot(&x_state_1.dot(&orbs_virt.t()));
+        let x_ao_2: Array2<f64> = orbs_occ.dot(&x_state_2.dot(&orbs_virt.t()));
+
+        // ======= On-the-fly gradient accumulation =======
+        let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+        orbital_offsets.push(0);
+        for atom in &self.atoms {
+            orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+        }
+
+        let coeff_fv_dmd0 =
+            compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, t_plus_z.view());
+        let coeff_fv_x = compute_fv_coefficients_onthefly(x_ao_2.view(), s, g0_ao, x_ao_1.view());
+        let coeff_ds_total: Array2<f64> = &coeff_fv_dmd0 + 2.0 * &coeff_fv_x;
+
+        let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in 0..self.n_atoms {
+            for j in (i + 1)..self.n_atoms {
+                let distance = (&self.atoms[i] - &self.atoms[j]).norm();
+                if distance < PROXIMITY_CUTOFF {
+                    atom_pairs.push((i, j));
+                }
+            }
+        }
+
+        let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let atomi = &self.atoms[i];
+                let atomj = &self.atoms[j];
+                let mu_start = orbital_offsets[i];
+                let nu_start = orbital_offsets[j];
+
+                let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                    directional_cosines(&atomi.xyz, &atomj.xyz)
+                } else {
+                    directional_cosines(&atomj.xyz, &atomi.xyz)
+                };
+
+                let skt = self.slako.get(atomi.kind, atomj.kind);
+                let s_cache = SplineCache::new(r, &skt.s_spline);
+                let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                let mut grad_i = [0.0_f64; 3];
+                let mut grad_j = [0.0_f64; 3];
+
+                let mut mu = mu_start;
+                for orbi in atomi.valorbs.iter() {
+                    let mut nu = nu_start;
+                    for orbj in atomj.valorbs.iter() {
+                        let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                        ) = if atomi <= atomj {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            (
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                s_grad,
+                                h0_grad,
+                            )
+                        } else {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            (
+                                s_grad,
+                                h0_grad,
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                            )
+                        };
+
+                        let t_plus_z_mu_nu = t_plus_z[[mu, nu]];
+                        let t_plus_z_nu_mu = t_plus_z[[nu, mu]];
+                        let w_ao_mu_nu = w_ao[[mu, nu]];
+                        let w_ao_nu_mu = w_ao[[nu, mu]];
+                        let coeff_mu_nu = coeff_ds_total[[mu, nu]];
+                        let coeff_nu_mu = coeff_ds_total[[nu, mu]];
+
+                        for dir in 0..3 {
+                            grad_i[dir] +=
+                                h0_deriv_i[dir] * t_plus_z_mu_nu + h0_deriv_i[dir] * t_plus_z_nu_mu;
+                            grad_j[dir] +=
+                                h0_deriv_j[dir] * t_plus_z_mu_nu + h0_deriv_j[dir] * t_plus_z_nu_mu;
+                            grad_i[dir] -=
+                                s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                            grad_j[dir] -=
+                                s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                            grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                            grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                        }
+                        nu += 1;
+                    }
+                    mu += 1;
+                }
+                (grad_i, grad_j, i, j)
+            })
+            .collect();
+
+        let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+        for (grad_i, grad_j, i, j) in pair_contributions {
+            for dir in 0..3 {
+                grad_h0_s[3 * i + dir] += grad_i[dir];
+                grad_h0_s[3 * j + dir] += grad_j[dir];
+            }
+        }
+
+        let gammafunction = &self.gammafunction;
+        let fv_dg_dmd0 = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            t_plus_z.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let fv_dg_x = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            x_ao_2.view(),
+            x_ao_1.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let grad_dg_contrib: Array1<f64> = &fv_dg_dmd0 + 2.0 * &fv_dg_x;
+
+        let nac: Array1<f64> = &grad_h0_s + &grad_dg_contrib;
+        if state_1 == state_2 {
+            nac
+        } else {
+            (1.0 / omega_diff) * nac
+        }
+    }
+
+    /// On-the-fly accumulation version of nac_tda_dftb_excited (excited state TDA, with LC, with z-vector).
+    pub fn nac_tda_dftb_excited_accumulation(&self, state_1: usize, state_2: usize) -> Array1<f64> {
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+        let lumo: usize = self.virt_indices[0];
+        let n_occ: usize = self.occ_indices.len();
+        let n_virt: usize = self.virt_indices.len();
+
+        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        let orbe_occ: Array1<f64> = self.occ_indices.iter().map(|&occ| orbe[occ]).collect();
+        let orbe_virt: Array1<f64> = self.virt_indices.iter().map(|&virt| orbe[virt]).collect();
+        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+        let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
+
+        let omega_state: ArrayView1<f64> = self.properties.ci_eigenvalues().unwrap();
+        let n_states: usize = omega_state.len();
+        let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
+        let x_state: Array3<f64> = x_state
+            .t()
+            .as_standard_layout()
+            .to_owned()
+            .into_shape([n_states, n_occ, n_virt])
+            .unwrap();
+        let x_state_1: ArrayView2<f64> = x_state.slice(s![state_1, .., ..]);
+        let x_state_2: ArrayView2<f64> = x_state.slice(s![state_2, .., ..]);
+        let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
+        let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
+        let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
+        let omega_diff: f64 = omega_state_1 - omega_state_2;
+
+        let u_ab: Array2<f64> =
+            2.0 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
+        let u_ij: Array2<f64> =
+            2.0 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
+        let v_ab: Array2<f64> =
+            2.0 * (ei.dot(&x_state_1).t().dot(&x_state_2) + ei.dot(&x_state_2).t().dot(&x_state_1));
+        let v_ij: Array2<f64> =
+            2.0 * (x_state_1.dot(&ea).dot(&x_state_2.t()) + x_state_2.dot(&ea).dot(&x_state_1.t()));
+        let t_ab: Array2<f64> =
+            0.5 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
+        let t_ij: Array2<f64> =
+            0.5 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
+
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
+        let qtrans_vo: Array3<f64> = qtrans_ov
+            .permuted_axes([0, 2, 1])
+            .as_standard_layout()
+            .to_owned();
+
+        let hav: Hav = Hav::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
+        let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
+
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_lr().unwrap()
+        } else {
+            self.properties.gamma_lr_ao().unwrap()
+        };
+
+        let hplus_tab: Array2<f64> = hav.compute(g0, g0_lr, t_ab.view(), HplusType::Tab);
+        let hplus_tij: Array2<f64> = hav.compute(g0, g0_lr, t_ij.view(), HplusType::Tij);
+        let g_ij: Array2<f64> = hplus_tab - hplus_tij;
+        let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
+        let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
+
+        let mut q_ia: Array2<f64> =
+            0.5 * x_state_1.dot(&hav.compute(g0, g0_lr, x_state_2, HplusType::QiaXpy).t());
+        q_ia =
+            q_ia + 0.5 * x_state_2.dot(&hav.compute(g0, g0_lr, x_state_1, HplusType::QiaXpy).t());
+        q_ia = q_ia + hav.compute(g0, g0_lr, t_ab.view(), HplusType::QiaTab);
+        q_ia = q_ia - hav.compute(g0, g0_lr, t_ij.view(), HplusType::QiaTij);
+
+        let mut q_ai: Array2<f64> = 0.5
+            * x_state_1
+                .t()
+                .dot(&hav.compute(g0, g0_lr, x_state_2, HplusType::Qai));
+        q_ai = q_ai
+            + 0.5
+                * x_state_2
+                    .t()
+                    .dot(&hav.compute(g0, g0_lr, x_state_1, HplusType::Qai));
+
+        let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
+        let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
+            .dot(&into_row(orbe_virt.clone()))
+            - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
+        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
+        let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
+        let z_ia: Array2<f64> = zvector_lc_optimized(
+            omega_input.view(),
+            r_matrix.view(),
+            g0,
+            g0_lr,
+            qtrans_oo,
+            qtrans_vv,
+            qtrans_ov,
+        );
+
+        let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
+        for i in 0..w_ij.dim().0 {
+            w_ij[[i, i]] /= 2.0;
+        }
+        let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
+        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
+        let mut w_ab: Array2<f64> = q_ab;
+        for i in 0..w_ab.dim().0 {
+            w_ab[[i, i]] /= 2.0;
+        }
+
+        let length: usize = n_occ + n_virt;
+        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+        for i in 0..w_ij.dim().0 {
+            w_matrix
+                .slice_mut(s![i, ..w_ij.dim().1])
+                .assign(&w_ij.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![i, w_ij.dim().1..])
+                .assign(&w_ia.slice(s![i, ..]));
+        }
+        for i in 0..w_ai.dim().0 {
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                .assign(&w_ai.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
+                .assign(&w_ab.slice(s![i, ..]));
+        }
+
+        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
+        let g0lr_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_lr_ao().unwrap()
+        } else {
+            g0_lr.view()
+        };
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
+        let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
+        let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
+        let t_plus_z: Array2<f64> = &t_vv - &t_oo + &z_ao;
+
+        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
+        let x_ao_1: Array2<f64> = orbs_occ.dot(&x_state_1.dot(&orbs_virt.t()));
+        let x_ao_2: Array2<f64> = orbs_occ.dot(&x_state_2.dot(&orbs_virt.t()));
+
+        // ======= On-the-fly gradient accumulation =======
+        let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+        orbital_offsets.push(0);
+        for atom in &self.atoms {
+            orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+        }
+
+        let coeff_fv_dmd0 =
+            compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, t_plus_z.view());
+        let coeff_flr_dmd0 = compute_flr_s_coefficients(diff_p.view(), s, g0lr_ao, t_plus_z.view());
+        let coeff_fv_x = compute_fv_coefficients_onthefly(x_ao_2.view(), s, g0_ao, x_ao_1.view());
+        let coeff_flr_x = compute_flr_s_coefficients(x_ao_2.t(), s, g0lr_ao, x_ao_1.view());
+        let coeff_ds_total: Array2<f64> =
+            &coeff_fv_dmd0 - 0.5 * &coeff_flr_dmd0 + 2.0 * &coeff_fv_x - &coeff_flr_x;
+
+        let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in 0..self.n_atoms {
+            for j in (i + 1)..self.n_atoms {
+                let distance = (&self.atoms[i] - &self.atoms[j]).norm();
+                if distance < PROXIMITY_CUTOFF {
+                    atom_pairs.push((i, j));
+                }
+            }
+        }
+
+        let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let atomi = &self.atoms[i];
+                let atomj = &self.atoms[j];
+                let mu_start = orbital_offsets[i];
+                let nu_start = orbital_offsets[j];
+
+                let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                    directional_cosines(&atomi.xyz, &atomj.xyz)
+                } else {
+                    directional_cosines(&atomj.xyz, &atomi.xyz)
+                };
+
+                let skt = self.slako.get(atomi.kind, atomj.kind);
+                let s_cache = SplineCache::new(r, &skt.s_spline);
+                let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                let mut grad_i = [0.0_f64; 3];
+                let mut grad_j = [0.0_f64; 3];
+
+                let mut mu = mu_start;
+                for orbi in atomi.valorbs.iter() {
+                    let mut nu = nu_start;
+                    for orbj in atomj.valorbs.iter() {
+                        let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                        ) = if atomi <= atomj {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            (
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                s_grad,
+                                h0_grad,
+                            )
+                        } else {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            (
+                                s_grad,
+                                h0_grad,
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                            )
+                        };
+
+                        let t_plus_z_mu_nu = t_plus_z[[mu, nu]];
+                        let t_plus_z_nu_mu = t_plus_z[[nu, mu]];
+                        let w_ao_mu_nu = w_ao[[mu, nu]];
+                        let w_ao_nu_mu = w_ao[[nu, mu]];
+                        let coeff_mu_nu = coeff_ds_total[[mu, nu]];
+                        let coeff_nu_mu = coeff_ds_total[[nu, mu]];
+
+                        for dir in 0..3 {
+                            grad_i[dir] +=
+                                h0_deriv_i[dir] * t_plus_z_mu_nu + h0_deriv_i[dir] * t_plus_z_nu_mu;
+                            grad_j[dir] +=
+                                h0_deriv_j[dir] * t_plus_z_mu_nu + h0_deriv_j[dir] * t_plus_z_nu_mu;
+                            grad_i[dir] -=
+                                s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                            grad_j[dir] -=
+                                s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                            grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                            grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                        }
+                        nu += 1;
+                    }
+                    mu += 1;
+                }
+                (grad_i, grad_j, i, j)
+            })
+            .collect();
+
+        let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+        for (grad_i, grad_j, i, j) in pair_contributions {
+            for dir in 0..3 {
+                grad_h0_s[3 * i + dir] += grad_i[dir];
+                grad_h0_s[3 * j + dir] += grad_j[dir];
+            }
+        }
+
+        let gammafunction = &self.gammafunction;
+        let gammafunction_lr = self.gammafunction_lc.as_ref().unwrap();
+        let fv_dg_dmd0 = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            t_plus_z.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dg_dmd0 = compute_flr_dg_contributions(
+            gammafunction_lr,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            t_plus_z.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let fv_dg_x = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            x_ao_2.view(),
+            x_ao_1.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dg_x = compute_flr_dg_contributions(
+            gammafunction_lr,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            x_ao_2.t().to_owned().view(),
+            x_ao_1.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let grad_dg_contrib: Array1<f64> =
+            &fv_dg_dmd0 - 0.5 * &flr_dg_dmd0 + 2.0 * &fv_dg_x - &flr_dg_x;
+
+        let nac: Array1<f64> = &grad_h0_s + &grad_dg_contrib;
+        if state_1 == state_2 {
+            nac
+        } else {
+            (1.0 / omega_diff) * nac
+        }
+    }
+
+    /// On-the-fly accumulation version of nac_tddft_excited (excited state TD-DFTB, with LC, with z-vector).
+    pub fn nac_tddft_excited_accumulation(&self, state_1: usize, state_2: usize) -> Array1<f64> {
+        let homo: usize = self.occ_indices[self.occ_indices.len() - 1];
+        let lumo: usize = self.virt_indices[0];
+        let n_occ: usize = self.occ_indices.len();
+        let n_virt: usize = self.virt_indices.len();
+
+        let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+        let orbe_occ = orbe.slice(s![homo + 1 - n_occ..homo + 1]);
+        let orbe_virt = orbe.slice(s![lumo..lumo + n_virt]);
+        let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+        let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
+
+        let xmy_state: ArrayView3<f64> = self.properties.xmy().unwrap();
+        let xpy_state: ArrayView3<f64> = self.properties.xpy().unwrap();
+        let xmy_state_1: ArrayView2<f64> = xmy_state.slice(s![state_1, .., ..]);
+        let xpy_state_1: ArrayView2<f64> = xpy_state.slice(s![state_1, .., ..]);
+        let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
+        let xmy_state_2: ArrayView2<f64> = xmy_state.slice(s![state_2, .., ..]);
+        let xpy_state_2: ArrayView2<f64> = xpy_state.slice(s![state_2, .., ..]);
+        let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
+        let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
+        let omega_diff: f64 = omega_state_1 - omega_state_2;
+
+        let u_ab: Array2<f64> = xpy_state_1.t().dot(&xmy_state_2)
+            + xmy_state_1.t().dot(&xpy_state_2)
+            + xpy_state_2.t().dot(&xmy_state_1)
+            + xmy_state_2.t().dot(&xpy_state_1);
+        let u_ij: Array2<f64> = xpy_state_1.dot(&xmy_state_2.t())
+            + xmy_state_1.dot(&xpy_state_2.t())
+            + xpy_state_2.dot(&xmy_state_1.t())
+            + xmy_state_2.dot(&xpy_state_1.t());
+        let v_ab: Array2<f64> = ei.dot(&xpy_state_1).t().dot(&xpy_state_2)
+            + ei.dot(&xmy_state_1).t().dot(&xmy_state_2)
+            + ei.dot(&xpy_state_2).t().dot(&xpy_state_1)
+            + ei.dot(&xmy_state_2).t().dot(&xmy_state_1);
+        let v_ij: Array2<f64> = xpy_state_1.dot(&ea).dot(&xpy_state_2.t())
+            + xmy_state_1.dot(&ea).dot(&xmy_state_2.t())
+            + xpy_state_2.dot(&ea).dot(&xpy_state_1.t())
+            + xmy_state_2.dot(&ea).dot(&xmy_state_1.t());
+        let t_ab: Array2<f64> = 0.25
+            * (xpy_state_1.t().dot(&xpy_state_2)
+                + xpy_state_2.t().dot(&xpy_state_1)
+                + xmy_state_1.t().dot(&xmy_state_2)
+                + xmy_state_2.t().dot(&xmy_state_1));
+        let t_ij: Array2<f64> = 0.25
+            * (xpy_state_1.dot(&xpy_state_2.t())
+                + xpy_state_2.dot(&xpy_state_1.t())
+                + xmy_state_1.dot(&xmy_state_2.t())
+                + xmy_state_2.dot(&xmy_state_1.t()));
+
+        let qtrans_ov: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_virt))
+                .unwrap()
+        };
+        let qtrans_oo: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap()
+        } else {
+            self.properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_orbs, n_occ, n_occ))
+                .unwrap()
+        };
+        let qtrans_vv: ArrayView3<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap()
+        } else {
+            self.properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_orbs, n_virt, n_virt))
+                .unwrap()
+        };
+        let qtrans_vo: Array3<f64> = qtrans_ov
+            .permuted_axes([0, 2, 1])
+            .as_standard_layout()
+            .to_owned();
+
+        let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
+
+        let g0: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma().unwrap()
+        } else {
+            self.properties.gamma_ao().unwrap()
+        };
+        let g0_lr: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_lr().unwrap()
+        } else {
+            self.properties.gamma_lr_ao().unwrap()
+        };
+
+        let hplus_tab: Array2<f64> = hplus.compute(g0, g0_lr, t_ab.view(), HplusType::Tab);
+        let hplus_tij: Array2<f64> = hplus.compute(g0, g0_lr, t_ij.view(), HplusType::Tij);
+        let g_ij: Array2<f64> = hplus_tab - hplus_tij;
+        let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
+        let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
+
+        let mut q_ia: Array2<f64> =
+            0.5 * xpy_state_1.dot(&hplus.compute(g0, g0_lr, xpy_state_2, HplusType::QiaXpy).t());
+        q_ia = q_ia
+            + 0.5 * xpy_state_2.dot(&hplus.compute(g0, g0_lr, xpy_state_1, HplusType::QiaXpy).t());
+        q_ia = q_ia
+            + 0.5
+                * xmy_state_1.dot(
+                    &h_minus(
+                        g0_lr,
+                        qtrans_vv,
+                        qtrans_vo.view(),
+                        qtrans_vo.view(),
+                        qtrans_vv,
+                        xmy_state_2,
+                    )
+                    .t(),
+                );
+        q_ia = q_ia
+            + 0.5
+                * xmy_state_2.dot(
+                    &h_minus(
+                        g0_lr,
+                        qtrans_vv,
+                        qtrans_vo.view(),
+                        qtrans_vo.view(),
+                        qtrans_vv,
+                        xmy_state_1,
+                    )
+                    .t(),
+                );
+        q_ia = q_ia + hplus.compute(g0, g0_lr, t_ab.view(), HplusType::QiaTab);
+        q_ia = q_ia - hplus.compute(g0, g0_lr, t_ij.view(), HplusType::QiaTij);
+
+        let mut q_ai: Array2<f64> = 0.5
+            * xpy_state_1
+                .t()
+                .dot(&hplus.compute(g0, g0_lr, xpy_state_2, HplusType::Qai));
+        q_ai = q_ai
+            + 0.5
+                * xpy_state_2
+                    .t()
+                    .dot(&hplus.compute(g0, g0_lr, xpy_state_1, HplusType::Qai));
+        q_ai = q_ai
+            + 0.5
+                * xmy_state_1.t().dot(&h_minus(
+                    g0_lr,
+                    qtrans_ov,
+                    qtrans_oo,
+                    qtrans_oo,
+                    qtrans_ov,
+                    xmy_state_2,
+                ));
+        q_ai = q_ai
+            + 0.5
+                * xmy_state_2.t().dot(&h_minus(
+                    g0_lr,
+                    qtrans_ov,
+                    qtrans_oo,
+                    qtrans_oo,
+                    qtrans_ov,
+                    xmy_state_1,
+                ));
+
+        let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
+        let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
+            .dot(&into_row(orbe_virt.clone()))
+            - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
+        let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
+        let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
+        let z_ia: Array2<f64> = zvector_lc_optimized(
+            omega_input.view(),
+            r_matrix.view(),
+            g0,
+            g0_lr,
+            qtrans_oo,
+            qtrans_vv,
+            qtrans_ov,
+        );
+
+        let mut w_ij: Array2<f64> = q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
+        for i in 0..w_ij.dim().0 {
+            w_ij[[i, i]] /= 2.0;
+        }
+        let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
+        let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
+        let mut w_ab: Array2<f64> = q_ab;
+        for i in 0..w_ab.dim().0 {
+            w_ab[[i, i]] /= 2.0;
+        }
+
+        let length: usize = n_occ + n_virt;
+        let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+        for i in 0..w_ij.dim().0 {
+            w_matrix
+                .slice_mut(s![i, ..w_ij.dim().1])
+                .assign(&w_ij.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![i, w_ij.dim().1..])
+                .assign(&w_ia.slice(s![i, ..]));
+        }
+        for i in 0..w_ai.dim().0 {
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                .assign(&w_ai.slice(s![i, ..]));
+            w_matrix
+                .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
+                .assign(&w_ab.slice(s![i, ..]));
+        }
+
+        let diff_p: Array2<f64> = &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+        let g0_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_ao().unwrap()
+        } else {
+            g0.view()
+        };
+        let g0lr_ao: ArrayView2<f64> = if !self.config.tight_binding.use_shell_resolved_gamma {
+            self.properties.gamma_lr_ao().unwrap()
+        } else {
+            g0_lr.view()
+        };
+        let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+        let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+        let orbs_occ: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..homo + 1]);
+        let orbs_virt: ArrayView2<f64> = orbs.slice(s![.., lumo..lumo + n_virt]);
+
+        let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
+        let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
+        let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
+        let t_plus_z: Array2<f64> = &t_vv - &t_oo + &z_ao;
+
+        let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+        let w_ao: Array2<f64> = if self.config.tddftb.restrict_active_orbitals {
+            let orbs_reduced: ArrayView2<f64> = orbs.slice(s![.., homo + 1 - n_occ..lumo + n_virt]);
+            orbs_reduced.dot(&w_triangular.dot(&orbs_reduced.t()))
+        } else {
+            orbs.dot(&w_triangular.dot(&orbs.t()))
+        };
+        let xpy_ao_1: Array2<f64> = orbs_occ.dot(&xpy_state_1.dot(&orbs_virt.t()));
+        let xpy_ao_2: Array2<f64> = orbs_occ.dot(&xpy_state_2.dot(&orbs_virt.t()));
+        let xmy_ao_1: Array2<f64> = orbs_occ.dot(&xmy_state_1.dot(&orbs_virt.t()));
+        let xmy_ao_2: Array2<f64> = orbs_occ.dot(&xmy_state_2.dot(&orbs_virt.t()));
+
+        // ======= On-the-fly gradient accumulation =======
+        let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+        orbital_offsets.push(0);
+        for atom in &self.atoms {
+            orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+        }
+
+        let coeff_fv_dmd0 =
+            compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, t_plus_z.view());
+        let coeff_flr_dmd0 = compute_flr_s_coefficients(diff_p.view(), s, g0lr_ao, t_plus_z.view());
+        let coeff_fv_xpy =
+            compute_fv_coefficients_onthefly(xpy_ao_2.view(), s, g0_ao, xpy_ao_1.view());
+        let coeff_flr_xpy = compute_flr_s_coefficients(
+            (&xpy_ao_2 + &xpy_ao_2.t()).view(),
+            s,
+            g0lr_ao,
+            xpy_ao_1.view(),
+        );
+        let coeff_flr_xmy = compute_flr_s_coefficients(
+            (&xmy_ao_2 - &xmy_ao_2.t()).view(),
+            s,
+            g0lr_ao,
+            xmy_ao_1.view(),
+        );
+        let coeff_ds_total: Array2<f64> =
+            &coeff_fv_dmd0 - 0.5 * &coeff_flr_dmd0 + 2.0 * &coeff_fv_xpy - 0.5 * &coeff_flr_xpy
+                + 0.5 * &coeff_flr_xmy;
+
+        let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+        for i in 0..self.n_atoms {
+            for j in (i + 1)..self.n_atoms {
+                let distance = (&self.atoms[i] - &self.atoms[j]).norm();
+                if distance < PROXIMITY_CUTOFF {
+                    atom_pairs.push((i, j));
+                }
+            }
+        }
+
+        let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let atomi = &self.atoms[i];
+                let atomj = &self.atoms[j];
+                let mu_start = orbital_offsets[i];
+                let nu_start = orbital_offsets[j];
+
+                let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                    directional_cosines(&atomi.xyz, &atomj.xyz)
+                } else {
+                    directional_cosines(&atomj.xyz, &atomi.xyz)
+                };
+
+                let skt = self.slako.get(atomi.kind, atomj.kind);
+                let s_cache = SplineCache::new(r, &skt.s_spline);
+                let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                let mut grad_i = [0.0_f64; 3];
+                let mut grad_j = [0.0_f64; 3];
+
+                let mut mu = mu_start;
+                for orbi in atomi.valorbs.iter() {
+                    let mut nu = nu_start;
+                    for orbj in atomj.valorbs.iter() {
+                        let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                            [f64; 3],
+                        ) = if atomi <= atomj {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                            );
+                            (
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                s_grad,
+                                h0_grad,
+                            )
+                        } else {
+                            let s_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            let h0_grad = slako_transformation_gradients_fast(
+                                r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                            );
+                            (
+                                s_grad,
+                                h0_grad,
+                                [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                            )
+                        };
+
+                        let t_plus_z_mu_nu = t_plus_z[[mu, nu]];
+                        let t_plus_z_nu_mu = t_plus_z[[nu, mu]];
+                        let w_ao_mu_nu = w_ao[[mu, nu]];
+                        let w_ao_nu_mu = w_ao[[nu, mu]];
+                        let coeff_mu_nu = coeff_ds_total[[mu, nu]];
+                        let coeff_nu_mu = coeff_ds_total[[nu, mu]];
+
+                        for dir in 0..3 {
+                            grad_i[dir] +=
+                                h0_deriv_i[dir] * t_plus_z_mu_nu + h0_deriv_i[dir] * t_plus_z_nu_mu;
+                            grad_j[dir] +=
+                                h0_deriv_j[dir] * t_plus_z_mu_nu + h0_deriv_j[dir] * t_plus_z_nu_mu;
+                            grad_i[dir] -=
+                                s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                            grad_j[dir] -=
+                                s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                            grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                            grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                        }
+                        nu += 1;
+                    }
+                    mu += 1;
+                }
+                (grad_i, grad_j, i, j)
+            })
+            .collect();
+
+        let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+        for (grad_i, grad_j, i, j) in pair_contributions {
+            for dir in 0..3 {
+                grad_h0_s[3 * i + dir] += grad_i[dir];
+                grad_h0_s[3 * j + dir] += grad_j[dir];
+            }
+        }
+
+        let gammafunction = &self.gammafunction;
+        let gammafunction_lr = self.gammafunction_lc.as_ref().unwrap();
+        let fv_dg_dmd0 = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            t_plus_z.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dg_dmd0 = compute_flr_dg_contributions(
+            gammafunction_lr,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            diff_p.view(),
+            t_plus_z.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let fv_dg_xpy = compute_fv_dg_contributions(
+            gammafunction,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            xpy_ao_2.view(),
+            xpy_ao_1.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dg_xpy = compute_flr_dg_contributions(
+            gammafunction_lr,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            (&xpy_ao_2 + &xpy_ao_2.t()).view(),
+            xpy_ao_1.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let flr_dg_xmy = compute_flr_dg_contributions(
+            gammafunction_lr,
+            &self.atoms,
+            &orbital_offsets,
+            s,
+            (&xmy_ao_2 - &xmy_ao_2.t()).view(),
+            xmy_ao_1.view(),
+            self.n_atoms,
+            self.n_orbs,
+        );
+        let grad_dg_contrib: Array1<f64> = &fv_dg_dmd0 - 0.5 * &flr_dg_dmd0 + 2.0 * &fv_dg_xpy
+            - 0.5 * &flr_dg_xpy
+            + 0.5 * &flr_dg_xmy;
+
+        let nac: Array1<f64> = &grad_h0_s + &grad_dg_contrib;
+        if state_1 == state_2 {
+            nac
+        } else {
+            (1.0 / omega_diff) * nac
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! impl_nac_tda_dft_excited_accumulation {
+    () => {
+        pub fn nac_tda_dft_excited_accumulation(
+            &self,
+            state_1: usize,
+            state_2: usize,
+            atoms: &[Atom],
+        ) -> Array1<f64> {
+            // get occ and virt indices from properties
+            let occ_indices: &[usize] = self.properties.occ_indices().unwrap();
+            let virt_indices: &[usize] = self.properties.virt_indices().unwrap();
+
+            // set the occupied and virtual orbital energies
+            let orbe: ArrayView1<f64> = self.properties.orbe().unwrap();
+            let orbe_occ: Array1<f64> = occ_indices.iter().map(|&occ| orbe[occ]).collect();
+            let orbe_virt: Array1<f64> = virt_indices.iter().map(|&virt| orbe[virt]).collect();
+
+            // transform the energies to a diagonal 2d matrix
+            let ei: Array2<f64> = Array2::from_diag(&orbe_occ);
+            let ea: Array2<f64> = Array2::from_diag(&orbe_virt);
+
+            let n_occ: usize = orbe_occ.len();
+            let n_virt: usize = orbe_virt.len();
+
+            let omega_state: ArrayView1<f64> = self.properties.ci_eigenvalues().unwrap();
+            let n_states: usize = omega_state.len();
+            let x_state: ArrayView2<f64> = self.properties.ci_coefficients().unwrap();
+            let x_state: Array3<f64> = x_state
+                .t()
+                .as_standard_layout()
+                .to_owned()
+                .into_shape([n_states, n_occ, n_virt])
+                .unwrap();
+            let x_state_1: ArrayView2<f64> = x_state.slice(s![state_1, .., ..]);
+            let x_state_2: ArrayView2<f64> = x_state.slice(s![state_2, .., ..]);
+            let omega_state_1: f64 = self.properties.ci_eigenvalue(state_1).unwrap();
+            let omega_state_2: f64 = self.properties.ci_eigenvalue(state_2).unwrap();
+            let omega_avg: f64 = (omega_state_1 + omega_state_2) / 2.0;
+            let omega_diff: f64 = omega_state_1 - omega_state_2;
+
+            let u_ab: Array2<f64> =
+                2.0 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
+            let u_ij: Array2<f64> =
+                2.0 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
+            let v_ab: Array2<f64> = 2.0
+                * (ei.dot(&x_state_1).t().dot(&x_state_2) + ei.dot(&x_state_2).t().dot(&x_state_1));
+            let v_ij: Array2<f64> = 2.0
+                * (x_state_1.dot(&ea).dot(&x_state_2.t()) + x_state_2.dot(&ea).dot(&x_state_1.t()));
+            let t_ab: Array2<f64> =
+                0.5 * (x_state_1.t().dot(&x_state_2) + x_state_2.t().dot(&x_state_1));
+            let t_ij: Array2<f64> =
+                0.5 * (x_state_1.dot(&x_state_2.t()) + x_state_2.dot(&x_state_1.t()));
+
+            // get the transition charges
+            let qtrans_ov: ArrayView3<f64> = self
+                .properties
+                .q_ov()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_virt))
+                .unwrap();
+            let qtrans_oo: ArrayView3<f64> = self
+                .properties
+                .q_oo()
+                .unwrap()
+                .into_shape((self.n_atoms, n_occ, n_occ))
+                .unwrap();
+            let qtrans_vv: ArrayView3<f64> = self
+                .properties
+                .q_vv()
+                .unwrap()
+                .into_shape((self.n_atoms, n_virt, n_virt))
+                .unwrap();
+            let qtrans_vo: Array3<f64> = qtrans_ov
+                .permuted_axes([0, 2, 1])
+                .as_standard_layout()
+                .to_owned();
+
+            let hav: Hav = Hav::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
+            let hplus: Hplus = Hplus::new(qtrans_ov, qtrans_vv, qtrans_oo, qtrans_vo.view());
+
+            // set gamma matrix
+            let g0: ArrayView2<f64> = self.properties.gamma().unwrap();
+            let g0_lr: ArrayView2<f64> = self.properties.gamma_lr().unwrap();
+
+            let hplus_tab: Array2<f64> = hav.compute(g0, g0_lr, t_ab.view(), HplusType::Tab);
+            let hplus_tij: Array2<f64> = hav.compute(g0, g0_lr, t_ij.view(), HplusType::Tij);
+            let g_ij: Array2<f64> = hplus_tab - hplus_tij;
+            let q_ij: Array2<f64> = 0.5 * omega_avg * u_ij - 0.5 * v_ij + g_ij;
+            let q_ab: Array2<f64> = 0.5 * omega_avg * u_ab + 0.5 * v_ab;
+
+            let mut q_ia: Array2<f64> =
+                0.5 * x_state_1.dot(&hav.compute(g0, g0_lr, x_state_2, HplusType::QiaXpy).t());
+            q_ia = q_ia
+                + 0.5 * x_state_2.dot(&hav.compute(g0, g0_lr, x_state_1, HplusType::QiaXpy).t());
+            q_ia = q_ia + hav.compute(g0, g0_lr, t_ab.view(), HplusType::QiaTab);
+            q_ia = q_ia - hav.compute(g0, g0_lr, t_ij.view(), HplusType::QiaTij);
+
+            let mut q_ai: Array2<f64> = 0.5
+                * x_state_1
+                    .t()
+                    .dot(&hav.compute(g0, g0_lr, x_state_2, HplusType::Qai));
+            q_ai = q_ai
+                + 0.5
+                    * x_state_2
+                        .t()
+                        .dot(&hav.compute(g0, g0_lr, x_state_1, HplusType::Qai));
+
+            let r_ia: Array2<f64> = &q_ai.t() - &q_ia;
+            let omega_input: Array2<f64> = into_col(Array::ones(orbe_occ.len()))
+                .dot(&into_row(orbe_virt.clone()))
+                - into_col(orbe_occ.clone()).dot(&into_row(Array::ones(orbe_virt.len())));
+            let r_ia_flat: Array1<f64> = r_ia.t().to_owned_f().into_shape(n_occ * n_virt).unwrap();
+            let r_matrix: Array2<f64> = r_ia_flat.into_shape((n_occ, n_virt)).unwrap();
+            let z_ia: Array2<f64> = zvector_lc_optimized(
+                omega_input.view(),
+                r_matrix.view(),
+                g0,
+                g0_lr,
+                qtrans_oo,
+                qtrans_vv,
+                qtrans_ov,
+            );
+
+            let mut w_ij: Array2<f64> =
+                q_ij + hplus.compute(g0, g0_lr, z_ia.view(), HplusType::Wij);
+            for i in 0..w_ij.dim().0 {
+                w_ij[[i, i]] /= 2.0;
+            }
+            let w_ia: Array2<f64> = &q_ai.t() + &ei.dot(&z_ia);
+            let w_ai: Array2<f64> = w_ia.clone().reversed_axes();
+            let mut w_ab: Array2<f64> = q_ab;
+            for i in 0..w_ab.dim().0 {
+                w_ab[[i, i]] /= 2.0;
+            }
+
+            let length: usize = n_occ + n_virt;
+            let mut w_matrix: Array2<f64> = Array::zeros((length, length));
+            for i in 0..w_ij.dim().0 {
+                w_matrix
+                    .slice_mut(s![i, ..w_ij.dim().1])
+                    .assign(&w_ij.slice(s![i, ..]));
+                w_matrix
+                    .slice_mut(s![i, w_ij.dim().1..])
+                    .assign(&w_ia.slice(s![i, ..]));
+            }
+            for i in 0..w_ai.dim().0 {
+                w_matrix
+                    .slice_mut(s![w_ij.dim().0 + i, ..w_ai.dim().1])
+                    .assign(&w_ai.slice(s![i, ..]));
+                w_matrix
+                    .slice_mut(s![w_ij.dim().0 + i, w_ai.dim().1..])
+                    .assign(&w_ab.slice(s![i, ..]));
+            }
+
+            let diff_p: Array2<f64> =
+                &self.properties.p().unwrap() - &self.properties.p_ref().unwrap();
+            let g0_ao: ArrayView2<f64> = self.properties.gamma_ao().unwrap();
+            let g0lr_ao: ArrayView2<f64> = self.properties.gamma_lr_ao().unwrap();
+            let s: ArrayView2<f64> = self.properties.s().unwrap();
+
+            let orbs: ArrayView2<f64> = self.properties.orbs().unwrap();
+            let mut orbs_occ: Array2<f64> = Array::zeros((self.n_orbs, n_occ));
+            let mut orbs_virt: Array2<f64> = Array::zeros((self.n_orbs, n_virt));
+            for (i, index) in occ_indices.iter().enumerate() {
+                orbs_occ.slice_mut(s![.., i]).assign(&orbs.column(*index));
+            }
+            for (i, index) in virt_indices.iter().enumerate() {
+                orbs_virt.slice_mut(s![.., i]).assign(&orbs.column(*index));
+            }
+
+            let t_oo: Array2<f64> = orbs_occ.dot(&t_ij.dot(&orbs_occ.t()));
+            let t_vv: Array2<f64> = orbs_virt.dot(&t_ab.dot(&orbs_virt.t()));
+            let z_ao: Array2<f64> = orbs_occ.dot(&z_ia.dot(&orbs_virt.t()));
+            let t_plus_z: Array2<f64> = &t_vv - &t_oo + &z_ao;
+
+            let w_triangular: Array2<f64> = w_matrix.into_triangular(UPLO::Upper);
+            let w_ao: Array2<f64> = orbs.dot(&w_triangular.dot(&orbs.t()));
+            let x_ao_1: Array2<f64> = orbs_occ.dot(&x_state_1.dot(&orbs_virt.t()));
+            let x_ao_2: Array2<f64> = orbs_occ.dot(&x_state_2.dot(&orbs_virt.t()));
+
+            // ======= On-the-fly gradient accumulation =======
+            let mut orbital_offsets: Vec<usize> = Vec::with_capacity(self.n_atoms + 1);
+            orbital_offsets.push(0);
+            for atom in atoms.iter() {
+                orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+            }
+
+            let coeff_fv_dmd0 =
+                compute_fv_coefficients_onthefly(diff_p.view(), s, g0_ao, t_plus_z.view());
+            let coeff_flr_dmd0 =
+                compute_flr_s_coefficients(diff_p.view(), s, g0lr_ao, t_plus_z.view());
+            let coeff_fv_x =
+                compute_fv_coefficients_onthefly(x_ao_2.view(), s, g0_ao, x_ao_1.view());
+            let coeff_flr_x = compute_flr_s_coefficients(x_ao_2.t(), s, g0lr_ao, x_ao_1.view());
+            let coeff_ds_total: Array2<f64> =
+                &coeff_fv_dmd0 - 0.5 * &coeff_flr_dmd0 + 2.0 * &coeff_fv_x - &coeff_flr_x;
+
+            let mut atom_pairs: Vec<(usize, usize)> = Vec::new();
+            for i in 0..self.n_atoms {
+                for j in (i + 1)..self.n_atoms {
+                    let distance = (&atoms[i] - &atoms[j]).norm();
+                    if distance < PROXIMITY_CUTOFF {
+                        atom_pairs.push((i, j));
+                    }
+                }
+            }
+
+            let pair_contributions: Vec<([f64; 3], [f64; 3], usize, usize)> = atom_pairs
+                .par_iter()
+                .map(|&(i, j)| {
+                    let atomi = &atoms[i];
+                    let atomj = &atoms[j];
+                    let mu_start = orbital_offsets[i];
+                    let nu_start = orbital_offsets[j];
+
+                    let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                        directional_cosines(&atomi.xyz, &atomj.xyz)
+                    } else {
+                        directional_cosines(&atomj.xyz, &atomi.xyz)
+                    };
+
+                    let skt = self.slako.get(atomi.kind, atomj.kind);
+                    let s_cache = SplineCache::new(r, &skt.s_spline);
+                    let h_cache = SplineCache::new(r, &skt.h_spline);
+
+                    let mut grad_i = [0.0_f64; 3];
+                    let mut grad_j = [0.0_f64; 3];
+
+                    let mut mu = mu_start;
+                    for orbi in atomi.valorbs.iter() {
+                        let mut nu = nu_start;
+                        for orbj in atomj.valorbs.iter() {
+                            let (s_deriv_i, h0_deriv_i, s_deriv_j, h0_deriv_j): (
+                                [f64; 3],
+                                [f64; 3],
+                                [f64; 3],
+                                [f64; 3],
+                            ) = if atomi <= atomj {
+                                let s_grad = slako_transformation_gradients_fast(
+                                    r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                                );
+                                let h0_grad = slako_transformation_gradients_fast(
+                                    r, x, y, z, &h_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                                );
+                                (
+                                    [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                    [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                    s_grad,
+                                    h0_grad,
+                                )
+                            } else {
+                                let s_grad = slako_transformation_gradients_fast(
+                                    r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                                );
+                                let h0_grad = slako_transformation_gradients_fast(
+                                    r, x, y, z, &h_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                                );
+                                (
+                                    s_grad,
+                                    h0_grad,
+                                    [-s_grad[0], -s_grad[1], -s_grad[2]],
+                                    [-h0_grad[0], -h0_grad[1], -h0_grad[2]],
+                                )
+                            };
+
+                            let t_plus_z_mu_nu = t_plus_z[[mu, nu]];
+                            let t_plus_z_nu_mu = t_plus_z[[nu, mu]];
+                            let w_ao_mu_nu = w_ao[[mu, nu]];
+                            let w_ao_nu_mu = w_ao[[nu, mu]];
+                            let coeff_mu_nu = coeff_ds_total[[mu, nu]];
+                            let coeff_nu_mu = coeff_ds_total[[nu, mu]];
+
+                            for dir in 0..3 {
+                                grad_i[dir] += h0_deriv_i[dir] * t_plus_z_mu_nu
+                                    + h0_deriv_i[dir] * t_plus_z_nu_mu;
+                                grad_j[dir] += h0_deriv_j[dir] * t_plus_z_mu_nu
+                                    + h0_deriv_j[dir] * t_plus_z_nu_mu;
+                                grad_i[dir] -=
+                                    s_deriv_i[dir] * w_ao_mu_nu + s_deriv_i[dir] * w_ao_nu_mu;
+                                grad_j[dir] -=
+                                    s_deriv_j[dir] * w_ao_mu_nu + s_deriv_j[dir] * w_ao_nu_mu;
+                                grad_i[dir] += s_deriv_i[dir] * coeff_mu_nu;
+                                grad_j[dir] += s_deriv_j[dir] * coeff_nu_mu;
+                            }
+                            nu += 1;
+                        }
+                        mu += 1;
+                    }
+                    (grad_i, grad_j, i, j)
+                })
+                .collect();
+
+            let mut grad_h0_s: Array1<f64> = Array1::zeros(3 * self.n_atoms);
+            for (grad_i, grad_j, i, j) in pair_contributions {
+                for dir in 0..3 {
+                    grad_h0_s[3 * i + dir] += grad_i[dir];
+                    grad_h0_s[3 * j + dir] += grad_j[dir];
+                }
+            }
+
+            let gammafunction = &self.gammafunction;
+            let gammafunction_lr = self.gammafunction_lc.as_ref().unwrap();
+            let fv_dg_dmd0 = compute_fv_dg_contributions(
+                gammafunction,
+                &atoms,
+                &orbital_offsets,
+                s,
+                diff_p.view(),
+                t_plus_z.view(),
+                self.n_atoms,
+                self.n_orbs,
+            );
+            let flr_dg_dmd0 = compute_flr_dg_contributions(
+                gammafunction_lr,
+                &atoms,
+                &orbital_offsets,
+                s,
+                diff_p.view(),
+                t_plus_z.view(),
+                self.n_atoms,
+                self.n_orbs,
+            );
+            let fv_dg_x = compute_fv_dg_contributions(
+                gammafunction,
+                &atoms,
+                &orbital_offsets,
+                s,
+                x_ao_2.view(),
+                x_ao_1.view(),
+                self.n_atoms,
+                self.n_orbs,
+            );
+            let flr_dg_x = compute_flr_dg_contributions(
+                gammafunction_lr,
+                &atoms,
+                &orbital_offsets,
+                s,
+                x_ao_2.t().to_owned().view(),
+                x_ao_1.view(),
+                self.n_atoms,
+                self.n_orbs,
+            );
+            let grad_dg_contrib: Array1<f64> =
+                &fv_dg_dmd0 - 0.5 * &flr_dg_dmd0 + 2.0 * &fv_dg_x - &flr_dg_x;
+
+            let nac: Array1<f64> = &grad_h0_s + &grad_dg_contrib;
+            if state_1 == state_2 {
+                nac
+            } else {
+                (1.0 / omega_diff) * nac
+            }
+        }
+    };
 }
 
 impl Monomer<'_> {
+    pub fn get_nonadiabatic_vector_coupling(
+        &mut self,
+        velocities_1d: ArrayView1<f64>,
+        nstates: usize,
+        atoms: &[Atom],
+    ) -> (Array2<f64>, Vec<Array1<f64>>) {
+        // init coupling array
+        let mut coupling: Array2<f64> = Array2::zeros([nstates, nstates]);
+        let mut coupling_vectors: Vec<Array1<f64>> = Vec::new();
+
+        // create iteration indices
+        let mut iter_indices: Vec<(usize, usize)> = Vec::new();
+        for i in 0..nstates {
+            for j in 0..nstates {
+                if i < j {
+                    iter_indices.push((i, j));
+                }
+            }
+        }
+
+        // get the old system
+        let old_nacv = self.properties.old_nacv();
+        if old_nacv.is_some() {
+            let old_vectors: Vec<Array1<f64>> = old_nacv.clone().unwrap().to_vec();
+
+            // new iteration
+            let result: Vec<(f64, Array1<f64>)> = iter_indices
+                .par_iter()
+                .enumerate()
+                .map(|(idx, (i, j))| {
+                    if *i > 0{
+                        let vector: Array1<f64> = self.nac_tda_dft_excited_accumulation(*i, *j, atoms);
+                        let normed_vector: Array1<f64> = &vector / (vector.norm());
+                        let old_vec: ArrayView1<f64> = old_vectors[idx].view();
+                        let normed_old_vec: Array1<f64> = &old_vec / (old_vec.norm());
+                        let sign: f64 = normed_old_vec.dot(&normed_vector);
+
+                        // check for positive or negative sign
+                        if sign > 0.0 {
+                            let val: f64 = vector.dot(&velocities_1d);
+                            (val, vector)
+                        } else {
+                            let vec_changed_sign: Array1<f64> = -1.0 * &vector;
+                            let val: f64 = vec_changed_sign.dot(&velocities_1d);
+                            (val, vec_changed_sign)
+                        }
+                    }else{
+                        // for ground to excited nacvs, return 0 for FMO-DFTB excited states on a single monomer
+                        let zero_val:f64 = 0.0;
+                        let zero_vec:Array1<f64> = Array1::zeros(3*self.n_atoms);
+                        (zero_val,zero_vec)
+                    }
+                })
+                .collect();
+
+            for (iter_idx, (val, vec)) in iter_indices.iter().zip(result.iter()) {
+                let i: usize = iter_idx.0;
+                let j: usize = iter_idx.1;
+                coupling[[i, j]] = *val;
+                coupling[[j, i]] = -1.0 * val;
+                coupling_vectors.push(vec.to_owned());
+            }
+        } else {
+            // new iteration
+            let result: Vec<(f64, Array1<f64>)> = iter_indices
+                .par_iter()
+                .map(|&(i, j)| {
+                    let vector: Array1<f64> = self.nac_tda_dft_excited_accumulation(i, j, atoms);
+                    let val: f64 = vector.dot(&velocities_1d);
+
+                    (val, vector)
+                })
+                .collect();
+            for (iter_idx, (val, vec)) in iter_indices.iter().zip(result.iter()) {
+                let i: usize = iter_idx.0;
+                let j: usize = iter_idx.1;
+                coupling[[i, j]] = *val;
+                coupling[[j, i]] = -1.0 * val;
+                coupling_vectors.push(vec.to_owned());
+            }
+        }
+        self.properties.set_old_nacv(coupling_vectors.clone());
+
+        (coupling, coupling_vectors)
+    }
+
     pub fn nac_tda_dft_excited(&self, state_1: usize, state_2: usize) -> Array1<f64> {
         // get occ and virt indices from properties
         let occ_indices: &[usize] = self.properties.occ_indices().unwrap();
@@ -2861,6 +3777,8 @@ impl Monomer<'_> {
             (1.0 / omega_diff) * nac
         }
     }
+
+    impl_nac_tda_dft_excited_accumulation!();
 }
 
 impl Pair<'_> {
@@ -3252,6 +4170,8 @@ impl Pair<'_> {
             (1.0 / omega_diff) * nac
         }
     }
+
+    impl_nac_tda_dft_excited_accumulation!();
 }
 
 impl ESDPair<'_> {
@@ -3637,6 +4557,8 @@ impl ESDPair<'_> {
             (1.0 / omega_diff) * nac
         }
     }
+
+    impl_nac_tda_dft_excited_accumulation!();
 }
 
 impl SuperSystem<'_> {
@@ -3654,7 +4576,7 @@ impl SuperSystem<'_> {
         let old_system = if self.properties.old_supersystem().is_some() {
             self.properties.old_supersystem().unwrap().clone()
         } else {
-            OldSupersystem::new(self)
+            crate::fmo::old_supersystem::new_old_supersystem(self)
         };
 
         // storage for nac vectors
@@ -3755,7 +4677,11 @@ impl SuperSystem<'_> {
                     let nacv: Array1<f64> = if old_nacv.is_some() {
                         // old nacv
                         let old_vec = old_nacv.unwrap();
-                        let vector = m_i.nac_tda_dft_excited(a.state_index, b.state_index);
+                        let vector = m_i.nac_tda_dft_excited_accumulation(
+                            a.state_index,
+                            b.state_index,
+                            &self.atoms[m_i.slice.atom_as_range()],
+                        );
 
                         let normed_vector: Array1<f64> = &vector / (vector.norm());
                         let normed_old_vec: Array1<f64> = old_vec / (old_vec.norm());
@@ -3768,7 +4694,11 @@ impl SuperSystem<'_> {
                         }
                     } else {
                         // calculate the vector coupling
-                        m_i.nac_tda_dft_excited(a.state_index, b.state_index)
+                        m_i.nac_tda_dft_excited_accumulation(
+                            a.state_index,
+                            b.state_index,
+                            &self.atoms[m_i.slice.atom_as_range()],
+                        )
                     };
 
                     // dot product between nac and velocities
@@ -3869,7 +4799,8 @@ impl SuperSystem<'_> {
 
             pair_ij.prepare_lcmo_gradient(&pair_atoms, m_i, m_j);
             pair_ij.prepare_charge_transfer_nacvs(&pair_atoms, m_i, m_j, ct_1, ct_2);
-            pair_ij.nac_tda_dft_excited(0, 1)
+            // pair_ij.nac_tda_dft_excited(0, 1)
+            pair_ij.nac_tda_dft_excited_accumulation(0, 1, &pair_atoms)
 
             // reset gradient specific properties
             // pair_ij.properties.reset_gradient();
@@ -3894,7 +4825,7 @@ impl SuperSystem<'_> {
 
             pair_ij.prepare_ct_lcmo_gradient(&pair_atoms);
             pair_ij.prepare_charge_transfer_nacvs(&pair_atoms, m_i, m_j, ct_1, ct_2);
-            pair_ij.nac_tda_dft_excited(0, 1)
+            pair_ij.nac_tda_dft_excited_accumulation(0, 1, &pair_atoms)
 
             // reset gradient specific properties
             // pair_ij.properties.reset_gradient();

@@ -9,6 +9,10 @@ use rayon::prelude::*;
 use std::ops::SubAssign;
 
 impl SuperSystem<'_> {
+    /// FMO monomer step: converge every monomer's SCC self-consistently in the
+    /// electrostatic field of the other monomers. Returns the summed monomer
+    /// energy ΣE_I and the converged atomic charge differences (the embedding
+    /// charges used by the pair and ESD steps).
     pub fn monomer_scc(&mut self, max_iter: usize) -> (f64, Array1<f64>) {
         // Vector that holds the information if the scc calculation of the individual monomer
         // is converged or not
@@ -107,6 +111,9 @@ impl SuperSystem<'_> {
         (monomer_energies, dq)
     }
 
+    /// FMO pair step: run the SCC for every close ("real") pair in the field
+    /// of the surrounding monomers and return the summed pair correction
+    /// Σ_{I<J} (E_IJ - E_I - E_J).
     pub fn pair_scc(&mut self, dq: ArrayView1<f64>) -> f64 {
         // this is the electrostatic potential that acts on the pairs
         // PARALLEL: The dot product could be parallelized and then it is not necessary to convert
@@ -177,6 +184,7 @@ impl SuperSystem<'_> {
                     *scf_config,
                     self.config.tight_binding.use_shell_resolved_gamma,
                     &self.config.mix_config,
+                    &self.config.broyden,
                 );
 
                 // and compute the SCC energy
@@ -204,6 +212,9 @@ impl SuperSystem<'_> {
         pair_energy.sum()
     }
 
+    /// Electrostatic embedding correction: the interaction of each pair's
+    /// density change (dq_IJ - dq_I - dq_J) with the monopole field of all
+    /// monomers outside the pair.
     pub fn embedding_energy(&self) -> f64 {
         // The embedding energy is initialized to zero.
         let mut embedding: f64 = 0.0;
@@ -268,6 +279,9 @@ impl SuperSystem<'_> {
         embedding
     }
 
+    /// Electrostatic-dimer (ESD) pair correction for distant pairs: instead of
+    /// a full pair SCC, their interaction is approximated by the monopole
+    /// electrostatics between the two monomers' charges.
     pub fn esd_pair_energy(&mut self) -> f64 {
         let mut esd_energy: f64 = 0.0;
         if !self.config.tight_binding.use_shell_resolved_gamma {

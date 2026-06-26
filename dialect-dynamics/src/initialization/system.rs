@@ -1,6 +1,5 @@
 use crate::constants;
-use crate::initialization::{frame_to_coordinates, DynamicConfiguration};
-use chemfiles::Frame;
+use crate::initialization::DynamicConfiguration;
 use ndarray::prelude::*;
 
 /// Struct that hold the data of the molecular system:
@@ -35,11 +34,3 @@ impl From<(Vec<u8>, Array2<f64>, DynamicConfiguration)> for SystemData {
     }
 }
 
-impl From<(Frame, DynamicConfiguration)> for SystemData {
-    /// Creates a new [SystemData] from a [Frame](chemfiles::Frame) and
-    /// the global configuration as [DynamicConfiguration](crate::io::settings::DynamicConfiguration).
-    fn from(frame: (Frame, DynamicConfiguration)) -> Self {
-        let (numbers, coords) = frame_to_coordinates(frame.0);
-        Self::from((numbers, coords, frame.1))
-    }
-}

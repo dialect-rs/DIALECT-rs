@@ -1,4 +1,9 @@
+//! Snapshot constructors for the FMO supersystem types. The plain data
+//! structs live in dialect-state; building them requires the live
+//! SuperSystem/Monomer/Pair types, so the constructors stay here.
 #![allow(warnings)]
+
+pub use dialect_state::old_supersystem::{OldEsdPair, OldMonomer, OldPair, OldSupersystem};
 
 use crate::fmo::helpers::MolecularSlice;
 use crate::fmo::{ESDPair, Monomer, Pair, ReducedBasisState, SuperSystem};
@@ -6,36 +11,21 @@ use crate::initialization::Atom;
 use hashbrown::HashMap;
 use ndarray::prelude::*;
 
-#[derive(Debug, Clone)]
-pub struct OldSupersystem {
-    /// Vector with the data and the positions of the individual
-    /// atoms that are stored as [Atom](crate::initialization::Atom)
-    pub atoms: Vec<Atom>,
-    /// List of individuals fragments which are stored as a [Monomer](crate::fmo::Monomer)
-    pub monomers: Vec<OldMonomer>,
-    pub pairs: Vec<OldPair>,
-    pub esd_pairs: Vec<OldEsdPair>,
-    pub basis_states: Vec<ReducedBasisState>,
-    pub last_scalar_coupling: Option<Array2<f64>>,
-    pub nacv_storage: HashMap<(usize, usize), Array1<f64>>,
-}
-
-impl OldSupersystem {
-    pub fn new(system: &SuperSystem) -> Self {
+pub fn new_old_supersystem(system: &SuperSystem) -> OldSupersystem {
         let mut monomers: Vec<OldMonomer> = Vec::new();
         let mut pairs: Vec<OldPair> = Vec::new();
         let mut esd_pairs: Vec<OldEsdPair> = Vec::new();
 
         for monomer in system.monomers.iter() {
-            monomers.push(OldMonomer::new(monomer));
+            monomers.push(new_old_monomer(monomer));
         }
 
         for pair in system.pairs.iter() {
-            pairs.push(OldPair::new(pair));
+            pairs.push(new_old_pair(pair));
         }
 
         for esd_pair in system.esd_pairs.iter() {
-            esd_pairs.push(OldEsdPair::new(esd_pair));
+            esd_pairs.push(new_old_esd_pair(esd_pair));
         }
 
         let mut last_scalar_coupling: Option<Array2<f64>> = Option::None;
@@ -54,26 +44,8 @@ impl OldSupersystem {
             nacv_storage: HashMap::new(),
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct OldMonomer {
-    /// Number of atoms
-    pub n_atoms: usize,
-    /// Number of atomic orbitals
-    pub n_orbs: usize,
-    /// Index of the monomer in the [SuperSystem]
-    pub index: usize,
-    /// Different Slices that correspond to this monomer
-    pub slice: MolecularSlice,
-    pub orbs: Array2<f64>,
-    pub occ_indices: Vec<usize>,
-    pub virt_indices: Vec<usize>,
-    pub tdm: Array2<f64>,
-}
-
-impl OldMonomer {
-    pub fn new(monomer: &Monomer) -> Self {
+pub fn new_old_monomer(monomer: &Monomer) -> OldMonomer {
         OldMonomer {
             n_atoms: monomer.n_atoms,
             n_orbs: monomer.n_orbs,
@@ -85,26 +57,8 @@ impl OldMonomer {
             tdm: monomer.properties.ci_coefficients().unwrap().to_owned(),
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct OldPair {
-    /// Number of atoms
-    pub n_atoms: usize,
-    /// Number of atomic orbitals
-    pub n_orbs: usize,
-    /// Index of the monomers in the [SuperSystem]
-    pub index_1: usize,
-    pub index_2: usize,
-    pub s_i_ij: Array2<f64>,
-    pub s_j_ij: Array2<f64>,
-    pub nocc: usize,
-    pub nvirt: usize,
-    pub orbs: Array2<f64>,
-}
-
-impl OldPair {
-    pub fn new(pair: &Pair) -> Self {
+pub fn new_old_pair(pair: &Pair) -> OldPair {
         OldPair {
             n_atoms: pair.n_atoms,
             n_orbs: pair.n_orbs,
@@ -117,26 +71,8 @@ impl OldPair {
             orbs: pair.properties.orbs().unwrap().to_owned(),
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct OldEsdPair {
-    /// Number of atoms
-    pub n_atoms: usize,
-    /// Number of atomic orbitals
-    pub n_orbs: usize,
-    /// Index of the monomers in the [SuperSystem]
-    pub index_1: usize,
-    pub index_2: usize,
-    pub s_i_ij: Option<Array2<f64>>,
-    pub s_j_ij: Option<Array2<f64>>,
-    pub nocc: Option<usize>,
-    pub nvirt: Option<usize>,
-    pub orbs: Option<Array2<f64>>,
-}
-
-impl OldEsdPair {
-    pub fn new(pair: &ESDPair) -> Self {
+pub fn new_old_esd_pair(pair: &ESDPair) -> OldEsdPair {
         let s_i_ij: Option<Array2<f64>> = if pair.properties.s_i_ij().is_some() {
             Some(pair.properties.s_i_ij().unwrap().to_owned())
         } else {
@@ -179,4 +115,3 @@ impl OldEsdPair {
             orbs,
         }
     }
-}

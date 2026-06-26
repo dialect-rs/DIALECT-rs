@@ -1,8 +1,13 @@
+use crate::defaults::PROXIMITY_CUTOFF;
 use crate::fmo::gradients::*;
 use crate::fmo::scc::helpers::*;
 use crate::fmo::Monomer;
 use crate::gradients::helpers::{f_lr, gradient_v_rep};
+use crate::initialization::parameters::SlaterKoster;
 use crate::initialization::Atom;
+use crate::param::slako_transformations::{
+    directional_cosines, slako_transformation_gradients_fast, SplineCache,
+};
 use crate::scc::gamma_approximation::{gamma_gradients_ao_wise, gamma_gradients_atomwise};
 use crate::scc::h0_and_s::h0_and_s_gradients;
 use std::ops::AddAssign;
@@ -40,7 +45,6 @@ impl GroundStateGradient for Monomer<'_> {
             gamma_gradients_atomwise(&self.gammafunction, atoms, self.n_atoms)
                 .into_shape([3 * self.n_atoms, self.n_atoms * self.n_atoms])
                 .unwrap();
-        // write_npy("grad_gamma_mol.npy", &grad_gamma);
 
         // take references/views to the necessary properties from the scc calculation
         let gamma: ArrayView2<f64> = self.properties.gamma().unwrap();
@@ -132,40 +136,8 @@ impl GroundStateGradient for Monomer<'_> {
                         .into_shape((3 * self.n_atoms, self.n_orbs * self.n_orbs))
                         .unwrap()
                         .dot(&diff_p.into_shape(self.n_orbs * self.n_orbs).unwrap());
-
-            // if calc_response {
-            //     self.properties.set_grad_s(grad_s);
-            // }
         }
         self.properties.set_grad_dq(grad_dq);
-        // else if calc_response {
-        //     self.properties.set_grad_s(
-        //         grad_s
-        //             .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
-        //             .unwrap(),
-        //     );
-        // }
-        //
-        // if calc_response {
-        //     let (_g1, g1_ao): (Array3<f64>, Array3<f64>) =
-        //         gamma_gradients_ao_wise(&self.gammafunction, atoms, self.n_atoms, self.n_orbs);
-        //     self.properties.set_grad_gamma_ao(g1_ao);
-        //     self.properties.set_grad_h0(
-        //         grad_h0
-        //             .into_shape([3 * self.n_atoms, self.n_orbs, self.n_orbs])
-        //             .unwrap(),
-        //     );
-        //
-        //     if self.gammafunction_lc.is_some() {
-        //         let (_g1_lr, g1_lr_ao): (Array3<f64>, Array3<f64>) = gamma_gradients_ao_wise(
-        //             self.gammafunction_lc.as_ref().unwrap(),
-        //             atoms,
-        //             self.n_atoms,
-        //             self.n_orbs,
-        //         );
-        //         self.properties.set_grad_gamma_lr_ao(g1_lr_ao);
-        //     }
-        // }
 
         gradient
     }
@@ -231,4 +203,137 @@ impl GroundStateGradient for Monomer<'_> {
         // Shape of returned Array: [f, n_atoms], f = 3 * n_atoms
         grad_dq
     }
+}
+
+/// Compute the derivative of the partial charges on-the-fly, without storing the full grad_s array.
+/// Computes the overlap derivatives on-the-fly using
+/// `slako_transformation_gradients_fast` with `SplineCache`.
+///
+/// This is a standalone function that can be used by both Monomer and Pair structs.
+///
+/// # Arguments
+/// * `atoms` - Slice of atoms in the system
+/// * `n_atoms` - Number of atoms
+/// * `s` - Overlap matrix S
+/// * `p` - Density matrix P
+/// * `slako` - Slater-Koster parameters for overlap matrix derivatives
+///
+/// # Returns
+/// Array2<f64> with shape [3 * n_atoms, n_atoms] containing the derivative of partial charges
+///
+/// # Memory reduction
+/// For 100 atoms with 400 orbitals, this reduces memory from ~3.8 GB
+/// (full grad_s array) to ~1.3 MB (just the PS matrix).
+pub fn get_grad_dq_onthefly(
+    atoms: &[Atom],
+    n_atoms: usize,
+    s: ArrayView2<f64>,
+    p: ArrayView2<f64>,
+    slako: &SlaterKoster,
+) -> Array2<f64> {
+    let n_grad = 3 * n_atoms;
+    let mut grad_dq = Array2::zeros([n_grad, n_atoms]);
+
+    // Pre-compute PS = P @ S (for term 2)
+    let ps: Array2<f64> = p.dot(&s);
+
+    // Pre-compute orbital offsets for each atom (same pattern as ground_state_gradient_onthefly)
+    let mut orbital_offsets: Vec<usize> = Vec::with_capacity(n_atoms + 1);
+    orbital_offsets.push(0);
+    for atom in atoms {
+        orbital_offsets.push(orbital_offsets.last().unwrap() + atom.n_orbs);
+    }
+
+    // Iterate over atom pairs (i < j)
+    for i in 0..n_atoms {
+        let atomi = &atoms[i];
+        let mu_start = orbital_offsets[i];
+
+        for j in (i + 1)..n_atoms {
+            let atomj = &atoms[j];
+            let nu_start = orbital_offsets[j];
+
+            // Check distance cutoff
+            if (atomi - atomj).norm() >= PROXIMITY_CUTOFF {
+                continue;
+            }
+
+            // Directional cosines from smaller atom TYPE to larger (for consistent SK tables)
+            // atomi <= atomj compares atom TYPES (atomic numbers), not indices
+            let (r, x, y, z): (f64, f64, f64, f64) = if atomi <= atomj {
+                directional_cosines(&atomi.xyz, &atomj.xyz)
+            } else {
+                directional_cosines(&atomj.xyz, &atomi.xyz)
+            };
+
+            // Pre-compute spline cache for this atom pair (once per pair, not per orbital)
+            let skt = slako.get(atomi.kind, atomj.kind);
+            let s_cache = SplineCache::new(r, &skt.s_spline);
+
+            // Iterate over orbital pairs
+            let mut mu = mu_start;
+            for orbi in atomi.valorbs.iter() {
+                let mut nu = nu_start;
+                for orbj in atomj.valorbs.iter() {
+                    // Compute gradient with proper orbital and sign handling
+                    // based on atom type ordering (not index ordering)
+                    let (s_deriv_i, s_deriv_j): ([f64; 3], [f64; 3]) = if atomi <= atomj {
+                        // atomi is smaller type: r points from i to j
+                        // dS/dr_i = -dS/dr, dS/dr_j = +dS/dr
+                        let s_grad = slako_transformation_gradients_fast(
+                            r, x, y, z, &s_cache, orbi.l, orbi.m, orbj.l, orbj.m,
+                        );
+                        ([-s_grad[0], -s_grad[1], -s_grad[2]], s_grad)
+                    } else {
+                        // atomj is smaller type: r points from j to i
+                        // dS/dr_i = +dS/dr, dS/dr_j = -dS/dr
+                        let s_grad = slako_transformation_gradients_fast(
+                            r, x, y, z, &s_cache, orbj.l, orbj.m, orbi.l, orbi.m,
+                        );
+                        (s_grad, [-s_grad[0], -s_grad[1], -s_grad[2]])
+                    };
+
+                    for dir in 0..3 {
+                        let ds_i = s_deriv_i[dir];
+                        let ds_j = s_deriv_j[dir];
+                        let a_i = 3 * i + dir;
+                        let a_j = 3 * j + dir;
+
+                        // Term 1: (dS @ P)[mu, mu] - diagonal contribution
+                        // dS[a, mu, nu] * P[nu, mu] contributes to atom owning mu
+                        // dS[a, nu, mu] * P[mu, nu] contributes to atom owning nu (by symmetry of dS)
+                        grad_dq[[a_i, i]] += ds_i * p[[nu, mu]];
+                        grad_dq[[a_j, i]] += ds_j * p[[nu, mu]];
+                        grad_dq[[a_i, j]] += ds_i * p[[mu, nu]]; // symmetric
+                        grad_dq[[a_j, j]] += ds_j * p[[mu, nu]]; // symmetric
+
+                        // Term 2: -0.5 * (P @ dS @ PS^T)[alpha, alpha] summed over alpha's orbitals
+                        // Contribution from dS[a, mu, nu]: -0.5 * sum_alpha P[alpha, mu] * dS * PS[alpha, nu]
+                        // Contribution from dS[a, nu, mu]: -0.5 * sum_alpha P[alpha, nu] * dS * PS[alpha, mu]
+                        let factor_i = -0.5 * ds_i;
+                        let factor_j = -0.5 * ds_j;
+
+                        // For each atom alpha, sum over its orbitals
+                        let mut orb_offset = 0;
+                        for (alpha, atom_alpha) in atoms.iter().enumerate() {
+                            let mut contrib = 0.0;
+                            for orb_idx in 0..atom_alpha.n_orbs {
+                                let a_orb = orb_offset + orb_idx;
+                                // From (mu, nu) pair: P[a_orb, mu] * PS[nu, a_orb]
+                                contrib += p[[a_orb, mu]] * ps[[nu, a_orb]];
+                                // From (nu, mu) pair by symmetry: P[a_orb, nu] * PS[mu, a_orb]
+                                contrib += p[[a_orb, nu]] * ps[[mu, a_orb]];
+                            }
+                            grad_dq[[a_i, alpha]] += factor_i * contrib;
+                            grad_dq[[a_j, alpha]] += factor_j * contrib;
+                            orb_offset += atom_alpha.n_orbs;
+                        }
+                    }
+                    nu += 1;
+                }
+                mu += 1;
+            }
+        }
+    }
+    grad_dq
 }
