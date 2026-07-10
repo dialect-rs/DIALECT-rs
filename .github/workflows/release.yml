@@ -1,0 +1,114 @@
+name: Release
+
+# Build the program in release mode whenever a version tag (e.g. v1.1.0 or
+# 1.1.0) is pushed, then publish a GitHub release for that tag with the
+# compiled binaries (Linux x86_64 + macOS arm64) and their SHA-256 checksums
+# attached.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+      - "[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  # Required to create the release and upload the binaries.
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    env:
+      DIALECT_SRC_DIR: ${{ github.workspace }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        # gfortran + cmake are needed to build the statically linked OpenBLAS
+        # backend; libssl-dev / pkg-config for the transitive dependencies.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake pkg-config libssl-dev
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        # gfortran (from the gcc formula) is needed to build the statically
+        # linked OpenBLAS backend; cmake ships with the runner image.
+        # OpenBLAS must be compiled entirely with GCC: mixing Apple clang
+        # (the default cc) with gfortran breaks the link of its Fortran test
+        # programs. Homebrew installs versioned binaries only (gcc-15, ...),
+        # so resolve the major version and export CC/FC for the build.
+        run: |
+          brew install gcc
+          GCC_MAJOR=$(brew list --versions gcc | awk '{print $2}' | cut -d. -f1)
+          echo "CC=gcc-${GCC_MAJOR}" >> "$GITHUB_ENV"
+          echo "FC=gfortran-${GCC_MAJOR}" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Reuse the release-profile cache slot from the CI workflow.
+          key: release
+
+      - name: Build (release)
+        # Cargo.lock is not tracked, so cargo resolves the dependency
+        # versions fresh at build time.
+        run: cargo build --release --verbose
+
+      - name: Package binary
+        # The release profile keeps debug symbols (debug = true in
+        # Cargo.toml), so strip a copy for distribution and tar it up with
+        # the tag name and target triple in the filename, plus a SHA-256
+        # checksum file. shasum is available on both Linux and macOS runners.
+        run: |
+          BIN=target/release/dialect
+          NAME=dialect-${{ github.ref_name }}-${{ matrix.target }}
+          mkdir -p dist
+          cp "$BIN" "dist/dialect"
+          strip "dist/dialect"
+          tar -czf "$NAME.tar.gz" -C dist dialect
+          shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dialect-${{ matrix.target }}
+          path: |
+            dialect-*.tar.gz
+            dialect-*.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # gh needs a repository context to create the release.
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            assets/*.tar.gz assets/*.sha256
